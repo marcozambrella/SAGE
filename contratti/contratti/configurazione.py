@@ -1,6 +1,7 @@
 """Configurazione di SAGE.
 
-- Personalizzazione: quello che la famiglia imposta nella web app (D21) e che il backend salva.
+- Personalizzazione: quello che la famiglia imposta nella web app (D21), salvato solo nel suo browser (D29).
+  Il backend riceve dal programma di casa solo quella della casa demo.
 - ConfigurazioneCasa: il file locale del programma di casa, con le sorgenti e le zone delle telecamere.
   Gli indirizzi delle telecamere non passano mai dalla web app né dal server (D21).
 """
