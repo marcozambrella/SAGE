@@ -1,4 +1,4 @@
-"""Test del programma di casa: file di configurazione, fasce orarie, sorgenti video con limite di fotogrammi al secondo."""
+"""Test del programma di casa: file di configurazione, fasce orarie, sorgenti video con limite di fotogrammi."""
 
 import datetime
 from pathlib import Path
@@ -16,10 +16,10 @@ ESEMPIO = Path(__file__).resolve().parents[1] / "casa" / "configurazione.esempio
 
 
 def scrivi_video(percorso: Path, numero_fotogrammi: int, fps: float) -> None:
-    """Video sintetico 64×48: il fotogramma i ha tutti i pixel uguali a i×5 (per riconoscerlo)."""
+    """Video sintetico 64×48: il fotogramma i ha tutti i pixel uguali a i×5 modulo 256 (per riconoscerlo)."""
     scrittore = cv2.VideoWriter(str(percorso), cv2.VideoWriter_fourcc(*"mp4v"), fps, (64, 48))
     for indice in range(numero_fotogrammi):
-        immagine = np.full((48, 64, 3), indice * 5, np.uint8)
+        immagine = np.full((48, 64, 3), (indice * 5) % 256, np.uint8)
         scrittore.write(immagine)
     scrittore.release()
 
