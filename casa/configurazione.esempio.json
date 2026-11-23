@@ -1,0 +1,57 @@
+{
+  "telecamere": [
+    {
+      "id": "camera-letto",
+      "nome": "Bedroom",
+      "stanza": "bedroom",
+      "sorgente": "data/video/camera_letto.mp4",
+      "analizzatori": ["alzata_notturna", "caduta"],
+      "zone": [
+        {"id": "letto", "tipo": "letto", "punti": [[0.30, 0.40], [0.85, 0.40], [0.85, 0.95], [0.30, 0.95]]}
+      ]
+    },
+    {
+      "id": "ingresso",
+      "nome": "Front door",
+      "stanza": "hall",
+      "sorgente": "data/video/ingresso.mp4",
+      "analizzatori": ["uscita", "caduta"],
+      "zone": [
+        {"id": "porta-ingresso", "tipo": "porta", "punti": [[0.40, 0.20], [0.65, 0.20], [0.65, 1.00], [0.40, 1.00]]}
+      ]
+    },
+    {
+      "id": "cucina",
+      "nome": "Kitchen",
+      "stanza": "kitchen",
+      "sorgente": "data/video/cucina.mp4",
+      "analizzatori": ["bevuta", "farmaco", "pasto", "caduta"],
+      "zone": [
+        {"id": "tavolo", "tipo": "tavolo", "punti": [[0.20, 0.55], [0.80, 0.55], [0.80, 0.90], [0.20, 0.90]]},
+        {"id": "portapillole", "tipo": "portapillole", "punti": [[0.70, 0.50], [0.80, 0.50], [0.80, 0.60], [0.70, 0.60]]}
+      ]
+    }
+  ],
+  "personalizzazione": {
+    "anziano": {"nome": "Anna", "anno_nascita": 1941, "obiettivo_acqua_ml": 1500},
+    "farmaci": [
+      {"id": "donepezil", "nome": "Donepezil", "dose": "1 tablet", "orari": ["08:00", "20:00"], "foto_ids": ["donepezil-scatola"]}
+    ],
+    "contenitori": [
+      {"id": "bottiglia", "nome": "Water bottle", "tipo": "bottiglia", "capienza_ml": 1500},
+      {"id": "bicchiere", "nome": "Glass", "tipo": "bicchiere", "capienza_ml": 250},
+      {"id": "tazza", "nome": "Mug", "tipo": "tazza", "capienza_ml": 300}
+    ],
+    "telecamere": [
+      {"id": "camera-letto", "nome": "Bedroom", "stanza": "bedroom"},
+      {"id": "ingresso", "nome": "Front door", "stanza": "hall"},
+      {"id": "cucina", "nome": "Kitchen", "stanza": "kitchen"}
+    ],
+    "regole": {
+      "orari_uscita_vietati": [{"dalle": "21:00", "alle": "07:00"}],
+      "orari_notte": {"dalle": "22:00", "alle": "07:00"}
+    },
+    "fuso_orario": "Europe/Rome"
+  },
+  "cartella_foto_farmaci": "data/foto_farmaci"
+}
