@@ -119,6 +119,9 @@ function OggiCasaDemo() {
     }
   }
 
+  // In ordine di ora, come sono successe.
+  attenzioni.sort(confrontaOra);
+
   return (
     <div className="pila-larga entrata">
       <TitoloPagina
@@ -223,4 +226,15 @@ function OggiCasaDemo() {
       </div>
     </div>
   );
+}
+
+// Le ore "HH:MM" si confrontano bene anche come testo.
+function confrontaOra(a: { ora: string }, b: { ora: string }): number {
+  if (a.ora < b.ora) {
+    return -1;
+  }
+  if (a.ora > b.ora) {
+    return 1;
+  }
+  return 0;
 }
