@@ -1,0 +1,274 @@
+/* Struttura delle pagine: testata, menu (barra in basso sul telefono, colonna a sinistra su desktop), contenuto. */
+
+.struttura {
+  min-height: 100vh;
+  /* Spazio per la barra del menu in basso sul telefono */
+  padding-bottom: 120px;
+}
+
+.struttura-centro {
+  min-width: 0;
+}
+
+.testata {
+  display: flex;
+  align-items: center;
+  gap: var(--spazio-3);
+  max-width: var(--larghezza-contenuto);
+  margin: 0 auto;
+  padding: var(--spazio-4) var(--spazio-4) var(--spazio-3);
+}
+
+.testata-casa {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin-left: auto;
+  text-align: right;
+}
+
+.testata-casa strong {
+  font-family: var(--carattere-titoli);
+  font-weight: 600;
+  font-size: 18px;
+}
+
+.contenuto {
+  max-width: var(--larghezza-contenuto);
+  margin: 0 auto;
+  padding: var(--spazio-2) var(--spazio-4) var(--spazio-6);
+}
+
+/* Titolo della pagina con sottotitolo */
+.titolo-pagina {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spazio-1);
+  padding: var(--spazio-2) var(--spazio-1) 0;
+}
+
+/* ---------- Logo: pallina gonfia con un cuore caldo ---------- */
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--testo);
+  text-decoration: none;
+}
+
+.logo-pallina {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  color: var(--accento);
+  background: radial-gradient(circle at 32% 28%, var(--bianco) 35%, var(--latte-scuro) 100%);
+  box-shadow: var(--ombra-gonfia-piccola);
+}
+
+.logo-nome {
+  font-family: var(--carattere-titoli);
+  font-weight: 700;
+  font-size: 26px;
+  letter-spacing: 0.04em;
+}
+
+/* ---------- Striscia della casa demo ---------- */
+.striscia-demo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spazio-3);
+  max-width: calc(var(--larghezza-contenuto) - 2 * var(--spazio-4));
+  margin: 0 auto var(--spazio-4);
+  padding: var(--spazio-3) var(--spazio-4);
+  border-radius: var(--raggio-medio);
+  background: linear-gradient(150deg, #fdf0e9, var(--accento-tenue));
+  box-shadow: var(--ombra-gonfia-piccola);
+}
+
+.striscia-demo p {
+  flex: 1 1 220px;
+  font-size: 15px;
+}
+
+@media (max-width: 1079px) {
+  .striscia-demo {
+    margin-left: var(--spazio-4);
+    margin-right: var(--spazio-4);
+  }
+}
+
+/* ---------- Barra del menu in basso (telefono) ---------- */
+.barra-basso {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  z-index: 10;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+  padding: 8px;
+  border-radius: 32px;
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.96), rgba(246, 242, 236, 0.96));
+  box-shadow:
+    0 14px 34px rgba(var(--ombra), 0.28),
+    inset 3px 4px 8px rgba(255, 255, 255, 0.9),
+    inset -4px -5px 10px rgba(var(--ombra), 0.08);
+  backdrop-filter: blur(8px);
+}
+
+.voce-barra {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 60px;
+  border: none;
+  border-radius: 24px;
+  background: transparent;
+  color: var(--testo-secondario);
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.voce-barra.active,
+.voce-barra[aria-expanded="true"] {
+  color: var(--accento-testo);
+  background: linear-gradient(150deg, var(--bianco), var(--accento-tenue));
+  box-shadow: var(--ombra-gonfia-piccola);
+}
+
+/* ---------- Foglio "More" che sale dal basso (telefono) ---------- */
+.foglio-sfondo {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(60, 45, 35, 0.28);
+  animation: dissolvenza 0.2s ease both;
+}
+
+.foglio {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 21;
+  padding: var(--spazio-5) var(--spazio-4) calc(var(--spazio-5) + env(safe-area-inset-bottom));
+  border-radius: 36px 36px 0 0;
+  background: var(--latte-chiaro);
+  box-shadow: 0 -12px 40px rgba(var(--ombra), 0.25);
+  animation: sali 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.1) both;
+}
+
+@keyframes sali {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes dissolvenza {
+  from {
+    opacity: 0;
+  }
+}
+
+.foglio-voci {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--spazio-3);
+  margin-top: var(--spazio-4);
+}
+
+/* ---------- Menu a colonna (desktop) ---------- */
+.menu-laterale {
+  display: none;
+}
+
+.voce-menu {
+  display: flex;
+  align-items: center;
+  gap: var(--spazio-3);
+  min-height: var(--altezza-tocco);
+  padding: 0 var(--spazio-4);
+  border-radius: var(--raggio-pillola);
+  color: var(--testo-secondario);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.voce-menu:hover {
+  color: var(--testo);
+}
+
+.voce-menu.active {
+  color: var(--accento-testo);
+  background: linear-gradient(150deg, var(--bianco), var(--accento-tenue));
+  box-shadow: var(--ombra-gonfia-piccola);
+}
+
+@media (min-width: 980px) {
+  .struttura {
+    display: grid;
+    grid-template-columns: 270px minmax(0, 1fr);
+    padding-bottom: 0;
+  }
+
+  .menu-laterale {
+    position: sticky;
+    top: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spazio-2);
+    height: 100vh;
+    padding: var(--spazio-5) var(--spazio-4);
+    overflow-y: auto;
+  }
+
+  .menu-laterale .logo {
+    margin: 0 var(--spazio-2) var(--spazio-5);
+  }
+
+  .barra-basso,
+  .testata .logo {
+    display: none;
+  }
+
+  .testata {
+    padding-top: var(--spazio-5);
+  }
+}
+
+/* ---------- Pagine fuori dalla struttura: apertura, personalizzazione, coming soon ---------- */
+.pagina-sola {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: var(--spazio-5) var(--spazio-4) 140px;
+}
+
+/* Barra con i pulsanti Back / Next, ferma in basso */
+.barra-azioni {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  padding: var(--spazio-4) var(--spazio-4) calc(var(--spazio-4) + env(safe-area-inset-bottom));
+  background: linear-gradient(180deg, rgba(244, 240, 234, 0), var(--latte) 35%);
+}
+
+.barra-azioni-interno {
+  display: flex;
+  gap: var(--spazio-3);
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.barra-azioni-interno > .pulsante-principale {
+  flex: 1;
+}

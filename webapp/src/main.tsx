@@ -4,6 +4,8 @@ import { BrowserRouter } from "react-router";
 import "./stile/variabili.css";
 import "./stile/base.css";
 import "./stile/componenti.css";
+import "./stile/struttura.css";
+import "./stile/pagine.css";
 import App from "./App.tsx";
 
 const radice = document.getElementById("root");

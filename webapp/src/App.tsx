@@ -1,47 +1,86 @@
-// Prova temporanea del design system: le pagine vere arrivano nel prossimo passo.
-import { useState } from "react";
-import Scheda from "./componenti/Scheda";
-import Pulsante from "./componenti/Pulsante";
-import Campo from "./componenti/Campo";
-import Interruttore from "./componenti/Interruttore";
-import Icona from "./componenti/Icona";
+// Pagine della web app e flusso (D28): apertura → personalizzazione → "Coming soon" → dashboard.
+// Ogni pagina dati esiste due volte: nella casa dell'utente ("/today", vuota finché non ci sono telecamere)
+// e nella casa demo ("/demo/today", dati del backend, D22).
+import { useState, type ReactNode } from "react";
+import { Navigate, Route, Routes } from "react-router";
+import type { Personalizzazione } from "./contratti";
+import Struttura from "./componenti/Struttura";
+import Benvenuto from "./pagine/Benvenuto";
+import Personalizza from "./pagine/Personalizza";
+import ProssimeFunzioni from "./pagine/ProssimeFunzioni";
+import Oggi from "./pagine/Oggi";
+import Storico from "./pagine/Storico";
+import Andamenti from "./pagine/Andamenti";
+import Report from "./pagine/Report";
+import Farmaci from "./pagine/Farmaci";
+import Contenitori from "./pagine/Contenitori";
+import Telecamere from "./pagine/Telecamere";
+import Allarmi from "./pagine/Allarmi";
+import Impostazioni from "./pagine/Impostazioni";
+import { cancellaPersonalizzazione, leggiPersonalizzazione, salvaPersonalizzazione } from "./salvataggio";
 
 export default function App() {
-  const [nome, setNome] = useState("Rosa");
-  const [acceso, setAcceso] = useState(true);
+  // La personalizzazione della famiglia, letta dal browser all'avvio (null se non è ancora stata fatta).
+  const [personalizzazione, setPersonalizzazione] = useState<Personalizzazione | null>(leggiPersonalizzazione());
+
+  function salva(nuova: Personalizzazione) {
+    salvaPersonalizzazione(nuova);
+    setPersonalizzazione(nuova);
+  }
+
+  function cancella() {
+    cancellaPersonalizzazione();
+    setPersonalizzazione(null);
+  }
+
+  // Senza personalizzazione le pagine della casa dell'utente non esistono: si torna all'apertura (ultima Route).
+  let casaUtente: ReactNode = null;
+  if (personalizzazione !== null) {
+    const p = personalizzazione;
+    casaUtente = (
+      <Route element={<Struttura demo={false} nomeAnziano={p.anziano.nome} />}>
+        <Route path="/today" element={<Oggi demo={false} personalizzazione={p} />} />
+        <Route path="/history" element={<Storico demo={false} personalizzazione={p} />} />
+        <Route path="/trends" element={<Andamenti demo={false} personalizzazione={p} />} />
+        <Route path="/reports" element={<Report demo={false} personalizzazione={p} />} />
+        <Route path="/medications" element={<Farmaci demo={false} personalizzazione={p} />} />
+        <Route path="/containers" element={<Contenitori demo={false} personalizzazione={p} />} />
+        <Route path="/cameras" element={<Telecamere demo={false} personalizzazione={p} />} />
+        <Route path="/alerts" element={<Allarmi demo={false} personalizzazione={p} onSalva={salva} />} />
+        <Route path="/settings" element={<Impostazioni demo={false} personalizzazione={p} onSalva={salva} onCancella={cancella} />} />
+      </Route>
+    );
+  }
+
+  // Se la famiglia ha già fatto la personalizzazione, l'apertura porta dritto alla dashboard.
+  let apertura = <Benvenuto />;
+  if (personalizzazione !== null) {
+    apertura = <Navigate to="/today" replace />;
+  }
+
   return (
-    <main className="pila-larga entrata" style={{ padding: 16, maxWidth: 720, margin: "0 auto" }}>
-      <h1>Design system</h1>
-      <Scheda titolo="Hydration" icona="goccia">
-        <div className="pila">
-          <p className="numero-grande">1,150 ml</p>
-          <div className="misuratore"><div className="misuratore-pieno" style={{ width: "76%" }} /></div>
-          <p className="testo-secondario">of 1,500 ml goal · 6 drinks</p>
-        </div>
-      </Scheda>
-      <Scheda titolo="Buttons" icona="scintilla">
-        <div className="riga">
-          <Pulsante>Open demo home</Pulsante>
-          <Pulsante variante="secondario">Back</Pulsante>
-          <Pulsante variante="pericolo"><Icona nome="cestino" /> Remove</Pulsante>
-          <Pulsante disattivato>Connect</Pulsante>
-        </div>
-      </Scheda>
-      <Scheda titolo="Fields" icona="cursori">
-        <div className="pila">
-          <Campo etichetta="Name" valore={nome} onCambia={setNome} />
-          <Campo etichetta="Daily water goal" valore="1500" onCambia={() => {}} tipo="number" unita="ml" aiuto="Most adults need 1.5 to 2 litres a day." />
-          <Interruttore etichetta="Exit alarm" descrizione="Alert me if the front door opens at night" acceso={acceso} onCambia={setAcceso} />
-          <div className="riga">
-            <span className="stato stato-buono"><Icona nome="spunta" dimensione={18} /> On time</span>
-            <span className="stato stato-attenzione"><Icona nome="orologio" dimensione={18} /> 52 min late</span>
-            <span className="stato stato-critico"><Icona nome="chiudi" dimensione={18} /> Missed</span>
-            <span className="stato stato-neutro"><Icona nome="pausa" dimensione={18} /> Pending</span>
-            <span className="simulato">Simulated</span>
-          </div>
-          <div className="segmenti"><button className="segmento" aria-pressed="true">Daily</button><button className="segmento" aria-pressed="false">Weekly</button><button className="segmento" aria-pressed="false">Monthly</button></div>
-        </div>
-      </Scheda>
-    </main>
+    <Routes>
+      <Route path="/" element={apertura} />
+      <Route path="/setup" element={<Personalizza onSalva={salva} />} />
+      <Route path="/coming-soon" element={<ProssimeFunzioni />} />
+
+      {/* Casa demo: sempre visibile, anche senza personalizzazione */}
+      <Route path="/demo" element={<Struttura demo={true} nomeAnziano="" />}>
+        <Route index element={<Navigate to="/demo/today" replace />} />
+        <Route path="today" element={<Oggi demo={true} personalizzazione={null} />} />
+        <Route path="history" element={<Storico demo={true} personalizzazione={null} />} />
+        <Route path="trends" element={<Andamenti demo={true} personalizzazione={null} />} />
+        <Route path="reports" element={<Report demo={true} personalizzazione={null} />} />
+        <Route path="medications" element={<Farmaci demo={true} personalizzazione={null} />} />
+        <Route path="containers" element={<Contenitori demo={true} personalizzazione={null} />} />
+        <Route path="cameras" element={<Telecamere demo={true} personalizzazione={null} />} />
+        <Route path="alerts" element={<Allarmi demo={true} personalizzazione={null} onSalva={salva} />} />
+        <Route path="settings" element={<Impostazioni demo={true} personalizzazione={null} onSalva={salva} onCancella={cancella} />} />
+      </Route>
+
+      {casaUtente}
+
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }

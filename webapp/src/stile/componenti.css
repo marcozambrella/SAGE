@@ -33,12 +33,12 @@
   box-shadow: var(--ombra-gonfia-piccola);
 }
 
-/* Riga dentro una scheda (farmaco, contenitore, evento...) */
+/* Cuscino più piccolo dentro una scheda (un farmaco, un contenitore, una fascia oraria...) */
 .riquadro {
   padding: var(--spazio-4);
   border-radius: var(--raggio-medio);
-  background: var(--latte);
-  box-shadow: var(--ombra-incavata);
+  background: linear-gradient(150deg, #fffefc, #f6f2ec);
+  box-shadow: var(--ombra-gonfia-piccola);
 }
 
 /* ---------- Pulsante ---------- */
@@ -357,6 +357,12 @@
   border-radius: var(--raggio-medio);
   background: var(--latte);
   box-shadow: var(--ombra-incavata);
+}
+
+/* Il numero di una tessera resta su una riga anche sul telefono stretto */
+.tessera .numero-medio {
+  font-size: clamp(24px, 7vw, 32px);
+  white-space: nowrap;
 }
 
 .tessere {

@@ -14,6 +14,13 @@ export function oraDellaCasa(iso: string, fusoOrario: string): string {
   return formato.format(new Date(iso));
 }
 
+// "AAAA-MM-GG" del giorno in cui è successo l'evento, nel fuso orario della casa.
+export function giornoDellaCasa(iso: string, fusoOrario: string): string {
+  // Il formato canadese scrive le date proprio come "AAAA-MM-GG".
+  const formato = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: fusoOrario });
+  return formato.format(new Date(iso));
+}
+
 // I giorni "AAAA-MM-GG" si leggono a mezzogiorno UTC: così nessun fuso orario li sposta al giorno prima o dopo.
 function giornoComeData(giorno: string): Date {
   return new Date(giorno + "T12:00:00Z");
@@ -28,6 +35,12 @@ export function giornoLungo(giorno: string): string {
 // "Mon 14"
 export function giornoBreve(giorno: string): string {
   const formato = new Intl.DateTimeFormat(LINGUA, { weekday: "short", day: "numeric", timeZone: "UTC" });
+  return formato.format(giornoComeData(giorno));
+}
+
+// "Mon"
+export function giornoSettimana(giorno: string): string {
+  const formato = new Intl.DateTimeFormat(LINGUA, { weekday: "short", timeZone: "UTC" });
   return formato.format(giornoComeData(giorno));
 }
 

@@ -70,6 +70,11 @@ img {
   display: block;
 }
 
+/* Le icone non si schiacciano mai dentro le righe flessibili */
+svg {
+  flex: none;
+}
+
 /* Il bordo di focus si vede bene da tastiera ma non al tocco */
 :focus-visible {
   outline: 3px solid var(--accento);
