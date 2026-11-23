@@ -19,11 +19,17 @@ ROMA = ZoneInfo("Europe/Rome")
 TOKEN = "token-di-prova"
 
 
+# un evento con questa stanza il backend finto lo rifiuta (come il backend vero rifiuta un evento fuori contratto)
+STANZA_RIFIUTATA = "stanza-che-il-backend-rifiuta"
+
+
 class BackendFinto(BaseHTTPRequestHandler):
-    """Registra le richieste e risponde come il backend vero (API.md); con `guasto` risponde 503."""
+    """Registra le richieste e risponde come il backend vero (API.md). Con `codice_errore` risponde sempre con
+    quel codice; se nella lista c'è un evento con STANZA_RIFIUTATA rifiuta tutta la richiesta con 422, come FastAPI
+    quando un elemento della lista non va bene."""
 
     richieste = []
-    guasto = False
+    codice_errore = None
 
     def rispondi(self) -> None:
         lunghezza = int(self.headers["Content-Length"])
@@ -34,15 +40,19 @@ class BackendFinto(BaseHTTPRequestHandler):
             "autorizzazione": self.headers["Authorization"],
             "corpo": corpo,
         })
-        if BackendFinto.guasto:
-            self.send_response(503)
-            self.end_headers()
-            return
+        codice = 200
         risposta = corpo
         if self.command == "POST":
             risposta = {"ricevuti": len(corpo), "nuovi": len(corpo)}
+            for evento in corpo:
+                if evento["stanza"] == STANZA_RIFIUTATA:
+                    codice = 422
+                    risposta = {"detail": "stanza non valida"}
+        if BackendFinto.codice_errore is not None:
+            codice = BackendFinto.codice_errore
+            risposta = {"detail": "errore di prova"}
         testo = json.dumps(risposta).encode("utf-8")
-        self.send_response(200)
+        self.send_response(codice)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(testo)))
         self.end_headers()
@@ -61,7 +71,7 @@ class BackendFinto(BaseHTTPRequestHandler):
 @pytest.fixture
 def indirizzo_backend():
     BackendFinto.richieste = []
-    BackendFinto.guasto = False
+    BackendFinto.codice_errore = None
     server = ThreadingHTTPServer(("127.0.0.1", 0), BackendFinto)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -70,7 +80,7 @@ def indirizzo_backend():
     server.server_close()
 
 
-def evento(tipo: str, minuti: int):
+def evento(tipo: str, minuti: int, stanza: str = "hall"):
     valori = {"zona_id": "porta-ingresso"}
     if tipo == "alzata_notturna":
         valori = {"stanze": ["bedroom"]}
@@ -78,7 +88,7 @@ def evento(tipo: str, minuti: int):
         "id": str(uuid.uuid4()),
         "tipo": tipo,
         "inizio": datetime.datetime(2026, 12, 1, 10, 0, tzinfo=ROMA) + datetime.timedelta(minutes=minuti),
-        "stanza": "hall",
+        "stanza": stanza,
         "confidenza": 0.8,
         "fonti": [{"telecamera_id": "ingresso", "analizzatore": tipo, "confidenza": 0.8}],
         "valori": valori,
@@ -140,12 +150,52 @@ def test_backend_guasto_poi_rimandati(tmp_path, indirizzo_backend):
     backend = Backend(indirizzo_backend, TOKEN)
     registro = RegistroLocale(str(tmp_path / "registro.sqlite3"))
     registro.salva(evento("uscita", 0))
-    BackendFinto.guasto = True
+    # errore 5xx: si ritenta, l'evento resta in coda
+    BackendFinto.codice_errore = 503
     assert invia_in_sospeso(registro, backend, True) == 0
     assert len(registro.da_inviare(False)) == 1
-    BackendFinto.guasto = False
+    assert registro.rifiutati() == []
+    BackendFinto.codice_errore = None
     assert invia_in_sospeso(registro, backend, True) == 1
     assert registro.da_inviare(False) == []
+
+
+def test_lotto_rifiutato_si_scartano_solo_gli_eventi_sbagliati(tmp_path, indirizzo_backend):
+    backend = Backend(indirizzo_backend, TOKEN)
+    registro = RegistroLocale(str(tmp_path / "registro.sqlite3"))
+    buono = evento("alzata_notturna", 0)
+    sbagliato = evento("alzata_notturna", 1, STANZA_RIFIUTATA)
+    altro_buono = evento("uscita", 2)
+    registro.salva(buono)
+    registro.salva(sbagliato)
+    registro.salva(altro_buono)
+    assert invia_in_sospeso(registro, backend, False) == 2
+    # il lotto intero rifiutato con 422, poi un evento alla volta
+    dimensioni = []
+    for richiesta in BackendFinto.richieste:
+        dimensioni.append(len(richiesta["corpo"]))
+    assert dimensioni == [3, 1, 1, 1]
+    # fuori dalla coda, ma ricordato nel registro con il messaggio del backend
+    assert registro.da_inviare(False) == []
+    rifiutati = registro.rifiutati()
+    assert len(rifiutati) == 1
+    assert rifiutati[0].evento == sbagliato
+    assert rifiutati[0].errore.startswith("422 ")
+    assert "stanza non valida" in rifiutati[0].errore
+    # al giro dopo non si rimanda niente
+    assert invia_in_sospeso(registro, backend, False) == 0
+    assert len(BackendFinto.richieste) == 4
+
+
+def test_evento_singolo_rifiutato_senza_ritentare(tmp_path, indirizzo_backend):
+    backend = Backend(indirizzo_backend, TOKEN)
+    registro = RegistroLocale(str(tmp_path / "registro.sqlite3"))
+    registro.salva(evento("uscita", 0))
+    BackendFinto.codice_errore = 400
+    assert invia_in_sospeso(registro, backend, True) == 0
+    assert len(BackendFinto.richieste) == 1
+    assert registro.da_inviare(False) == []
+    assert registro.rifiutati()[0].errore.startswith("400 ")
 
 
 def test_backend_spento(tmp_path):

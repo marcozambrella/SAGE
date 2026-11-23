@@ -1,11 +1,15 @@
 """Invio al backend secondo contratti/API.md, con l'header `Authorization: Bearer <token casa>`:
 - PUT /programma-casa/personalizzazione: la Personalizzazione del file locale (senza sorgenti né zone, D21);
 - POST /programma-casa/eventi: lista di eventi → {ricevuti, nuovi}.
-Gli urgenti partono subito, gli altri a lotti ogni SECONDI_TRA_LOTTI. Se il backend non risponde gli eventi restano
-nel registro locale e si rimandano al giro dopo. Il token sta nel file .env, mai nel repo.
+Gli urgenti partono subito, gli altri a lotti ogni SECONDI_TRA_LOTTI. Se il backend non risponde (rete, tempo
+scaduto, errore 5xx) gli eventi restano nel registro locale e si rimandano al giro dopo. Se li rifiuta (errore 4xx)
+rimandarli uguali non serve: diventano "rifiutati" nel registro, con il messaggio, ed escono dalla coda.
+Il token sta nel file .env, mai nel repo.
 """
 
+from dataclasses import dataclass
 import json
+import urllib.error
 import urllib.request
 
 from pydantic import TypeAdapter
@@ -20,6 +24,15 @@ SECONDI_TRA_LOTTI = 60
 # con le foto di prova (decine di KB l'una) una richiesta resta di pochi MB
 EVENTI_PER_RICHIESTA = 50
 SECONDI_ATTESA_RISPOSTA = 15
+# il messaggio d'errore del backend si tiene nel registro, accorciato
+LUNGHEZZA_MASSIMA_ERRORE = 1000
+
+
+@dataclass
+class Risposta:
+    esito: str                      # "ok", "rifiutata" (errore 4xx) o "da_ritentare" (rete, tempo scaduto, 5xx)
+    dati: dict | list | None = None
+    errore: str = ""
 
 
 class Backend:
@@ -27,24 +40,33 @@ class Backend:
         self.indirizzo = indirizzo.rstrip("/")
         self.token = token
 
-    def richiesta(self, metodo: str, percorso: str, corpo: bytes) -> dict | list | None:
-        """La risposta JSON, o None se il backend non è raggiungibile o risponde con un errore."""
+    def richiesta(self, metodo: str, percorso: str, corpo: bytes) -> Risposta:
         intestazioni = {"Authorization": "Bearer " + self.token, "Content-Type": "application/json"}
         richiesta = urllib.request.Request(self.indirizzo + percorso, data=corpo, headers=intestazioni,
                                            method=metodo)
         try:
             with urllib.request.urlopen(richiesta, timeout=SECONDI_ATTESA_RISPOSTA) as risposta:
-                return json.loads(risposta.read())
+                return Risposta("ok", json.loads(risposta.read()))
+        except urllib.error.HTTPError as errore:
+            # il backend ha risposto con un errore: si tiene il codice e il suo messaggio
+            testo = errore.read().decode("utf-8", errors="replace")
+            messaggio = str(errore.code) + " " + testo
+            messaggio = messaggio[:LUNGHEZZA_MASSIMA_ERRORE]
+            print("backend: " + metodo + " " + percorso + " → " + messaggio)
+            if 400 <= errore.code < 500:
+                return Risposta("rifiutata", None, messaggio)
+            return Risposta("da_ritentare", None, messaggio)
         except (OSError, ValueError) as errore:
-            # OSError comprende rete assente, tempo scaduto e risposte HTTP di errore; ValueError il JSON rotto
+            # OSError: rete assente o tempo scaduto; ValueError: risposta che non è JSON
             print("backend: " + metodo + " " + percorso + " non riuscito: " + str(errore))
-            return None
+            return Risposta("da_ritentare", None, str(errore))
 
     def invia_personalizzazione(self, personalizzazione: Personalizzazione) -> bool:
         corpo = personalizzazione.model_dump_json().encode("utf-8")
-        return self.richiesta("PUT", "/programma-casa/personalizzazione", corpo) is not None
+        risposta = self.richiesta("PUT", "/programma-casa/personalizzazione", corpo)
+        return risposta.esito == "ok"
 
-    def invia_eventi(self, eventi: list) -> dict | None:
+    def invia_eventi(self, eventi: list) -> Risposta:
         corpo = LETTORE_LISTA_EVENTI.dump_json(eventi)
         return self.richiesta("POST", "/programma-casa/eventi", corpo)
 
@@ -55,8 +77,29 @@ def invia_in_sospeso(registro: RegistroLocale, backend: Backend, solo_urgenti: b
     inviati = 0
     for primo in range(0, len(eventi), EVENTI_PER_RICHIESTA):
         lotto = eventi[primo:primo + EVENTI_PER_RICHIESTA]
-        if backend.invia_eventi(lotto) is None:
+        risposta = backend.invia_eventi(lotto)
+        if risposta.esito == "da_ritentare":
             break  # backend non raggiungibile: il resto aspetta il prossimo giro
-        registro.segna_inviati(lotto)
-        inviati = inviati + len(lotto)
+        if risposta.esito == "ok":
+            registro.segna_inviati(lotto)
+            inviati = inviati + len(lotto)
+            continue
+        # lotto rifiutato: può bastare un solo evento sbagliato (il backend controlla la lista intera), quindi si
+        # rimandano uno alla volta e diventano "rifiutati" solo quelli che il backend rifiuta anche da soli
+        raggiungibile = True
+        for evento in lotto:
+            singola = risposta
+            if len(lotto) > 1:
+                singola = backend.invia_eventi([evento])
+            if singola.esito == "da_ritentare":
+                raggiungibile = False
+                break
+            if singola.esito == "ok":
+                registro.segna_inviati([evento])
+                inviati = inviati + 1
+            else:
+                registro.segna_rifiutato(evento, singola.errore)
+                print("evento " + evento.id + " (" + evento.tipo + ") rifiutato dal backend: tolto dalla coda")
+        if not raggiungibile:
+            break
     return inviati

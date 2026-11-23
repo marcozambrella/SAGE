@@ -1,13 +1,22 @@
 """Registro locale degli eventi (SQLite, libreria standard). Ogni evento uscito dall'unione si salva qui prima di
 mandarlo al backend: se manca la rete resta "da inviare" e si rimanda dopo. Il backend ignora un id già visto,
-quindi rimandare non crea doppioni (API.md)."""
+quindi rimandare non crea doppioni (API.md). Un evento che il backend rifiuta (errore 4xx) diventa "rifiutato",
+con il messaggio d'errore, ed esce dalla coda: rimandarlo uguale non servirebbe.
+"""
 
+from dataclasses import dataclass
 import datetime
 import json
 from pathlib import Path
 import sqlite3
 
 from contratti.eventi import LETTORE_EVENTO, TIPI_URGENTI, EventoBase, leggi_evento
+
+
+@dataclass
+class EventoRifiutato:
+    evento: EventoBase
+    errore: str  # codice e messaggio del backend
 
 
 class RegistroLocale:
@@ -20,7 +29,8 @@ class RegistroLocale:
             " tipo TEXT NOT NULL,"
             " inizio_utc TEXT NOT NULL,"  # in UTC così l'ordine alfabetico è anche l'ordine nel tempo
             " dati TEXT NOT NULL,"         # l'evento in JSON, formato dei contratti
-            " inviato INTEGER NOT NULL DEFAULT 0)"
+            " stato TEXT NOT NULL DEFAULT 'da_inviare',"  # da_inviare, inviato o rifiutato
+            " errore TEXT)"                # per i rifiutati: il messaggio del backend
         )
         self.connessione.commit()
 
@@ -32,15 +42,15 @@ class RegistroLocale:
         self.connessione.commit()
 
     def leggi(self, condizione: str) -> list:
-        righe = self.connessione.execute("SELECT tipo, dati FROM eventi " + condizione + " ORDER BY inizio_utc")
+        righe = self.connessione.execute("SELECT dati FROM eventi " + condizione + " ORDER BY inizio_utc")
         eventi = []
-        for tipo, dati in righe.fetchall():
-            eventi.append(leggi_evento(json.loads(dati)))
+        for riga in righe.fetchall():
+            eventi.append(leggi_evento(json.loads(riga[0])))
         return eventi
 
     def da_inviare(self, solo_urgenti: bool) -> list:
         eventi = []
-        for evento in self.leggi("WHERE inviato = 0"):
+        for evento in self.leggi("WHERE stato = 'da_inviare'"):
             if solo_urgenti and evento.tipo not in TIPI_URGENTI:
                 continue
             eventi.append(evento)
@@ -49,9 +59,22 @@ class RegistroLocale:
     def tutti(self) -> list:
         return self.leggi("")
 
+    def rifiutati(self) -> list:
+        domanda = "SELECT dati, errore FROM eventi WHERE stato = 'rifiutato' ORDER BY inizio_utc"
+        righe = self.connessione.execute(domanda)
+        rifiutati = []
+        for riga in righe.fetchall():
+            evento = leggi_evento(json.loads(riga[0]))
+            rifiutati.append(EventoRifiutato(evento, riga[1]))
+        return rifiutati
+
     def segna_inviati(self, eventi: list) -> None:
         for evento in eventi:
-            self.connessione.execute("UPDATE eventi SET inviato = 1 WHERE id = ?", (evento.id,))
+            self.connessione.execute("UPDATE eventi SET stato = 'inviato' WHERE id = ?", (evento.id,))
+        self.connessione.commit()
+
+    def segna_rifiutato(self, evento: EventoBase, errore: str) -> None:
+        self.connessione.execute("UPDATE eventi SET stato = 'rifiutato', errore = ? WHERE id = ?", (errore, evento.id))
         self.connessione.commit()
 
     def chiudi(self) -> None:
