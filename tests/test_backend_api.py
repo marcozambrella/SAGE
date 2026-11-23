@@ -24,22 +24,24 @@ PERSONALIZZAZIONE = {
     "regole": {"orari_uscita_vietati": [{"dalle": "21:00", "alle": "07:00"}]},
 }
 
-# gli allarmi che l'app avrebbe mandato su Telegram, raccolti dal finto invio
-allarmi_mandati = []
-
-
-def finto_invio(testo: str, foto: bytes | None) -> None:
-    allarmi_mandati.append((testo, foto))
-
-
 @pytest.fixture
 def client(tmp_path):
     # ogni test parte da una casa demo vuota, in un file SQLite temporaneo
     app.state.archivio = ArchivioDatabase(str(tmp_path / "prova.sqlite3"))
     app.state.token_casa = TOKEN
-    app.state.invia_allarme = finto_invio
-    allarmi_mandati.clear()
+    app.state.token_cron = ""
+    app.state.segreto_webhook = ""
+    # senza bot gli allarmi finiscono nel log: i test li cercano lì (il bot ha i suoi test in test_backend_telegram)
+    app.state.telegram = None
     return TestClient(app)
+
+
+def allarmi_nel_log(caplog) -> list[str]:
+    allarmi = []
+    for riga in caplog.records:
+        if riga.name == "sage.allarmi":
+            allarmi.append(riga.getMessage())
+    return allarmi
 
 
 def evento(id_evento: str, tipo: str, inizio: str, valori: dict, foto: bytes | None = None) -> dict:
@@ -174,31 +176,34 @@ def test_foto_di_prova(client):
 
 # --- allarmi ---
 
-def test_caduta_fa_partire_l_allarme_con_la_foto(client):
+def test_caduta_fa_partire_l_allarme(client, caplog):
     configura(client)
     caduta = evento("c1", "caduta", "2025-12-01T10:00:00+01:00", {}, foto=FOTO)
     client.post("/programma-casa/eventi", json=[caduta], headers=CON_TOKEN)
-    assert allarmi_mandati == [("Possible fall: Anna may have fallen in the kitchen at 10:00.", FOTO)]
+    allarmi = allarmi_nel_log(caplog)
+    assert len(allarmi) == 1
+    assert "Possible fall: Anna may have fallen in the kitchen at 10:00." in allarmi[0]
     # rimandata: l'allarme non riparte
     client.post("/programma-casa/eventi", json=[caduta], headers=CON_TOKEN)
-    assert len(allarmi_mandati) == 1
+    assert len(allarmi_nel_log(caplog)) == 1
 
 
-def test_uscita_allarme_solo_in_orario_vietato(client):
+def test_uscita_allarme_solo_in_orario_vietato(client, caplog):
     configura(client)
     di_giorno = evento("u1", "uscita", "2025-12-01T11:00:00+01:00", {"zona_id": "porta"})
     di_notte = evento("u2", "uscita", "2025-12-01T23:00:00+01:00", {"zona_id": "porta"})
     client.post("/programma-casa/eventi", json=[di_giorno, di_notte], headers=CON_TOKEN)
-    assert len(allarmi_mandati) == 1
-    assert allarmi_mandati[0][0] == "Exit alert: Anna left the house at 23:00, during restricted hours."
+    allarmi = allarmi_nel_log(caplog)
+    assert len(allarmi) == 1
+    assert "Exit alert: Anna left the house at 23:00, during restricted hours." in allarmi[0]
 
 
-def test_eventi_simulati_senza_allarmi(client):
+def test_eventi_simulati_senza_allarmi(client, caplog):
     configura(client)
     caduta = evento("c1", "caduta", "2025-12-01T10:00:00+01:00", {})
     caduta["simulato"] = True
     client.post("/programma-casa/eventi", json=[caduta], headers=CON_TOKEN)
-    assert allarmi_mandati == []
+    assert allarmi_nel_log(caplog) == []
 
 
 # --- report ---

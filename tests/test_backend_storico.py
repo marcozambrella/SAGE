@@ -71,6 +71,7 @@ def test_storico_plausibile():
 def client(tmp_path):
     app.state.archivio = ArchivioDatabase(str(tmp_path / "prova.sqlite3"))
     app.state.token_casa = TOKEN
+    app.state.telegram = None
     return TestClient(app)
 
 

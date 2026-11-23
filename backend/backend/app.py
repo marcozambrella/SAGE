@@ -1,33 +1,38 @@
-"""API del backend SAGE (contratti/API.md): lettura pubblica della casa demo per la web app e chiamate del
-programma di casa con il suo token. Documentazione automatica su /docs.
+"""API del backend SAGE (contratti/API.md): lettura pubblica della casa demo per la web app, chiamate del
+programma di casa con il suo token, chiamata per il cron esterno e webhook di Telegram. Documentazione su /docs.
 
 Avvio in sviluppo, dalla radice del repo:  uv run uvicorn backend.app:app --reload
 Variabili d'ambiente (in sviluppo nel file backend/.env, mai nel repo; online nelle impostazioni del servizio):
 - TOKEN_CASA: il token "Bearer" del programma di casa, lo stesso che ha nel suo .env.
+- TOKEN_CRON: il token "Bearer" del cron esterno che chiama /cron/controlli (D39).
 - DATABASE_URL: l'indirizzo PostgreSQL (Neon) online; se manca si usa il file SQLite backend/sage.sqlite3.
+- le variabili TELEGRAM_* del bot: vedi bot_telegram.py.
 """
 
 import base64
 import datetime
-from contextlib import asynccontextmanager
+import logging
 import os
 import secrets
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Literal
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
+from telegram import Update
 
 from contratti.configurazione import Personalizzazione
 from contratti.eventi import Evento, EventoBase
 from contratti.report import ReportGiornaliero, ReportPeriodo
 
-from backend.allarmi import messaggio_allarme, scrivi_allarme_nel_log, serve_allarme
+from backend.allarmi import messaggio_allarme, promemoria_da_mandare, scrivi_allarme_nel_log, serve_allarme
 from backend.archivio import ArchivioDatabase
-from backend.regole import FUSO_ORARIO_PREDEFINITO, errore_nella_personalizzazione
+from backend.bot_telegram import avvia_bot, ferma_bot, manda_a_tutte_le_chat
+from backend.regole import FUSO_ORARIO_PREDEFINITO, errore_nella_personalizzazione, giorno_locale
 from backend.report import (
     calcola_report_giornaliero,
     calcola_report_periodo,
@@ -43,25 +48,32 @@ SQLITE_PREDEFINITO = CARTELLA_BACKEND / "sage.sqlite3"
 
 @asynccontextmanager
 async def ciclo_di_vita(app: FastAPI):
-    """All'avvio del server: segreti e database (FastAPI vuole un generatore: prima di yield l'avvio, dopo la
-    chiusura). I test non lo fanno partire: mettono loro nello stato un database di prova e token di prova."""
+    """All'avvio del server: segreti, database e bot Telegram; alla chiusura si ferma il bot (FastAPI vuole un
+    generatore: prima di yield l'avvio, dopo la chiusura). I test non lo fanno partire: mettono loro nello stato un
+    database di prova, token di prova e un finto bot."""
+    # i messaggi informativi di SAGE nel log del server (senza, Python mostra solo gli avvisi)
+    logging.basicConfig(format="%(levelname)s: %(name)s: %(message)s")
+    logging.getLogger("sage").setLevel(logging.INFO)
     # backend/.env; le variabili già impostate (es. sul server online) hanno la precedenza
     load_dotenv(CARTELLA_BACKEND / ".env")
     app.state.token_casa = os.environ.get("TOKEN_CASA", "")
+    app.state.token_cron = os.environ.get("TOKEN_CRON", "")
+    app.state.segreto_webhook = os.environ.get("TELEGRAM_SEGRETO_WEBHOOK", "")
     indirizzo_database = os.environ.get("DATABASE_URL", "")
     if indirizzo_database == "":
         indirizzo_database = str(SQLITE_PREDEFINITO)
     app.state.archivio = ArchivioDatabase(indirizzo_database)
-    # riceve (testo, foto JPEG o None); il bot Telegram lo sostituirà
-    app.state.invia_allarme = scrivi_allarme_nel_log
+    # None se il bot non è configurato: allarmi e promemoria finiscono solo nel log
+    app.state.telegram = await avvia_bot(app.state.archivio)
     yield
+    await ferma_bot(app.state.telegram)
 
 
 app = FastAPI(title="SAGE backend", description="Safety Alert Guardian Engine: demo home API", lifespan=ciclo_di_vita)
 # CORS aperto: la web app sta su un altro indirizzo e legge solo i dati pubblici della casa demo (D27)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# auto_error=False: senza token la risposta la decide controlla_token_casa (401)
+# auto_error=False: senza token la risposta la decidono le funzioni controlla_token_* (401)
 lettore_token = HTTPBearer(auto_error=False)
 
 
@@ -71,8 +83,21 @@ class RispostaEventi(BaseModel):
     nuovi: int
 
 
+class RispostaControlli(BaseModel):
+    # promemoria delle dosi mandati in questo giro
+    promemoria: int
+
+
 def adesso() -> datetime.datetime:
     return datetime.datetime.now(datetime.UTC)
+
+
+def segreto_giusto(ricevuto: str, atteso: str) -> bool:
+    # senza segreto configurato nessuno passa
+    if atteso == "":
+        return False
+    # confronto a tempo costante: non dice quanti caratteri del segreto sono giusti
+    return secrets.compare_digest(ricevuto.encode(), atteso.encode())
 
 
 def controlla_token_casa(
@@ -80,13 +105,26 @@ def controlla_token_casa(
     credenziali: Annotated[HTTPAuthorizationCredentials | None, Depends(lettore_token)],
 ) -> None:
     """Le chiamate /programma-casa/* vogliono il token del programma di casa (API.md)."""
-    token_atteso = request.app.state.token_casa
-    # senza TOKEN_CASA configurato nessuno può scrivere
-    if credenziali is None or token_atteso == "":
-        raise HTTPException(status_code=401, detail="Missing home token")
-    # confronto a tempo costante: non dice quanti caratteri del token sono giusti
-    if not secrets.compare_digest(credenziali.credentials.encode(), token_atteso.encode()):
-        raise HTTPException(status_code=401, detail="Invalid home token")
+    if credenziali is None or not segreto_giusto(credenziali.credentials, request.app.state.token_casa):
+        raise HTTPException(status_code=401, detail="Missing or invalid home token")
+
+
+def controlla_token_cron(
+    request: Request,
+    credenziali: Annotated[HTTPAuthorizationCredentials | None, Depends(lettore_token)],
+) -> None:
+    """/cron/controlli vuole il token del cron esterno (D39)."""
+    if credenziali is None or not segreto_giusto(credenziali.credentials, request.app.state.token_cron):
+        raise HTTPException(status_code=401, detail="Missing or invalid cron token")
+
+
+async def manda_su_telegram(app: FastAPI, testo: str, foto: bytes | None, pulsanti_uscita: bool) -> None:
+    """Gira subito dopo la risposta (BackgroundTasks): chi chiama non aspetta Telegram."""
+    applicazione = app.state.telegram
+    if applicazione is None:
+        scrivi_allarme_nel_log(testo, foto)
+        return
+    await manda_a_tutte_le_chat(applicazione.bot, app.state.archivio, testo, foto, pulsanti_uscita)
 
 
 def personalizzazione_o_404(archivio: ArchivioDatabase) -> Personalizzazione:
@@ -220,7 +258,7 @@ def ricevi_personalizzazione(request: Request, personalizzazione: Personalizzazi
 
 
 @app.post("/programma-casa/eventi", response_model=RispostaEventi, dependencies=[Depends(controlla_token_casa)])
-def ricevi_eventi(request: Request, eventi: list[Evento]) -> RispostaEventi:
+def ricevi_eventi(request: Request, eventi: list[Evento], compiti: BackgroundTasks) -> RispostaEventi:
     """Salva gli eventi nuovi (un id già visto viene ignorato) e fa partire subito gli allarmi urgenti."""
     archivio = request.app.state.archivio
     # prima si leggono tutte le foto: se una è sbagliata non si salva niente
@@ -238,5 +276,45 @@ def ricevi_eventi(request: Request, eventi: list[Evento]) -> RispostaEventi:
         # solo gli eventi nuovi: un evento rimandato non fa ripartire l'allarme
         if serve_allarme(evento, personalizzazione):
             messaggio = messaggio_allarme(evento, personalizzazione)
-            request.app.state.invia_allarme(messaggio, foto)
+            # i pulsanti pausa / spegni solo sui messaggi di uscita (D16)
+            pulsanti_uscita = evento.tipo == "uscita"
+            compiti.add_task(manda_su_telegram, request.app, messaggio, foto, pulsanti_uscita)
     return RispostaEventi(ricevuti=len(eventi), nuovi=nuovi)
+
+
+# --- cron esterno ogni 5-10 minuti (D39): promemoria delle dosi e server sveglio ---
+
+@app.post("/cron/controlli", response_model=RispostaControlli, dependencies=[Depends(controlla_token_cron)])
+def controlli_periodici(request: Request, compiti: BackgroundTasks) -> RispostaControlli:
+    archivio = request.app.state.archivio
+    personalizzazione = archivio.leggi_personalizzazione()
+    if personalizzazione is None:
+        return RispostaControlli(promemoria=0)
+    momento = adesso()
+    oggi = giorno_locale(momento, personalizzazione.fuso_orario)
+    # da due giorni fa: le dosi di ieri possono essere prese (o saltate) a cavallo della mezzanotte
+    due_giorni_fa = oggi - datetime.timedelta(days=2)
+    eventi = eventi_dei_giorni(archivio, due_giorni_fa, oggi, personalizzazione.fuso_orario, None)
+    mandati = 0
+    for chiave, testo in promemoria_da_mandare(personalizzazione, eventi, momento):
+        # segnato prima di mandarlo: con il cron ogni pochi minuti lo stesso promemoria non parte due volte
+        if archivio.segna_promemoria(chiave):
+            compiti.add_task(manda_su_telegram, request.app, testo, None, False)
+            mandati = mandati + 1
+    return RispostaControlli(promemoria=mandati)
+
+
+# --- webhook di Telegram (D37, D39): comandi e pulsanti quando il server è online ---
+
+@app.post("/telegram/webhook", include_in_schema=False)
+async def webhook_telegram(request: Request) -> Response:
+    # Telegram rimanda il segreto dato con set_webhook: così nessun altro può fingersi Telegram
+    segreto = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if not segreto_giusto(segreto, request.app.state.segreto_webhook):
+        raise HTTPException(status_code=401, detail="Invalid webhook secret")
+    applicazione = request.app.state.telegram
+    if applicazione is None:
+        raise HTTPException(status_code=503, detail="Telegram bot not configured")
+    dati = await request.json()
+    await applicazione.process_update(Update.de_json(dati, applicazione.bot))
+    return Response(status_code=200)
