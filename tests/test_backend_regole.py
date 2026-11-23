@@ -9,7 +9,6 @@ import pytest
 
 from backend.allarmi import messaggio_allarme, serve_allarme
 from backend.regole import (
-    MINUTI_RITARDO_MASSIMO,
     alzata_di_notte,
     errore_nella_personalizzazione,
     ora_nella_fascia,
@@ -126,7 +125,7 @@ def test_personalizzazione_controllata():
     assert "time zone" in errore_nella_personalizzazione(fuso_sbagliato)
 
 
-# --- stato delle dosi (finestra provvisoria: da 30 minuti prima a 30 + MINUTI_RITARDO_MASSIMO dopo) ---
+# --- stato delle dosi (D38): in orario da un'ora prima fino a 30 minuti dopo, in ritardo fino a 2 ore dopo ---
 
 def stato_unico(prese: list, adesso: datetime.datetime = DOPO, farmaci: list[dict] | None = None):
     if farmaci is None:
@@ -144,13 +143,13 @@ def test_dose_in_orario():
     assert dose.ora_presa == datetime.datetime.fromisoformat("2026-12-01T08:20:00+01:00")
 
 
-def test_dose_presa_un_po_prima_e_in_orario():
-    assert stato_unico([presa("2026-12-01T07:40:00+01:00", "donepezil")]).stato == "in_orario"
+def test_dose_presa_fino_a_un_ora_prima_e_in_orario():
+    assert stato_unico([presa("2026-12-01T07:20:00+01:00", "donepezil")]).stato == "in_orario"
+    assert stato_unico([presa("2026-12-01T07:00:00+01:00", "donepezil")]).stato == "in_orario"
 
 
-def test_dose_presa_troppo_prima_non_conta():
-    # 40 minuti prima, oltre la tolleranza: con la finestra provvisoria la presa non conta
-    assert stato_unico([presa("2026-12-01T07:20:00+01:00", "donepezil")]).stato == "saltata"
+def test_dose_presa_piu_di_un_ora_prima_non_conta():
+    assert stato_unico([presa("2026-12-01T06:59:00+01:00", "donepezil")]).stato == "saltata"
 
 
 def test_dose_in_ritardo_con_minuti():
@@ -159,25 +158,28 @@ def test_dose_in_ritardo_con_minuti():
     assert dose.minuti_ritardo == 47
 
 
-def test_ultimo_momento_della_finestra_e_in_ritardo():
-    minuti = 30 + MINUTI_RITARDO_MASSIMO
-    ultima = datetime.datetime(2026, 12, 1, 8, 0, tzinfo=datetime.timezone(datetime.timedelta(hours=1)))
-    ultima = ultima + datetime.timedelta(minutes=minuti)
-    dose = stato_unico([presa(ultima.isoformat(), "donepezil")])
+def test_fino_a_due_ore_dopo_e_in_ritardo_poi_saltata():
+    dose = stato_unico([presa("2026-12-01T10:00:00+01:00", "donepezil")])
     assert dose.stato == "in_ritardo"
-    assert dose.minuti_ritardo == minuti
-    troppo_tardi = ultima + datetime.timedelta(minutes=1)
-    assert stato_unico([presa(troppo_tardi.isoformat(), "donepezil")]).stato == "saltata"
+    assert dose.minuti_ritardo == 120
+    assert stato_unico([presa("2026-12-01T10:01:00+01:00", "donepezil")]).stato == "saltata"
 
 
 def test_dose_in_attesa_poi_saltata():
-    fine_finestra = datetime.datetime(2026, 12, 1, 7, 0, tzinfo=datetime.UTC)
-    fine_finestra = fine_finestra + datetime.timedelta(minutes=30 + MINUTI_RITARDO_MASSIMO)
+    # le 10:00 di Roma: la finestra della dose delle 8 finisce proprio adesso
+    fine_finestra = datetime.datetime(2026, 12, 1, 9, 0, tzinfo=datetime.UTC)
     assert stato_unico([], adesso=fine_finestra).stato == "in_attesa"
     dose = stato_unico([], adesso=fine_finestra + datetime.timedelta(seconds=1))
     assert dose.stato == "saltata"
     assert dose.ora_presa is None
     assert dose.farmaco_riconosciuto is None
+
+
+def test_tolleranza_piu_lunga_di_due_ore():
+    farmaco = dict(DONEPEZIL)
+    farmaco["tolleranza_minuti"] = 180
+    assert stato_unico([presa("2026-12-01T10:30:00+01:00", "donepezil")], farmaci=[farmaco]).stato == "in_orario"
+    assert stato_unico([presa("2026-12-01T11:01:00+01:00", "donepezil")], farmaci=[farmaco]).stato == "saltata"
 
 
 def test_presa_non_riconosciuta_vale_per_la_dose():

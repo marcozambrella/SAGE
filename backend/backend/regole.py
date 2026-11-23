@@ -15,10 +15,11 @@ from contratti.report import DoseFarmaco
 # Lo stesso valore predefinito di Personalizzazione.fuso_orario: serve solo se la casa non è ancora configurata.
 FUSO_ORARIO_PREDEFINITO = "Europe/Rome"
 
-# PROVVISORIO, da decidere con Marco (API.md: "la finestra esatta la propone l'agente backend").
-# Una presa conta per la dose da tolleranza_minuti prima dell'orario fino a tolleranza_minuti + questi minuti dopo:
-# dentro la tolleranza è "in_orario", dopo è "in_ritardo"; finita la finestra senza presa la dose è "saltata".
-MINUTI_RITARDO_MASSIMO = 90
+# Finestra delle dosi (D38): "in_orario" da un'ora prima fino a tolleranza_minuti dopo l'orario, "in_ritardo" fino
+# a 2 ore dopo l'orario, poi "saltata" con promemoria. Contare chi anticipa evita il promemoria sbagliato (e la
+# doppia dose).
+MINUTI_ANTICIPO_MASSIMO = 60
+MINUTI_RITARDO_MASSIMO = 120
 
 
 def inizio_evento(evento: EventoBase) -> datetime.datetime:
@@ -105,6 +106,14 @@ def dosi_previste(personalizzazione: Personalizzazione) -> list[tuple[str, Farma
     return dosi
 
 
+def fine_della_finestra(data: datetime.date, orario: str, farmaco: Farmaco, fuso_orario: str) -> datetime.datetime:
+    """Dopo questo momento una dose senza presa è "saltata". Se la tolleranza è più lunga di 2 ore vale la tolleranza,
+    altrimenti una presa "in orario" non potrebbe mai esserci."""
+    previsto = datetime.datetime.combine(data, leggi_ora(orario), tzinfo=ZoneInfo(fuso_orario))
+    minuti = max(MINUTI_RITARDO_MASSIMO, farmaco.tolleranza_minuti)
+    return previsto + datetime.timedelta(minutes=minuti)
+
+
 def cerca_presa(
     eventi_farmaco: list[EventoFarmaco],
     farmaco_id: str,
@@ -144,8 +153,8 @@ def stato_delle_dosi(
     for orario, farmaco in dosi_previste(personalizzazione):
         previsto = datetime.datetime.combine(data, leggi_ora(orario), tzinfo=fuso)
         tolleranza = datetime.timedelta(minutes=farmaco.tolleranza_minuti)
-        inizio_finestra = previsto - tolleranza
-        fine_finestra = previsto + tolleranza + datetime.timedelta(minutes=MINUTI_RITARDO_MASSIMO)
+        inizio_finestra = previsto - datetime.timedelta(minutes=MINUTI_ANTICIPO_MASSIMO)
+        fine_finestra = fine_della_finestra(data, orario, farmaco, personalizzazione.fuso_orario)
         presa = cerca_presa(eventi_farmaco, farmaco.id, inizio_finestra, fine_finestra, prese_usate)
 
         if presa is None:

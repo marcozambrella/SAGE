@@ -202,9 +202,10 @@ def prese_dei_farmaci(
         if caso < PROBABILITA_DOSE_SALTATA:
             continue
         tolleranza = farmaco.tolleranza_minuti
-        if caso < PROBABILITA_DOSE_SALTATA + PROBABILITA_DOSE_IN_RITARDO:
-            # in ritardo ma dentro la finestra della dose (regole.py)
-            minuti = rng.randint(tolleranza + 1, tolleranza + MINUTI_RITARDO_MASSIMO)
+        in_ritardo = caso < PROBABILITA_DOSE_SALTATA + PROBABILITA_DOSE_IN_RITARDO
+        # in ritardo ma dentro la finestra della dose (regole.py, D38); con una tolleranza di 2 ore o più non si può
+        if in_ritardo and tolleranza < MINUTI_RITARDO_MASSIMO:
+            minuti = rng.randint(tolleranza + 1, MINUTI_RITARDO_MASSIMO)
         else:
             minuti = rng.randint(-(tolleranza // 3), tolleranza)
         previsto = leggi_ora(orario)
