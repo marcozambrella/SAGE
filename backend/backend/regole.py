@@ -12,6 +12,9 @@ from contratti.configurazione import Farmaco, FasciaOraria, Personalizzazione
 from contratti.eventi import EventoAlzataNotturna, EventoBase, EventoFarmaco, EventoUscita
 from contratti.report import DoseFarmaco
 
+# Lo stesso valore predefinito di Personalizzazione.fuso_orario: serve solo se la casa non è ancora configurata.
+FUSO_ORARIO_PREDEFINITO = "Europe/Rome"
+
 # PROVVISORIO, da decidere con Marco (API.md: "la finestra esatta la propone l'agente backend").
 # Una presa conta per la dose da tolleranza_minuti prima dell'orario fino a tolleranza_minuti + questi minuti dopo:
 # dentro la tolleranza è "in_orario", dopo è "in_ritardo"; finita la finestra senza presa la dose è "saltata".

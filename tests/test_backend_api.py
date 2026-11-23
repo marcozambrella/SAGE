@@ -1,0 +1,259 @@
+"""Test delle chiamate del backend (contratti/API.md) con il client di test di FastAPI: niente rete vera.
+
+Date nel passato (dicembre 2025): i report non hanno righe per i giorni che non sono ancora cominciati.
+"""
+
+import base64
+import datetime
+
+import pytest
+from fastapi.testclient import TestClient
+
+from backend.app import app
+from backend.archivio import ArchivioMemoria
+
+TOKEN = "token-di-prova"
+CON_TOKEN = {"Authorization": "Bearer " + TOKEN}
+# un finto JPEG: al backend basta che sia base64 valido
+FOTO = b"\xff\xd8\xff\xe0finto jpeg"
+FONTI = [{"telecamera_id": "cucina", "analizzatore": "prova", "confidenza": 0.9}]
+
+PERSONALIZZAZIONE = {
+    "anziano": {"nome": "Anna", "obiettivo_acqua_ml": 1500},
+    "farmaci": [{"id": "donepezil", "nome": "Donepezil", "dose": "1 tablet", "orari": ["08:00"]}],
+    "regole": {"orari_uscita_vietati": [{"dalle": "21:00", "alle": "07:00"}]},
+}
+
+# gli allarmi che l'app avrebbe mandato su Telegram, raccolti dal finto invio
+allarmi_mandati = []
+
+
+def finto_invio(testo: str, foto: bytes | None) -> None:
+    allarmi_mandati.append((testo, foto))
+
+
+@pytest.fixture
+def client():
+    # ogni test parte da una casa demo vuota
+    app.state.archivio = ArchivioMemoria()
+    app.state.token_casa = TOKEN
+    app.state.invia_allarme = finto_invio
+    allarmi_mandati.clear()
+    return TestClient(app)
+
+
+def evento(id_evento: str, tipo: str, inizio: str, valori: dict, foto: bytes | None = None) -> dict:
+    dati = {"id": id_evento, "tipo": tipo, "inizio": inizio, "stanza": "kitchen", "confidenza": 0.9,
+            "fonti": FONTI, "valori": valori}
+    if foto is not None:
+        dati["foto_prova"] = base64.b64encode(foto).decode()
+    return dati
+
+
+def bevuta(id_evento: str, inizio: str, ml: float) -> dict:
+    valori = {"contenitore": "bicchiere", "capienza_ml": 250, "altezza_contenitore_px": 100,
+              "livello_sceso_px": ml / 250 * 100, "percentuale": ml / 250 * 100, "ml": ml}
+    return evento(id_evento, "bevuta", inizio, valori)
+
+
+def configura(client: TestClient) -> None:
+    risposta = client.put("/programma-casa/personalizzazione", json=PERSONALIZZAZIONE, headers=CON_TOKEN)
+    assert risposta.status_code == 200
+
+
+# --- token del programma di casa ---
+
+def test_senza_token_rifiutato(client):
+    assert client.put("/programma-casa/personalizzazione", json=PERSONALIZZAZIONE).status_code == 401
+    assert client.post("/programma-casa/eventi", json=[]).status_code == 401
+
+
+def test_token_sbagliato_rifiutato(client):
+    sbagliato = {"Authorization": "Bearer altro"}
+    assert client.post("/programma-casa/eventi", json=[], headers=sbagliato).status_code == 401
+
+
+def test_senza_token_configurato_nessuno_scrive(client):
+    app.state.token_casa = ""
+    assert client.post("/programma-casa/eventi", json=[], headers={"Authorization": "Bearer "}).status_code == 401
+
+
+# --- personalizzazione ---
+
+def test_casa_non_configurata(client):
+    assert client.get("/demo/personalizzazione").status_code == 404
+    assert client.get("/demo/report/giornaliero", params={"data": "2025-12-01"}).status_code == 404
+
+
+def test_personalizzazione_salvata_e_letta(client):
+    configura(client)
+    letta = client.get("/demo/personalizzazione").json()
+    assert letta["anziano"]["nome"] == "Anna"
+    assert letta["farmaci"][0]["tolleranza_minuti"] == 30
+    assert letta["fuso_orario"] == "Europe/Rome"
+
+
+def test_personalizzazione_con_orario_sbagliato_rifiutata(client):
+    sbagliata = {"anziano": {"nome": "Anna"}, "regole": {"orari_notte": {"dalle": "22", "alle": "07:00"}}}
+    risposta = client.put("/programma-casa/personalizzazione", json=sbagliata, headers=CON_TOKEN)
+    assert risposta.status_code == 422
+
+
+def test_pausa_e_spegnimento_restano_quelli_del_backend(client):
+    configura(client)
+    # come farà il bot Telegram: pausa e allarme spento cambiati sul backend
+    archivio = app.state.archivio
+    pausa_fino_a = datetime.datetime.fromisoformat("2025-12-01T23:00:00+01:00")
+    regole = archivio.personalizzazione.regole.model_copy(
+        update={"allarme_uscita_attivo": False, "pausa_fino_a": pausa_fino_a})
+    archivio.personalizzazione = archivio.personalizzazione.model_copy(update={"regole": regole})
+    # il programma di casa rimanda la sua personalizzazione con l'allarme attivo
+    client.put("/programma-casa/personalizzazione", json=PERSONALIZZAZIONE, headers=CON_TOKEN)
+    letta = client.get("/demo/personalizzazione").json()
+    assert letta["regole"]["allarme_uscita_attivo"] is False
+    assert letta["regole"]["pausa_fino_a"] == "2025-12-01T23:00:00+01:00"
+
+
+# --- eventi ---
+
+def test_eventi_ricevuti_una_volta_sola(client):
+    eventi = [bevuta("b1", "2025-12-01T09:00:00+01:00", 200), bevuta("b2", "2025-12-01T10:00:00+01:00", 150)]
+    risposta = client.post("/programma-casa/eventi", json=eventi, headers=CON_TOKEN)
+    assert risposta.json() == {"ricevuti": 2, "nuovi": 2}
+    # rimandati (per esempio dopo un errore di rete) non si duplicano
+    risposta = client.post("/programma-casa/eventi", json=eventi, headers=CON_TOKEN)
+    assert risposta.json() == {"ricevuti": 2, "nuovi": 0}
+    assert len(client.get("/demo/eventi").json()) == 2
+
+
+def test_evento_non_valido_rifiutato(client):
+    sbagliato = evento("x", "bevuta", "2025-12-01T09:00:00+01:00", {"zona_id": "porta"})
+    assert client.post("/programma-casa/eventi", json=[sbagliato], headers=CON_TOKEN).status_code == 422
+
+
+def test_foto_non_base64_rifiutata_e_niente_salvato(client):
+    buono = bevuta("b1", "2025-12-01T09:00:00+01:00", 200)
+    sbagliato = evento("c1", "caduta", "2025-12-01T10:00:00+01:00", {})
+    sbagliato["foto_prova"] = "non è base64!"
+    risposta = client.post("/programma-casa/eventi", json=[buono, sbagliato], headers=CON_TOKEN)
+    assert risposta.status_code == 422
+    assert client.get("/demo/eventi").json() == []
+
+
+def test_lista_eventi_filtrata_in_ordine_e_senza_foto(client):
+    eventi = [
+        bevuta("b2", "2025-12-02T10:00:00+01:00", 150),
+        bevuta("b1", "2025-12-01T09:00:00+01:00", 200),
+        evento("c1", "caduta", "2025-12-01T10:00:00+01:00", {}, foto=FOTO),
+        # 23:30 UTC del 2 = 00:30 del 3 dicembre a Roma
+        bevuta("b3", "2025-12-02T23:30:00+00:00", 100),
+    ]
+    client.post("/programma-casa/eventi", json=eventi, headers=CON_TOKEN)
+
+    tutti = client.get("/demo/eventi").json()
+    ids = []
+    for letto in tutti:
+        ids.append(letto["id"])
+        assert letto["foto_prova"] is None
+    assert ids == ["b1", "c1", "b2", "b3"]
+
+    del_primo = client.get("/demo/eventi", params={"dal": "2025-12-01", "al": "2025-12-01"}).json()
+    assert len(del_primo) == 2
+    del_secondo = client.get("/demo/eventi", params={"dal": "2025-12-02", "al": "2025-12-02"}).json()
+    assert len(del_secondo) == 1
+    bevute = client.get("/demo/eventi", params={"tipo": "bevuta"}).json()
+    assert len(bevute) == 3
+
+
+def test_foto_di_prova(client):
+    client.post("/programma-casa/eventi", json=[evento("c1", "caduta", "2025-12-01T10:00:00+01:00", {}, foto=FOTO)],
+                headers=CON_TOKEN)
+    risposta = client.get("/demo/eventi/c1/foto")
+    assert risposta.status_code == 200
+    assert risposta.headers["content-type"] == "image/jpeg"
+    assert risposta.content == FOTO
+    assert client.get("/demo/eventi/altro/foto").status_code == 404
+
+
+# --- allarmi ---
+
+def test_caduta_fa_partire_l_allarme_con_la_foto(client):
+    configura(client)
+    caduta = evento("c1", "caduta", "2025-12-01T10:00:00+01:00", {}, foto=FOTO)
+    client.post("/programma-casa/eventi", json=[caduta], headers=CON_TOKEN)
+    assert allarmi_mandati == [("Possible fall: Anna may have fallen in the kitchen at 10:00.", FOTO)]
+    # rimandata: l'allarme non riparte
+    client.post("/programma-casa/eventi", json=[caduta], headers=CON_TOKEN)
+    assert len(allarmi_mandati) == 1
+
+
+def test_uscita_allarme_solo_in_orario_vietato(client):
+    configura(client)
+    di_giorno = evento("u1", "uscita", "2025-12-01T11:00:00+01:00", {"zona_id": "porta"})
+    di_notte = evento("u2", "uscita", "2025-12-01T23:00:00+01:00", {"zona_id": "porta"})
+    client.post("/programma-casa/eventi", json=[di_giorno, di_notte], headers=CON_TOKEN)
+    assert len(allarmi_mandati) == 1
+    assert allarmi_mandati[0][0] == "Exit alert: Anna left the house at 23:00, during restricted hours."
+
+
+def test_eventi_simulati_senza_allarmi(client):
+    configura(client)
+    caduta = evento("c1", "caduta", "2025-12-01T10:00:00+01:00", {})
+    caduta["simulato"] = True
+    client.post("/programma-casa/eventi", json=[caduta], headers=CON_TOKEN)
+    assert allarmi_mandati == []
+
+
+# --- report ---
+
+def manda_una_giornata(client: TestClient) -> None:
+    configura(client)
+    presa = {"farmaco_id": "donepezil", "portapillole_aperto": True, "mano_alla_bocca": True}
+    eventi = [
+        bevuta("b1", "2025-12-01T09:00:00+01:00", 200),
+        bevuta("b2", "2025-12-01T15:00:00+01:00", 300),
+        evento("f1", "farmaco", "2025-12-01T08:45:00+01:00", presa),
+        evento("p1", "pasto", "2025-12-01T12:30:00+01:00", {"cibi": ["pasta"], "percentuale_mangiata": 90}),
+        evento("u1", "uscita", "2025-12-01T22:00:00+01:00", {"zona_id": "porta"}),
+    ]
+    client.post("/programma-casa/eventi", json=eventi, headers=CON_TOKEN)
+
+
+def test_report_giornaliero(client):
+    manda_una_giornata(client)
+    report = client.get("/demo/report/giornaliero", params={"data": "2025-12-01"}).json()
+    assert report["acqua_ml"] == 500
+    assert report["bevute"] == 2
+    assert report["dosi"][0]["stato"] == "in_ritardo"
+    assert report["dosi"][0]["minuti_ritardo"] == 45
+    assert report["pasti"][0]["cibi"] == ["pasta"]
+    assert report["uscite_in_orario_vietato"] == 1
+
+
+def test_report_settimanale(client):
+    manda_una_giornata(client)
+    report = client.get("/demo/report/settimanale", params={"dal": "2025-11-30"}).json()
+    assert report["tipo"] == "settimanale"
+    assert report["dal"] == "2025-11-30"
+    assert report["al"] == "2025-12-06"
+    assert len(report["giorni"]) == 7
+    assert report["giorni"][1]["acqua_ml"] == 500
+
+
+def test_report_mensile(client):
+    manda_una_giornata(client)
+    report = client.get("/demo/report/mensile", params={"mese": "2025-12"}).json()
+    assert report["dal"] == "2025-12-01"
+    assert report["al"] == "2025-12-31"
+    assert report["giorni"][0]["dosi_in_ritardo"] == 1
+
+
+def test_report_mensile_mese_sbagliato(client):
+    configura(client)
+    assert client.get("/demo/report/mensile", params={"mese": "2025-13"}).status_code == 422
+    assert client.get("/demo/report/mensile", params={"mese": "dicembre"}).status_code == 422
+
+
+def test_cors_aperto_per_la_web_app(client):
+    risposta = client.get("/demo/eventi", headers={"Origin": "http://localhost:5173"})
+    assert risposta.headers["access-control-allow-origin"] == "*"

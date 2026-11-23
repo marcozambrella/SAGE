@@ -8,10 +8,7 @@ import logging
 from contratti.configurazione import Personalizzazione
 from contratti.eventi import TIPI_URGENTI, EventoBase
 
-from backend.regole import ora_locale, uscita_in_orario_vietato
-
-# Lo stesso valore predefinito di Personalizzazione.fuso_orario: serve solo se la casa non è ancora configurata.
-FUSO_ORARIO_PREDEFINITO = "Europe/Rome"
+from backend.regole import FUSO_ORARIO_PREDEFINITO, ora_locale, uscita_in_orario_vietato
 
 registro = logging.getLogger("sage.allarmi")
 
