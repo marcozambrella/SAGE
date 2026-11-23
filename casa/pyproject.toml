@@ -2,10 +2,27 @@
 name = "casa"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["contratti"]
+dependencies = [
+    "contratti",
+    "numpy",
+    "opencv-python",  # lo richiede già ultralytics: la versione headless installerebbe un secondo cv2
+    "ultralytics>=8.4",
+    "torch",
+    "torchvision",
+    "lap",  # richiesto dal tracker di Ultralytics
+    "python-dotenv",  # token e indirizzo del backend dal file .env (mai nel repo)
+]
+
+# Sul PC di Marco torch per CPU (nessuna GPU), dall'indice di PyTorch come in ARGO.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.uv.sources]
 contratti = { workspace = true }
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
 
 [build-system]
 requires = ["hatchling"]
