@@ -1,0 +1,20 @@
+{
+  "id": "KAGGLE_UTENTE/sage-esplora-cadute",
+  "title": "sage esplora cadute",
+  "code_file": "esplora_cadute.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_internet": true,
+  "dataset_sources": [
+    "thanhtung09t2/caucafall",
+    "ambatipallisahasra/gmdcsa24",
+    "nguynthnhquang/gmdcsa",
+    "shahliza27/ur-fall-detection-dataset",
+    "tuyenldvn/falldataset-imvia"
+  ],
+  "kernel_sources": [],
+  "competition_sources": [],
+  "model_sources": []
+}
