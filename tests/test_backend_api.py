@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.app import app
-from backend.archivio import ArchivioMemoria
+from backend.archivio import ArchivioDatabase
 
 TOKEN = "token-di-prova"
 CON_TOKEN = {"Authorization": "Bearer " + TOKEN}
@@ -33,9 +33,9 @@ def finto_invio(testo: str, foto: bytes | None) -> None:
 
 
 @pytest.fixture
-def client():
-    # ogni test parte da una casa demo vuota
-    app.state.archivio = ArchivioMemoria()
+def client(tmp_path):
+    # ogni test parte da una casa demo vuota, in un file SQLite temporaneo
+    app.state.archivio = ArchivioDatabase(str(tmp_path / "prova.sqlite3"))
     app.state.token_casa = TOKEN
     app.state.invia_allarme = finto_invio
     allarmi_mandati.clear()
@@ -101,12 +101,9 @@ def test_personalizzazione_con_orario_sbagliato_rifiutata(client):
 
 def test_pausa_e_spegnimento_restano_quelli_del_backend(client):
     configura(client)
-    # come farà il bot Telegram: pausa e allarme spento cambiati sul backend
-    archivio = app.state.archivio
+    # come fa il bot Telegram: pausa e allarme spento cambiati sul backend
     pausa_fino_a = datetime.datetime.fromisoformat("2025-12-01T23:00:00+01:00")
-    regole = archivio.personalizzazione.regole.model_copy(
-        update={"allarme_uscita_attivo": False, "pausa_fino_a": pausa_fino_a})
-    archivio.personalizzazione = archivio.personalizzazione.model_copy(update={"regole": regole})
+    app.state.archivio.cambia_allarme_uscita(False, pausa_fino_a)
     # il programma di casa rimanda la sua personalizzazione con l'allarme attivo
     client.put("/programma-casa/personalizzazione", json=PERSONALIZZAZIONE, headers=CON_TOKEN)
     letta = client.get("/demo/personalizzazione").json()

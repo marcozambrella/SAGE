@@ -4,10 +4,12 @@ programma di casa con il suo token. Documentazione automatica su /docs.
 Avvio in sviluppo, dalla radice del repo:  uv run uvicorn backend.app:app --reload
 Variabili d'ambiente (in sviluppo nel file backend/.env, mai nel repo; online nelle impostazioni del servizio):
 - TOKEN_CASA: il token "Bearer" del programma di casa, lo stesso che ha nel suo .env.
+- DATABASE_URL: l'indirizzo PostgreSQL (Neon) online; se manca si usa il file SQLite backend/sage.sqlite3.
 """
 
 import base64
 import datetime
+from contextlib import asynccontextmanager
 import os
 import secrets
 from pathlib import Path
@@ -24,7 +26,7 @@ from contratti.eventi import Evento, EventoBase
 from contratti.report import ReportGiornaliero, ReportPeriodo
 
 from backend.allarmi import messaggio_allarme, scrivi_allarme_nel_log, serve_allarme
-from backend.archivio import ArchivioMemoria
+from backend.archivio import ArchivioDatabase
 from backend.regole import FUSO_ORARIO_PREDEFINITO, errore_nella_personalizzazione
 from backend.report import (
     calcola_report_giornaliero,
@@ -34,18 +36,30 @@ from backend.report import (
     inizio_del_giorno,
 )
 
-# backend/.env; le variabili già impostate (es. sul server online) hanno la precedenza
-load_dotenv(Path(__file__).parent.parent / ".env")
+CARTELLA_BACKEND = Path(__file__).parent.parent
+# il database di sviluppo, ignorato da git
+SQLITE_PREDEFINITO = CARTELLA_BACKEND / "sage.sqlite3"
 
-app = FastAPI(title="SAGE backend", description="Safety Alert Guardian Engine: demo home API")
+
+@asynccontextmanager
+async def ciclo_di_vita(app: FastAPI):
+    """All'avvio del server: segreti e database (FastAPI vuole un generatore: prima di yield l'avvio, dopo la
+    chiusura). I test non lo fanno partire: mettono loro nello stato un database di prova e token di prova."""
+    # backend/.env; le variabili già impostate (es. sul server online) hanno la precedenza
+    load_dotenv(CARTELLA_BACKEND / ".env")
+    app.state.token_casa = os.environ.get("TOKEN_CASA", "")
+    indirizzo_database = os.environ.get("DATABASE_URL", "")
+    if indirizzo_database == "":
+        indirizzo_database = str(SQLITE_PREDEFINITO)
+    app.state.archivio = ArchivioDatabase(indirizzo_database)
+    # riceve (testo, foto JPEG o None); il bot Telegram lo sostituirà
+    app.state.invia_allarme = scrivi_allarme_nel_log
+    yield
+
+
+app = FastAPI(title="SAGE backend", description="Safety Alert Guardian Engine: demo home API", lifespan=ciclo_di_vita)
 # CORS aperto: la web app sta su un altro indirizzo e legge solo i dati pubblici della casa demo (D27)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-
-# Lo stato dell'app: i test lo sostituiscono con un archivio vuoto, un token di prova e un finto invio.
-app.state.archivio = ArchivioMemoria()
-app.state.token_casa = os.environ.get("TOKEN_CASA", "")
-# riceve (testo, foto JPEG o None); il bot Telegram lo sostituirà
-app.state.invia_allarme = scrivi_allarme_nel_log
 
 # auto_error=False: senza token la risposta la decide controlla_token_casa (401)
 lettore_token = HTTPBearer(auto_error=False)
@@ -75,14 +89,14 @@ def controlla_token_casa(
         raise HTTPException(status_code=401, detail="Invalid home token")
 
 
-def personalizzazione_o_404(archivio: ArchivioMemoria) -> Personalizzazione:
+def personalizzazione_o_404(archivio: ArchivioDatabase) -> Personalizzazione:
     personalizzazione = archivio.leggi_personalizzazione()
     if personalizzazione is None:
         raise HTTPException(status_code=404, detail="The demo home is not configured yet")
     return personalizzazione
 
 
-def fuso_della_casa(archivio: ArchivioMemoria) -> str:
+def fuso_della_casa(archivio: ArchivioDatabase) -> str:
     personalizzazione = archivio.leggi_personalizzazione()
     if personalizzazione is None:
         return FUSO_ORARIO_PREDEFINITO
@@ -90,7 +104,7 @@ def fuso_della_casa(archivio: ArchivioMemoria) -> str:
 
 
 def eventi_dei_giorni(
-    archivio: ArchivioMemoria,
+    archivio: ArchivioDatabase,
     dal: datetime.date | None,
     al: datetime.date | None,
     fuso_orario: str,
@@ -107,7 +121,7 @@ def eventi_dei_giorni(
 
 
 def report_di_periodo(
-    archivio: ArchivioMemoria,
+    archivio: ArchivioDatabase,
     tipo: Literal["settimanale", "mensile"],
     dal: datetime.date,
     al: datetime.date,
@@ -215,9 +229,10 @@ def ricevi_eventi(request: Request, eventi: list[Evento]) -> RispostaEventi:
         foto_degli_eventi.append(leggi_foto_prova(evento))
 
     personalizzazione = archivio.leggi_personalizzazione()
+    sono_nuovi = archivio.aggiungi_eventi(eventi, foto_degli_eventi)
     nuovi = 0
-    for evento, foto in zip(eventi, foto_degli_eventi):
-        if not archivio.aggiungi_evento(evento, foto):
+    for evento, foto, nuovo in zip(eventi, foto_degli_eventi, sono_nuovi):
+        if not nuovo:
             continue
         nuovi = nuovi + 1
         # solo gli eventi nuovi: un evento rimandato non fa ripartire l'allarme

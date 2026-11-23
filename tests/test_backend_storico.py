@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.app import app
-from backend.archivio import ArchivioMemoria
+from backend.archivio import ArchivioDatabase
 from backend.report import calcola_report_periodo
 from backend.storico_simulato import PERSONALIZZAZIONE_DEMO, SEME_PREDEFINITO, carica_storico, genera_storico
 from contratti.eventi import LETTORE_EVENTO
@@ -68,8 +68,8 @@ def test_storico_plausibile():
 
 
 @pytest.fixture
-def client():
-    app.state.archivio = ArchivioMemoria()
+def client(tmp_path):
+    app.state.archivio = ArchivioDatabase(str(tmp_path / "prova.sqlite3"))
     app.state.token_casa = TOKEN
     return TestClient(app)
 

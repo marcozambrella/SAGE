@@ -9,6 +9,7 @@ dependencies = [
     # client HTTP: script dello storico simulato e client di test di FastAPI (Starlette vuole httpx2)
     "httpx2>=2.16.2",
     # legge i segreti da backend/.env in sviluppo
+    "psycopg[binary]>=3.3.9",
     "python-dotenv>=1.2.4",
     # fusi orari anche sui server senza il database dei fusi del sistema (zoneinfo)
     "tzdata>=2026.6",
