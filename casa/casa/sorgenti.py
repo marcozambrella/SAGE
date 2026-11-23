@@ -14,6 +14,9 @@ import cv2
 import numpy as np
 
 PREFISSI_DAL_VIVO = ("rtsp://", "rtsps://", "http://", "https://")
+# Riconnessione di un flusso dal vivo caduto: attesa che raddoppia a ogni tentativo, al massimo un minuto.
+ATTESA_MINIMA_SECONDI = 1.0
+ATTESA_MASSIMA_SECONDI = 60.0
 
 
 @dataclass
@@ -32,11 +35,15 @@ def e_dal_vivo(sorgente: str) -> bool:
     return False
 
 
-def apri_cattura(sorgente: str, telecamera_id: str) -> cv2.VideoCapture:
+def nuova_cattura(sorgente: str) -> cv2.VideoCapture:
+    """Apre la sorgente con OpenCV (può non riuscire: va controllato isOpened)."""
     if sorgente.isdigit():
-        cattura = cv2.VideoCapture(int(sorgente))
-    else:
-        cattura = cv2.VideoCapture(sorgente)
+        return cv2.VideoCapture(int(sorgente))
+    return cv2.VideoCapture(sorgente)
+
+
+def apri_cattura(sorgente: str, telecamera_id: str) -> cv2.VideoCapture:
+    cattura = nuova_cattura(sorgente)
     if not cattura.isOpened():
         # solo l'id nel messaggio: l'indirizzo può contenere utente e password della telecamera
         raise RuntimeError("telecamera " + telecamera_id + ": sorgente non apribile")
@@ -76,12 +83,22 @@ class VideoRegistrato:
         return None
 
 
+def prossima_attesa(attesa: float) -> float:
+    """Attesa prima del tentativo dopo: doppia ogni volta, fino al tetto."""
+    return min(attesa * 2, ATTESA_MASSIMA_SECONDI)
+
+
 class FlussoDalVivo:
     """RTSP, telefono o webcam. Un thread legge di continuo e tiene solo l'ultimo fotogramma: così il ritardo non
     cresce quando l'elaborazione è più lenta della telecamera. `leggi` non aspetta mai, perché lo stesso ciclo
-    serve tutte le telecamere."""
+    serve tutte le telecamere.
+
+    Un flusso dal vivo non finisce: se cade (rete, telecamera spenta, webcam staccata) il thread riapre la sorgente
+    con attese crescenti (1, 2, 4, ... fino a 60 s) e intanto la telecamera risulta "persa" nel log."""
 
     def __init__(self, sorgente: str, fps: float, telecamera_id: str):
+        self.sorgente = sorgente
+        self.telecamera_id = telecamera_id
         self.cattura = apri_cattura(sorgente, telecamera_id)
         self.passo = 1.0 / fps
         self.inizio = time.monotonic()
@@ -89,37 +106,49 @@ class FlussoDalVivo:
         self.ultima_immagine = None
         self.numero_arrivato = 0         # fotogrammi letti dal thread
         self.numero_dato = 0             # numero dell'ultimo fotogramma dato (per non ridare lo stesso)
-        self.interrotto = False          # il thread ha smesso di ricevere
-        self.finita = False
+        self.persa = False               # caduta e non ancora ricollegata
+        self.finita = False              # resta False: c'è solo per avere la stessa interfaccia di VideoRegistrato
         self.serratura = threading.Lock()
+        self.fermo = threading.Event()   # per fermare il thread (anche mentre aspetta un nuovo tentativo)
         self.lettore = threading.Thread(target=self.ricevi, daemon=True)
         self.lettore.start()
 
     def ricevi(self) -> None:
-        while True:
+        attesa = ATTESA_MINIMA_SECONDI
+        while not self.fermo.is_set():
             riuscito, immagine = self.cattura.read()
-            if not riuscito:
-                break
-            with self.serratura:
-                self.ultima_immagine = immagine
-                self.numero_arrivato = self.numero_arrivato + 1
+            if riuscito:
+                if self.persa:
+                    print("telecamera " + self.telecamera_id + ": di nuovo collegata")
+                    self.persa = False
+                    attesa = ATTESA_MINIMA_SECONDI
+                with self.serratura:
+                    self.ultima_immagine = immagine
+                    self.numero_arrivato = self.numero_arrivato + 1
+                continue
+            # caduta (o riapertura non riuscita): si chiude, si aspetta e si riprova
+            self.persa = True
+            print("telecamera " + self.telecamera_id + ": persa, nuovo tentativo tra " + format(attesa, "g") + " s")
+            self.cattura.release()
+            self.fermo.wait(attesa)
+            attesa = prossima_attesa(attesa)
+            self.cattura = nuova_cattura(self.sorgente)
         self.cattura.release()
-        self.interrotto = True
+
+    def ferma(self) -> None:
+        self.fermo.set()
+        self.lettore.join(timeout=5)
 
     def leggi(self) -> Fotogramma | None:
         """L'ultimo fotogramma arrivato se è il suo turno (al massimo fps al secondo), altrimenti None."""
         adesso = time.monotonic()
         if self.ultimo_dato is not None and adesso - self.ultimo_dato < self.passo:
             return None
-        # si guarda `interrotto` prima di leggere il numero: un ultimo fotogramma arrivato in mezzo non va perso
-        interrotto = self.interrotto
         with self.serratura:
             nuovo = self.numero_arrivato > self.numero_dato
             immagine = self.ultima_immagine
             numero = self.numero_arrivato
         if not nuovo:
-            if interrotto:
-                self.finita = True
             return None
         self.numero_dato = numero
         self.ultimo_dato = adesso

@@ -9,8 +9,9 @@ import numpy as np
 import pytest
 
 from contratti.configurazione import FasciaOraria
+from casa import sorgenti
 from casa.configurazione import dentro_fascia, leggi_configurazione
-from casa.sorgenti import FlussoDalVivo, VideoRegistrato, apri_sorgente, e_dal_vivo
+from casa.sorgenti import FlussoDalVivo, VideoRegistrato, apri_sorgente, e_dal_vivo, prossima_attesa
 
 ESEMPIO = Path(__file__).resolve().parents[1] / "casa" / "configurazione.esempio.json"
 
@@ -90,22 +91,103 @@ def test_sorgente_non_apribile_senza_indirizzo_nel_messaggio(tmp_path):
     assert percorso not in str(errore.value)
 
 
-def test_flusso_dal_vivo_da_l_ultimo_fotogramma_e_rispetta_il_turno(tmp_path):
-    percorso = tmp_path / "prova.mp4"
-    scrivi_video(percorso, 20, 25)
-    # un file aperto come flusso dal vivo: il thread lo legge tutto subito, come una telecamera più veloce di noi
-    flusso = FlussoDalVivo(str(percorso), 10, "prova")
-    flusso.lettore.join(timeout=10)
+class CatturaFinta:
+    """Telecamera finta al posto di cv2.VideoCapture: dà `quanti` fotogrammi 4×4 (il pixel vale base + numero del
+    fotogramma) e poi cade. Con aperta=False è una riapertura non riuscita."""
+
+    def __init__(self, base: int, quanti: int, aperta: bool = True):
+        self.base = base
+        self.quanti = quanti
+        self.letti = 0
+        self.aperta = aperta
+
+    def isOpened(self) -> bool:
+        return self.aperta
+
+    def read(self):
+        if not self.aperta or self.letti >= self.quanti:
+            return False, None
+        immagine = np.full((4, 4, 3), self.base + self.letti, np.uint8)
+        self.letti = self.letti + 1
+        time.sleep(0.002)  # come una telecamera vera: un fotogramma alla volta
+        return True, immagine
+
+    def release(self) -> None:
+        self.aperta = False
+
+
+class AperturaFinta:
+    """Al posto di sorgenti.nuova_cattura: dà le catture finte nell'ordine (poi sempre l'ultima)."""
+
+    def __init__(self, catture: list):
+        self.catture = catture
+        self.aperture = 0
+
+    def apri(self, sorgente: str) -> CatturaFinta:
+        indice = min(self.aperture, len(self.catture) - 1)
+        self.aperture = self.aperture + 1
+        return self.catture[indice]
+
+
+@pytest.fixture
+def attese_brevi(monkeypatch):
+    # nei test la riconnessione aspetta millisecondi invece di secondi
+    monkeypatch.setattr(sorgenti, "ATTESA_MINIMA_SECONDI", 0.01)
+    monkeypatch.setattr(sorgenti, "ATTESA_MASSIMA_SECONDI", 0.04)
+
+
+def aspetta_fotogramma(flusso: FlussoDalVivo, valore_minimo: int):
+    """Il primo fotogramma con il pixel almeno uguale a valore_minimo (None se non arriva entro 5 s)."""
+    scadenza = time.monotonic() + 5
+    while time.monotonic() < scadenza:
+        fotogramma = flusso.leggi()
+        if fotogramma is not None and int(fotogramma.immagine[0, 0, 0]) >= valore_minimo:
+            return fotogramma
+        time.sleep(0.005)
+    return None
+
+
+def test_flusso_dal_vivo_da_l_ultimo_fotogramma_e_rispetta_il_turno(monkeypatch, attese_brevi):
+    apertura = AperturaFinta([CatturaFinta(0, 20), CatturaFinta(0, 0, aperta=False)])
+    monkeypatch.setattr(sorgenti, "nuova_cattura", apertura.apri)
+    flusso = FlussoDalVivo("rtsp://telecamera-finta", 10, "prova")
+    time.sleep(0.3)  # la telecamera finta manda i suoi 20 fotogrammi più veloce di quanto li leggiamo
     fotogramma = flusso.leggi()
-    assert fotogramma is not None
-    # resta solo l'ultimo fotogramma (pixel 19×5 = 95, a meno della compressione)
-    assert abs(int(fotogramma.immagine[0, 0, 0]) - 95) < 10
+    # resta solo l'ultimo fotogramma
+    assert int(fotogramma.immagine[0, 0, 0]) == 19
     # subito dopo non è il suo turno
     assert flusso.leggi() is None
     time.sleep(0.15)
-    # turno arrivato ma nessun fotogramma nuovo e flusso interrotto: finito
+    # turno arrivato ma nessun fotogramma nuovo (telecamera caduta): niente, ma il flusso non è finito
     assert flusso.leggi() is None
-    assert flusso.finita
+    assert not flusso.finita
+    flusso.ferma()
+
+
+def test_flusso_caduto_si_ricollega(monkeypatch, capsys, attese_brevi):
+    # cade dopo 3 fotogrammi, la prima riapertura non riesce, la seconda sì
+    catture = [CatturaFinta(0, 3), CatturaFinta(0, 0, aperta=False), CatturaFinta(100, 100)]
+    apertura = AperturaFinta(catture)
+    monkeypatch.setattr(sorgenti, "nuova_cattura", apertura.apri)
+    flusso = FlussoDalVivo("rtsp://telecamera-finta", 1000, "ingresso")
+    fotogramma = aspetta_fotogramma(flusso, 100)
+    flusso.ferma()
+    assert fotogramma is not None
+    assert apertura.aperture >= 3
+    assert not flusso.finita
+    registro = capsys.readouterr().out
+    assert "telecamera ingresso: persa, nuovo tentativo tra 0.01 s" in registro
+    assert "telecamera ingresso: persa, nuovo tentativo tra 0.02 s" in registro
+    assert "telecamera ingresso: di nuovo collegata" in registro
+    # mai l'indirizzo nel registro
+    assert "rtsp://" not in registro
+
+
+def test_attesa_crescente_con_tetto():
+    assert prossima_attesa(1) == 2
+    assert prossima_attesa(16) == 32
+    assert prossima_attesa(32) == 60
+    assert prossima_attesa(60) == 60
 
 
 def test_apri_sorgente_sceglie_il_tipo(tmp_path):
