@@ -2,7 +2,11 @@
 name = "backend"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["contratti"]
+dependencies = [
+    "contratti",
+    # fusi orari anche sui server senza il database dei fusi del sistema (zoneinfo)
+    "tzdata>=2026.6",
+]
 
 [tool.uv.sources]
 contratti = { workspace = true }
