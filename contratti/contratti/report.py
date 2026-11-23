@@ -1,0 +1,71 @@
+"""Report che il backend calcola dal registro unico e che la web app mostra (oggi, storico, trend, report)."""
+
+import datetime
+from typing import Literal
+
+from pydantic import AwareDatetime, BaseModel
+
+# in_attesa: la finestra della dose non è ancora finita e la presa non si è vista.
+StatoDose = Literal["in_orario", "in_ritardo", "saltata", "in_attesa"]
+
+
+class DoseFarmaco(BaseModel):
+    farmaco_id: str
+    nome: str
+    orario_previsto: str
+    stato: StatoDose
+    ora_presa: AwareDatetime | None = None
+    minuti_ritardo: int | None = None
+    # False: gesto visto ma farmaco non riconosciuto dalle foto. None: dose non presa.
+    farmaco_riconosciuto: bool | None = None
+
+
+class PastoDelGiorno(BaseModel):
+    ora: AwareDatetime
+    cibi: list[str]
+    percentuale_mangiata: float
+
+
+class ReportGiornaliero(BaseModel):
+    data: datetime.date
+    acqua_ml: float
+    obiettivo_acqua_ml: int
+    bevute: int
+    dosi: list[DoseFarmaco]
+    pasti: list[PastoDelGiorno]
+    alzate_notturne: int
+    minuti_fuori_letto_notte: float
+    cadute: int
+    uscite: int
+    uscite_in_orario_vietato: int
+    simulato: bool = False
+
+
+class RiassuntoGiorno(BaseModel):
+    """Una riga per giorno nei report settimanali e mensili: serve anche ai grafici dei trend."""
+
+    data: datetime.date
+    acqua_ml: float
+    dosi_previste: int
+    dosi_in_orario: int
+    dosi_in_ritardo: int
+    dosi_saltate: int
+    # None se quel giorno non si è visto nessun pasto.
+    percentuale_mangiata_media: float | None
+    alzate_notturne: int
+    cadute: int
+    uscite_in_orario_vietato: int
+    simulato: bool = False
+
+
+class ReportPeriodo(BaseModel):
+    tipo: Literal["settimanale", "mensile"]
+    dal: datetime.date
+    al: datetime.date
+    giorni: list[RiassuntoGiorno]
+    acqua_media_ml: float
+    # Dosi in orario + in ritardo sulle dosi previste, da 0 a 100.
+    aderenza_farmaci_percentuale: float
+    cadute: int
+    uscite_in_orario_vietato: int
+    alzate_notturne_medie: float

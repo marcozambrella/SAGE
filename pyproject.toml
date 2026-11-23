@@ -1,0 +1,24 @@
+# Spazio di lavoro uv con tre pacchetti Python (D25): contratti, backend, casa.
+# Il backend va su un server gratuito e installa solo quello che gli serve (niente PyTorch).
+[project]
+name = "sage"
+version = "0.1.0"
+description = "SAGE - Safety Alert Guardian Engine"
+requires-python = ">=3.12"
+dependencies = ["contratti"]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+# backend e casa si aggiungono qui quando nascono le loro cartelle
+members = ["contratti"]
+
+[tool.uv.sources]
+contratti = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
