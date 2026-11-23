@@ -1,0 +1,92 @@
+/*
+  Variabili del design system "puffy soft" (D20): forme gonfie e arrotondate, ombre morbide esterne e interne,
+  bianco latte e un solo accento caldo. Tutti i colori del testo sono controllati per il contrasto WCAG AA
+  (almeno 4,5:1 sul fondo su cui stanno).
+*/
+:root {
+  /* Bianco latte: fondo, schede, pozzetti */
+  --latte: #f4f0ea;
+  --latte-chiaro: #fcfaf7;
+  --latte-scuro: #e9e3db;
+  --bianco: #ffffff;
+
+  /* Testo: 12,5:1 e 5,6:1 sul fondo */
+  --testo: #2f2a27;
+  --testo-secondario: #675e57;
+
+  /* Accento caldo (terracotta morbida). Testo bianco sopra: 4,7:1 */
+  --accento: #c0512f;
+  --accento-alto: #cb5b39;
+  --accento-basso: #b5482a;
+  --accento-chiaro: #e98a68;
+  --accento-tenue: #fbe3d8;
+  /* Accento usato come colore del testo su fondo chiaro: 5,6:1 */
+  --accento-testo: #a8462a;
+
+  /* Perla fredda: solo per l'atmosfera dello sfondo, mai per il testo */
+  --perla: #dfe5ee;
+
+  /* Stati (in orario, in ritardo, saltata, in attesa): fondo tenue + testo scuro dello stesso colore,
+     sempre insieme a un'icona e a una parola, mai il colore da solo */
+  --buono-fondo: #dcefdd;
+  --buono-testo: #1e6a32;
+  --attenzione-fondo: #fbebc6;
+  --attenzione-testo: #7a4f00;
+  --critico-fondo: #f8d8d2;
+  --critico-testo: #a1281c;
+  --neutro-fondo: #ece7e1;
+  --neutro-testo: #5c534c;
+
+  /* Ombre morbide: il colore dell'ombra è un marrone caldo, non il nero, per restare "latte" */
+  --ombra: 118, 90, 68;
+  --ombra-gonfia:
+    14px 18px 36px rgba(var(--ombra), 0.18),
+    -10px -10px 26px rgba(255, 255, 255, 0.9),
+    inset 6px 8px 14px rgba(255, 255, 255, 0.85),
+    inset -8px -10px 18px rgba(var(--ombra), 0.08);
+  --ombra-gonfia-piccola:
+    6px 8px 18px rgba(var(--ombra), 0.18),
+    -6px -6px 14px rgba(255, 255, 255, 0.9),
+    inset 3px 4px 8px rgba(255, 255, 255, 0.8),
+    inset -4px -5px 10px rgba(var(--ombra), 0.08);
+  /* Incavata: campi e binari scavati dentro la superficie */
+  --ombra-incavata:
+    inset 5px 6px 12px rgba(var(--ombra), 0.16),
+    inset -5px -5px 12px rgba(255, 255, 255, 0.95);
+  /* Pulsante premuto: l'ombra esterna si stringe */
+  --ombra-premuta:
+    2px 3px 6px rgba(var(--ombra), 0.18),
+    inset 4px 5px 10px rgba(var(--ombra), 0.14),
+    inset -3px -3px 8px rgba(255, 255, 255, 0.6);
+  /* Pulsante colorato: luce interna in alto e ombra calda sotto */
+  --ombra-accento:
+    8px 12px 24px rgba(181, 72, 42, 0.32),
+    -6px -6px 16px rgba(255, 255, 255, 0.85),
+    inset 3px 5px 8px rgba(255, 255, 255, 0.28),
+    inset -4px -6px 10px rgba(120, 36, 14, 0.22);
+
+  /* Raggi: tutto arrotondato */
+  --raggio-grande: 36px;
+  --raggio-medio: 26px;
+  --raggio-piccolo: 18px;
+  --raggio-pillola: 999px;
+
+  /* Spazi */
+  --spazio-1: 4px;
+  --spazio-2: 8px;
+  --spazio-3: 12px;
+  --spazio-4: 16px;
+  --spazio-5: 24px;
+  --spazio-6: 32px;
+  --spazio-7: 48px;
+
+  /* Caratteri: titoli tondi e gonfi, testo tondo e leggibile */
+  --carattere-titoli: "Fredoka", "Nunito", system-ui, sans-serif;
+  --carattere-testo: "Nunito", system-ui, sans-serif;
+
+  /* Bersagli touch grandi (almeno 48 px) */
+  --altezza-tocco: 52px;
+
+  /* Larghezza massima del contenuto delle pagine su desktop */
+  --larghezza-contenuto: 1080px;
+}

@@ -1,0 +1,175 @@
+/* Base: azzeramento, sfondo, caratteri, focus, movimento. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: var(--carattere-testo);
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--testo);
+  background-color: var(--latte);
+  /* Atmosfera: due nuvole sfumate dietro alle schede, calda in alto a destra e perla in basso a sinistra */
+  background-image:
+    radial-gradient(60vmax 50vmax at 100% -10%, rgba(233, 138, 104, 0.2), transparent 70%),
+    radial-gradient(60vmax 60vmax at -10% 100%, rgba(190, 204, 224, 0.45), transparent 70%);
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-family: var(--carattere-titoli);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+h1 {
+  font-size: clamp(30px, 7vw, 44px);
+}
+
+h2 {
+  font-size: 23px;
+}
+
+h3 {
+  font-size: 19px;
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--accento-testo);
+  font-weight: 700;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+img {
+  max-width: 100%;
+  display: block;
+}
+
+/* Il bordo di focus si vede bene da tastiera ma non al tocco */
+:focus-visible {
+  outline: 3px solid var(--accento);
+  outline-offset: 3px;
+}
+
+.testo-secondario {
+  color: var(--testo-secondario);
+}
+
+.testo-piccolo {
+  font-size: 15px;
+}
+
+.solo-lettore-schermo {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Colonne e righe di uso comune */
+.pila {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spazio-4);
+}
+
+.pila-larga {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spazio-5);
+}
+
+.riga {
+  display: flex;
+  align-items: center;
+  gap: var(--spazio-3);
+  flex-wrap: wrap;
+}
+
+.riga-spaziata {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spazio-3);
+  flex-wrap: wrap;
+}
+
+.griglia {
+  display: grid;
+  gap: var(--spazio-5);
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 760px) {
+  .griglia {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Entrata morbida delle schede di una pagina, una dopo l'altra */
+@keyframes comparsa {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.entrata > * {
+  animation: comparsa 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+
+.entrata > *:nth-child(2) {
+  animation-delay: 60ms;
+}
+
+.entrata > *:nth-child(3) {
+  animation-delay: 120ms;
+}
+
+.entrata > *:nth-child(4) {
+  animation-delay: 180ms;
+}
+
+.entrata > *:nth-child(n + 5) {
+  animation-delay: 240ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

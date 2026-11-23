@@ -1,0 +1,417 @@
+/* Componenti base del design system: scheda, pulsante, campo, interruttore e piccoli pezzi comuni. */
+
+/* ---------- Scheda: il "cuscino" su cui sta ogni contenuto ---------- */
+.scheda {
+  position: relative;
+  padding: var(--spazio-5);
+  border-radius: var(--raggio-grande);
+  background: linear-gradient(150deg, var(--latte-chiaro) 0%, #f6f2ec 100%);
+  box-shadow: var(--ombra-gonfia);
+}
+
+.scheda-intestazione {
+  display: flex;
+  align-items: center;
+  gap: var(--spazio-3);
+  margin-bottom: var(--spazio-4);
+}
+
+.scheda-intestazione h2 {
+  font-size: 21px;
+}
+
+/* Pallina in rilievo che contiene l'icona del titolo */
+.bolla-icona {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  color: var(--accento-testo);
+  background: radial-gradient(circle at 30% 25%, var(--bianco), var(--accento-tenue) 75%);
+  box-shadow: var(--ombra-gonfia-piccola);
+}
+
+/* Riga dentro una scheda (farmaco, contenitore, evento...) */
+.riquadro {
+  padding: var(--spazio-4);
+  border-radius: var(--raggio-medio);
+  background: var(--latte);
+  box-shadow: var(--ombra-incavata);
+}
+
+/* ---------- Pulsante ---------- */
+.pulsante {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spazio-2);
+  min-height: var(--altezza-tocco);
+  padding: 0 var(--spazio-5);
+  border: none;
+  border-radius: var(--raggio-pillola);
+  font-family: var(--carattere-titoli);
+  font-size: 18px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.pulsante:active {
+  transform: translateY(2px) scale(0.98);
+}
+
+.pulsante-principale {
+  color: var(--bianco);
+  background: linear-gradient(170deg, var(--accento-alto), var(--accento-basso));
+  box-shadow: var(--ombra-accento);
+}
+
+.pulsante-principale:active {
+  box-shadow:
+    3px 4px 10px rgba(181, 72, 42, 0.3),
+    inset 4px 6px 10px rgba(120, 36, 14, 0.3);
+}
+
+.pulsante-secondario {
+  color: var(--testo);
+  background: linear-gradient(150deg, var(--bianco), var(--latte));
+  box-shadow: var(--ombra-gonfia-piccola);
+}
+
+.pulsante-secondario:active,
+.pulsante-pericolo:active {
+  box-shadow: var(--ombra-premuta);
+}
+
+.pulsante-pericolo {
+  color: var(--critico-testo);
+  background: linear-gradient(150deg, var(--bianco), var(--critico-fondo));
+  box-shadow: var(--ombra-gonfia-piccola);
+}
+
+.pulsante:disabled,
+.pulsante[aria-disabled="true"] {
+  cursor: not-allowed;
+  color: var(--testo-secondario);
+  background: var(--latte-scuro);
+  box-shadow: var(--ombra-incavata);
+  transform: none;
+}
+
+/* Pulsante tondo con sola icona (sempre con etichetta per il lettore di schermo) */
+.pulsante-icona {
+  width: var(--altezza-tocco);
+  padding: 0;
+}
+
+.pulsante-largo {
+  width: 100%;
+}
+
+/* ---------- Campo ---------- */
+.campo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spazio-2);
+  min-width: 0;
+}
+
+.campo-etichetta {
+  font-weight: 800;
+  font-size: 16px;
+}
+
+.campo-aiuto {
+  font-size: 15px;
+  color: var(--testo-secondario);
+}
+
+.campo-pozzetto {
+  display: flex;
+  align-items: center;
+  min-height: var(--altezza-tocco);
+  padding: 0 var(--spazio-4);
+  border-radius: var(--raggio-piccolo);
+  background: var(--latte);
+  box-shadow: var(--ombra-incavata);
+}
+
+.campo-pozzetto:focus-within {
+  outline: 3px solid var(--accento);
+  outline-offset: 2px;
+}
+
+.campo-pozzetto input {
+  flex: 1;
+  min-width: 0;
+  height: var(--altezza-tocco);
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.campo-pozzetto input::placeholder {
+  color: #766c65;
+  font-weight: 600;
+}
+
+.campo-unita {
+  flex: none;
+  margin-left: var(--spazio-2);
+  color: var(--testo-secondario);
+  font-weight: 700;
+}
+
+/* ---------- Interruttore ---------- */
+.interruttore {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spazio-4);
+  width: 100%;
+  min-height: var(--altezza-tocco);
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.interruttore-testi {
+  display: flex;
+  flex-direction: column;
+}
+
+.interruttore-binario {
+  position: relative;
+  flex: none;
+  width: 72px;
+  height: 42px;
+  border-radius: var(--raggio-pillola);
+  background: var(--latte-scuro);
+  box-shadow: var(--ombra-incavata);
+  transition: background 0.25s ease;
+}
+
+.interruttore-pallina {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 32% 28%, var(--bianco) 30%, #ece6de 100%);
+  box-shadow:
+    3px 4px 8px rgba(var(--ombra), 0.3),
+    inset -2px -3px 5px rgba(var(--ombra), 0.12);
+  transition: transform 0.3s cubic-bezier(0.3, 1.5, 0.5, 1);
+}
+
+.interruttore[aria-checked="true"] .interruttore-binario {
+  background: linear-gradient(170deg, var(--accento-chiaro), var(--accento));
+  box-shadow:
+    inset 4px 5px 10px rgba(120, 36, 14, 0.3),
+    inset -3px -3px 8px rgba(255, 255, 255, 0.25);
+}
+
+.interruttore[aria-checked="true"] .interruttore-pallina {
+  transform: translateX(30px);
+}
+
+/* ---------- Etichetta di stato: icona + parola, mai il colore da solo ---------- */
+.stato {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 14px 0 10px;
+  border-radius: var(--raggio-pillola);
+  font-size: 15px;
+  font-weight: 800;
+  white-space: nowrap;
+  box-shadow:
+    2px 3px 6px rgba(var(--ombra), 0.12),
+    inset 2px 2px 4px rgba(255, 255, 255, 0.7);
+}
+
+.stato-buono {
+  color: var(--buono-testo);
+  background: var(--buono-fondo);
+}
+
+.stato-attenzione {
+  color: var(--attenzione-testo);
+  background: var(--attenzione-fondo);
+}
+
+.stato-critico {
+  color: var(--critico-testo);
+  background: var(--critico-fondo);
+}
+
+.stato-neutro {
+  color: var(--neutro-testo);
+  background: var(--neutro-fondo);
+}
+
+/* "Simulated": lo storico simulato della casa demo va sempre segnalato (D22) */
+.simulato {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: var(--raggio-pillola);
+  border: 2px dashed #a3978d;
+  color: var(--neutro-testo);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ---------- Scelta a segmenti (es. Daily / Weekly / Monthly) ---------- */
+.segmenti {
+  display: flex;
+  gap: var(--spazio-1);
+  padding: 6px;
+  border-radius: var(--raggio-pillola);
+  background: var(--latte);
+  box-shadow: var(--ombra-incavata);
+}
+
+.segmento {
+  flex: 1;
+  min-height: 46px;
+  padding: 0 var(--spazio-3);
+  border: none;
+  border-radius: var(--raggio-pillola);
+  background: transparent;
+  font-family: var(--carattere-titoli);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--testo-secondario);
+  cursor: pointer;
+}
+
+.segmento[aria-pressed="true"] {
+  color: var(--testo);
+  background: linear-gradient(150deg, var(--bianco), var(--latte-chiaro));
+  box-shadow: var(--ombra-gonfia-piccola);
+}
+
+/* ---------- Misuratore: riempimento e binario della stessa tinta ---------- */
+.misuratore {
+  height: 22px;
+  padding: 4px;
+  border-radius: var(--raggio-pillola);
+  background: var(--accento-tenue);
+  box-shadow:
+    inset 3px 4px 8px rgba(var(--ombra), 0.16),
+    inset -3px -3px 8px rgba(255, 255, 255, 0.8);
+}
+
+.misuratore-pieno {
+  height: 100%;
+  min-width: 14px;
+  border-radius: var(--raggio-pillola);
+  background: linear-gradient(180deg, var(--accento-chiaro), var(--accento));
+  box-shadow: inset 0 3px 3px rgba(255, 255, 255, 0.35);
+}
+
+.misuratore-sottile {
+  height: 14px;
+  padding: 3px;
+}
+
+/* ---------- Numero grande in evidenza (uno per vista) ---------- */
+.numero-grande {
+  font-family: var(--carattere-testo);
+  font-size: 52px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.numero-medio {
+  font-family: var(--carattere-testo);
+  font-size: 32px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+/* Tessera con un numero e la sua etichetta */
+.tessera {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--spazio-4);
+  border-radius: var(--raggio-medio);
+  background: var(--latte);
+  box-shadow: var(--ombra-incavata);
+}
+
+.tessere {
+  display: grid;
+  gap: var(--spazio-3);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (min-width: 760px) {
+  .tessere {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  }
+}
+
+/* ---------- Riquadro segnaposto per i grafici (libreria ancora da scegliere) ---------- */
+.segnaposto-grafico {
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  padding: var(--spazio-4);
+  border-radius: var(--raggio-medio);
+  border: 2px dashed #c9bdb2;
+  background: var(--latte);
+  color: var(--testo-secondario);
+  text-align: center;
+  font-weight: 700;
+}
+
+/* ---------- Tabella morbida ---------- */
+.tabella-contenitore {
+  overflow-x: auto;
+  border-radius: var(--raggio-medio);
+  background: var(--latte);
+  box-shadow: var(--ombra-incavata);
+}
+
+.tabella {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tabella th,
+.tabella td {
+  padding: 12px 14px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.tabella th {
+  font-weight: 800;
+  color: var(--testo-secondario);
+}
+
+.tabella tbody tr + tr td {
+  border-top: 1px solid var(--latte-scuro);
+}
