@@ -14,8 +14,8 @@ dev = ["pytest"]
 package = false
 
 [tool.uv.workspace]
-# backend e casa si aggiungono qui quando nascono le loro cartelle
-members = ["contratti"]
+# ogni pacchetto ha le sue dipendenze: il server installa solo contratti + backend
+members = ["contratti", "backend", "casa"]
 
 [tool.uv.sources]
 contratti = { workspace = true }
