@@ -64,7 +64,7 @@ class ReportPeriodo(BaseModel):
     al: datetime.date
     giorni: list[RiassuntoGiorno]
     acqua_media_ml: float
-    # Dosi in orario + in ritardo sulle dosi previste, da 0 a 100.
+    # Dosi in orario + in ritardo sulle dosi già valutate (quelle "in_attesa" non contano), da 0 a 100.
     aderenza_farmaci_percentuale: float
     cadute: int
     uscite_in_orario_vietato: int

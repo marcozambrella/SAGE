@@ -18,7 +18,7 @@ Risultati veri dei modelli sui video registrati più lo storico simulato (`simul
 | Metodo | Percorso | Risposta |
 |---|---|---|
 | GET | `/demo/personalizzazione` | `Personalizzazione` della casa demo (farmaci, contenitori, telecamere previste, regole) |
-| GET | `/demo/eventi?dal=&al=&tipo=` | `list[Evento]` in ordine di `inizio`; `foto_prova` sempre `null` qui |
+| GET | `/demo/eventi?dal=&al=&tipo=` | `list[Evento]` in ordine di `inizio`; `dal` e `al` sono date AAAA-MM-GG comprese, nel fuso della casa; `foto_prova` sempre `null` qui |
 | GET | `/demo/eventi/{id}/foto` | JPEG della foto di prova (404 se non c'è) |
 | GET | `/demo/report/giornaliero?data=AAAA-MM-GG` | `ReportGiornaliero` |
 | GET | `/demo/report/settimanale?dal=AAAA-MM-GG` | `ReportPeriodo` dei 7 giorni da `dal` |
@@ -28,7 +28,7 @@ I trend si disegnano con `ReportPeriodo.giorni` (una riga per giorno). Le foto d
 pubbliche: vengono dai video che Marco registra apposta per la demo.
 
 ## Programma di casa (header `Authorization: Bearer <token casa>`)
-Il token sta nel file `.env` del programma di casa e del backend, mai nel repo.
+Il token è la variabile `TOKEN_CASA`: sta nel file `.env` del programma di casa e in `backend/.env`, mai nel repo.
 
 | Metodo | Percorso | Corpo → risposta |
 |---|---|---|
@@ -46,8 +46,8 @@ Il token sta nel file `.env` del programma di casa e del backend, mai nel repo.
 
 ## Regole che calcola il backend (non il programma di casa)
 - **Stato delle dosi**: per ogni farmaco e orario previsto, la prima presa con quel `farmaco_id` (o non riconosciuta)
-  vicino all'orario: entro `tolleranza_minuti` → `in_orario`; dopo → `in_ritardo` con `minuti_ritardo`; finita la
-  finestra senza presa → `saltata`; finestra non ancora finita → `in_attesa`. La finestra esatta la propone
-  l'agente backend e la decide Marco.
+  vicino all'orario (D38): da 1 ora prima fino a `tolleranza_minuti` dopo → `in_orario`; fino a 2 ore dopo →
+  `in_ritardo` con `minuti_ritardo`; finita la finestra senza presa → `saltata` (promemoria Telegram); finestra non
+  ancora finita → `in_attesa`.
 - **Uscita in orario vietato**: `inizio` dell'uscita dentro una fascia di `orari_uscita_vietati`.
 - **Notte**: le alzate contano negli `orari_notte`.
