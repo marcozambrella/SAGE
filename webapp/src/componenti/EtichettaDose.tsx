@@ -1,17 +1,12 @@
 // Stato di una dose: icona + parola + colore (mai il colore da solo).
 import type { DoseFarmaco } from "../contratti";
-import { oraDellaCasa } from "../formato";
 import Icona from "./Icona";
 
-export default function EtichettaDose({ dose, fusoOrario }: { dose: DoseFarmaco; fusoOrario: string }) {
+export default function EtichettaDose({ dose }: { dose: DoseFarmaco }) {
   if (dose.stato === "in_orario") {
-    let testo = "On time";
-    if (dose.ora_presa !== null) {
-      testo = "On time · " + oraDellaCasa(dose.ora_presa, fusoOrario);
-    }
     return (
       <span className="stato stato-buono">
-        <Icona nome="spunta" dimensione={18} /> {testo}
+        <Icona nome="spunta" dimensione={18} /> On time
       </span>
     );
   }

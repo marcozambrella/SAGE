@@ -282,6 +282,19 @@
   box-shadow: var(--ombra-incavata);
 }
 
+/* Dose: nome e stato sulla stessa riga, gli orari sotto */
+.riga-dose {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--spazio-3);
+  row-gap: 2px;
+}
+
+.riga-dose-testo {
+  grid-column: 1 / -1;
+}
+
 /* ---------- Today ---------- */
 .scheda-attenzione {
   display: flex;
@@ -405,7 +418,7 @@
   position: absolute;
   top: 8px;
   bottom: 8px;
-  left: 79px;
+  left: 19px;
   width: 6px;
   border-radius: 3px;
   background: var(--latte-scuro);
@@ -415,16 +428,15 @@
 .evento {
   position: relative;
   display: grid;
-  grid-template-columns: 52px 44px minmax(0, 1fr);
+  grid-template-columns: 44px minmax(0, 1fr);
   align-items: start;
   gap: var(--spazio-3);
 }
 
 .evento-ora {
-  padding-top: 10px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
-  text-align: right;
+  color: var(--accento-testo);
 }
 
 .evento-bolla {
@@ -540,6 +552,11 @@
 
 .pausa-riga .campo {
   flex: 1;
+}
+
+/* ---------- Settings: moduli non più larghi di così anche su desktop ---------- */
+.pagina-stretta {
+  max-width: 760px;
 }
 
 /* ---------- Settings: pulsante "Save changes" sempre a portata di dito ---------- */

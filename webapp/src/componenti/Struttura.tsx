@@ -88,23 +88,22 @@ export default function Struttura({ demo, nomeAnziano }: Proprieta) {
           </div>
         </header>
 
-        {demo && (
-          <div className="striscia-demo" role="note">
-            <span className="bolla-icona">
-              <Icona nome="casa" />
-            </span>
-            <p>
-              <strong>Demo home.</strong> Real model results on videos we recorded, plus a simulated history marked
-              “Simulated”.
-              {USA_DATI_SVILUPPO && <strong> Showing development sample data (no backend connected).</strong>}
-            </p>
-            <Link to={paginaMia} className="pulsante pulsante-secondario">
-              Back to my home
-            </Link>
-          </div>
-        )}
-
         <main className="contenuto">
+          {demo && (
+            <div className="striscia-demo" role="note">
+              <span className="bolla-icona">
+                <Icona nome="casa" />
+              </span>
+              <p>
+                <strong>Demo home.</strong> Real model results on videos we recorded, plus a simulated history marked
+                “Simulated”.
+                {USA_DATI_SVILUPPO && <strong> Showing development sample data (no backend connected).</strong>}
+              </p>
+              <Link to={paginaMia} className="pulsante pulsante-secondario">
+                Back to my home
+              </Link>
+            </div>
+          )}
           <Outlet />
         </main>
       </div>

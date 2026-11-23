@@ -22,15 +22,15 @@ export default function RigaEvento({ evento, personalizzazione }: Proprieta) {
 
   return (
     <li className={"evento evento-" + descrizione.gravita}>
-      <span className="evento-ora">{oraDellaCasa(evento.inizio, personalizzazione.fuso_orario)}</span>
       <span className="evento-bolla" aria-hidden="true">
         <Icona nome={descrizione.icona} dimensione={22} />
       </span>
       <div className="evento-testi">
         <div className="riga" style={{ gap: 8 }}>
-          <strong>{descrizione.titolo}</strong>
+          <span className="evento-ora">{oraDellaCasa(evento.inizio, personalizzazione.fuso_orario)}</span>
           {evento.simulato && <EtichettaSimulato />}
         </div>
+        <strong>{descrizione.titolo}</strong>
         <p className="testo-secondario testo-piccolo">{descrizione.dettaglio}</p>
         <p className="testo-secondario testo-piccolo">
           {evento.stanza} · {Math.round(evento.confidenza * 100)}% confidence

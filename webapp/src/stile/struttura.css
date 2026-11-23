@@ -80,8 +80,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--spazio-3);
-  max-width: calc(var(--larghezza-contenuto) - 2 * var(--spazio-4));
-  margin: 0 auto var(--spazio-4);
+  margin-bottom: var(--spazio-5);
   padding: var(--spazio-3) var(--spazio-4);
   border-radius: var(--raggio-medio);
   background: linear-gradient(150deg, #fdf0e9, var(--accento-tenue));
@@ -91,13 +90,6 @@
 .striscia-demo p {
   flex: 1 1 220px;
   font-size: 15px;
-}
-
-@media (max-width: 1079px) {
-  .striscia-demo {
-    margin-left: var(--spazio-4);
-    margin-right: var(--spazio-4);
-  }
 }
 
 /* ---------- Barra del menu in basso (telefono) ---------- */
@@ -180,9 +172,15 @@
 
 .foglio-voci {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--spazio-3);
   margin-top: var(--spazio-4);
+}
+
+.foglio-voci .pulsante {
+  justify-content: flex-start;
+  padding: 0 var(--spazio-4);
+  font-size: 17px;
 }
 
 /* ---------- Menu a colonna (desktop) ---------- */

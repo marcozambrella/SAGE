@@ -5,6 +5,7 @@ import type { Farmaco, Personalizzazione, ReportGiornaliero, ReportPeriodo } fro
 import { GIORNO_DEMO, leggiPersonalizzazioneDemo, leggiReportGiornaliero, leggiReportSettimanale } from "../api";
 import { giornoLungo, numero, spostaGiorno } from "../formato";
 import Caricamento from "../componenti/Caricamento";
+import { orariDose } from "../descrizioni";
 import EtichettaDose from "../componenti/EtichettaDose";
 import Icona from "../componenti/Icona";
 import InAttesaTelecamere from "../componenti/InAttesaTelecamere";
@@ -97,12 +98,10 @@ function FarmaciCasaDemo() {
         <Scheda titolo={"Doses on " + giornoLungo(oggi.data)} icona="sole">
           <ul className="lista-semplice">
             {oggi.dosi.map((dose) => (
-              <li key={dose.farmaco_id + dose.orario_previsto} className="riga-spaziata riga-lista">
-                <div>
-                  <strong>{dose.nome}</strong>
-                  <p className="testo-secondario testo-piccolo">Planned at {dose.orario_previsto}</p>
-                </div>
-                <EtichettaDose dose={dose} fusoOrario={personalizzazione.fuso_orario} />
+              <li key={dose.farmaco_id + dose.orario_previsto} className="riga-dose riga-lista">
+                <strong>{dose.nome}</strong>
+                <EtichettaDose dose={dose} />
+                <p className="testo-secondario testo-piccolo riga-dose-testo">{orariDose(dose, personalizzazione.fuso_orario)}</p>
               </li>
             ))}
           </ul>

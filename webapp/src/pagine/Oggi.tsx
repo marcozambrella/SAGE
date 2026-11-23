@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import type { Evento, Personalizzazione, ReportGiornaliero } from "../contratti";
 import { GIORNO_DEMO, leggiEventiDemo, leggiPersonalizzazioneDemo, leggiReportGiornaliero } from "../api";
-import { descriviEvento, type Descrizione } from "../descrizioni";
+import { descriviEvento, orariDose, type Descrizione } from "../descrizioni";
 import { durata, giornoLungo, maiuscola, millilitri, oraDellaCasa } from "../formato";
 import Caricamento from "../componenti/Caricamento";
 import EtichettaDose from "../componenti/EtichettaDose";
@@ -173,12 +173,10 @@ function OggiCasaDemo() {
         <Scheda titolo="Medications" icona="pillola">
           <ul className="lista-semplice">
             {report.dosi.map((dose) => (
-              <li key={dose.farmaco_id + dose.orario_previsto} className="riga-spaziata riga-lista">
-                <div>
-                  <strong>{dose.nome}</strong>
-                  <p className="testo-secondario testo-piccolo">Planned at {dose.orario_previsto}</p>
-                </div>
-                <EtichettaDose dose={dose} fusoOrario={fuso} />
+              <li key={dose.farmaco_id + dose.orario_previsto} className="riga-dose riga-lista">
+                <strong>{dose.nome}</strong>
+                <EtichettaDose dose={dose} />
+                <p className="testo-secondario testo-piccolo riga-dose-testo">{orariDose(dose, personalizzazione.fuso_orario)}</p>
               </li>
             ))}
           </ul>

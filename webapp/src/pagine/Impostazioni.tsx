@@ -75,7 +75,7 @@ function ImpostazioniCasaUtente({ personalizzazione, onSalva, onCancella }: Prop
   }
 
   return (
-    <div className="pila-larga entrata">
+    <div className="pila-larga entrata pagina-stretta">
       <TitoloPagina titolo="Settings" sotto="Saved only in this browser. Nothing is sent to a server." />
 
       <Scheda titolo="About them" icona="cuore">

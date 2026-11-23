@@ -1,6 +1,6 @@
 // Come si racconta un evento a una famiglia: icona, titolo, dettaglio e gravità (per il colore e l'etichetta).
 import type { NomeIcona } from "./componenti/Icona";
-import type { Evento, FasciaOraria, Personalizzazione, TipoContenitore } from "./contratti";
+import type { DoseFarmaco, Evento, FasciaOraria, Personalizzazione, TipoContenitore } from "./contratti";
 import { durata, maiuscola, oraDellaCasa } from "./formato";
 
 export type Gravita = "critico" | "attenzione" | "buono" | "neutro";
@@ -103,4 +103,16 @@ export function descriviEvento(evento: Evento, personalizzazione: Personalizzazi
   const minuti = minutiTra(evento.inizio, evento.fine);
   const dettaglio = durata(minuti) + " out of bed · " + evento.valori.stanze.join(", ");
   return { icona: "luna", titolo: "Got up at night", dettaglio: dettaglio, gravita: "attenzione" };
+}
+
+// "Planned 08:00 · taken 08:07": la riga di testo sotto il nome del farmaco.
+export function orariDose(dose: DoseFarmaco, fusoOrario: string): string {
+  let testo = "Planned " + dose.orario_previsto;
+  if (dose.ora_presa !== null) {
+    testo = testo + " · taken " + oraDellaCasa(dose.ora_presa, fusoOrario);
+  }
+  if (dose.farmaco_riconosciuto === false) {
+    testo = testo + " · pill not recognised";
+  }
+  return testo;
 }

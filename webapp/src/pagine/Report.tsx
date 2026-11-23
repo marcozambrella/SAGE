@@ -21,6 +21,7 @@ import {
   spostaGiorno,
 } from "../formato";
 import Caricamento from "../componenti/Caricamento";
+import { orariDose } from "../descrizioni";
 import EtichettaDose from "../componenti/EtichettaDose";
 import EtichettaSimulato from "../componenti/EtichettaSimulato";
 import Icona from "../componenti/Icona";
@@ -145,9 +146,9 @@ function ReportDelGiorno() {
 
   const fuso = personalizzazione.fuso_orario;
   const percentualeAcqua = (report.acqua_ml / report.obiettivo_acqua_ml) * 100;
-  let origine = "From the recorded videos";
+  let origine = "from the recorded videos";
   if (report.simulato) {
-    origine = "Simulated day";
+    origine = "simulated day";
   }
 
   return (
@@ -156,12 +157,13 @@ function ReportDelGiorno() {
       <article className="scheda foglio-report pila-larga">
         <header className="riga-spaziata">
           <div>
-            <p className="testo-secondario testo-piccolo">Daily report · {personalizzazione.anziano.nome}</p>
-            <h2>{giornoLungo(report.data)}</h2>
+            <h2>Daily report</h2>
+            <p className="testo-secondario">
+              {personalizzazione.anziano.nome} · {origine}
+            </p>
           </div>
           {report.simulato && <EtichettaSimulato />}
         </header>
-        <p className="testo-secondario">{origine}.</p>
 
         <section className="pila">
           <h3 className="titolo-sezione">
@@ -182,11 +184,10 @@ function ReportDelGiorno() {
           </h3>
           <ul className="lista-semplice">
             {report.dosi.map((dose) => (
-              <li key={dose.farmaco_id + dose.orario_previsto} className="riga-spaziata riga-lista">
-                <span>
-                  <strong>{dose.nome}</strong> <span className="testo-secondario">at {dose.orario_previsto}</span>
-                </span>
-                <EtichettaDose dose={dose} fusoOrario={fuso} />
+              <li key={dose.farmaco_id + dose.orario_previsto} className="riga-dose riga-lista">
+                <strong>{dose.nome}</strong>
+                <EtichettaDose dose={dose} />
+                <p className="testo-secondario testo-piccolo riga-dose-testo">{orariDose(dose, fuso)}</p>
               </li>
             ))}
           </ul>
@@ -312,17 +313,14 @@ function ReportDelPeriodo({ tipo }: { tipo: "settimanale" | "mensile" }) {
       <article className="scheda foglio-report pila-larga">
         <header className="riga-spaziata">
           <div>
-            <p className="testo-secondario testo-piccolo">{titolo}</p>
-            <h2>
-              {giornoEMese(report.dal)} – {giornoEMese(report.al)}
-            </h2>
+            <h2>{titolo}</h2>
+            <p className="testo-secondario">
+              {report.giorni.length} days with data
+              {giorniSimulati > 0 && <>, {giorniSimulati} of them simulated</>}
+            </p>
           </div>
           {giorniSimulati > 0 && <EtichettaSimulato />}
         </header>
-        <p className="testo-secondario">
-          {report.giorni.length} days with data
-          {giorniSimulati > 0 && <>, {giorniSimulati} of them simulated</>}.
-        </p>
 
         <div className="tessere">
           <div className="tessera">
@@ -353,11 +351,11 @@ function ReportDelPeriodo({ tipo }: { tipo: "settimanale" | "mensile" }) {
               <tr>
                 <th scope="col">Day</th>
                 <th scope="col">Water</th>
-                <th scope="col">Doses on time · late · missed</th>
+                <th scope="col">Doses</th>
                 <th scope="col">Eaten</th>
-                <th scope="col">Night rises</th>
+                <th scope="col">Night</th>
                 <th scope="col">Falls</th>
-                <th scope="col">No-exit exits</th>
+                <th scope="col">Exits</th>
               </tr>
             </thead>
             <tbody>
@@ -379,7 +377,10 @@ function ReportDelPeriodo({ tipo }: { tipo: "settimanale" | "mensile" }) {
             </tbody>
           </table>
         </div>
-        {giorniSimulati > 0 && <p className="testo-secondario testo-piccolo">* Simulated day</p>}
+        <p className="testo-secondario testo-piccolo">
+          Doses: on time · late · missed. Night: times out of bed. Exits: during no-exit hours.
+          {giorniSimulati > 0 && <> * Simulated day.</>}
+        </p>
       </article>
     </>
   );
