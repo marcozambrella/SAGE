@@ -1,0 +1,39 @@
+# dati, video e pesi: mai nel repo (repo pubblico, video della casa di Marco)
+data/
+runs/
+pesi/
+*.pt
+*.onnx
+*.safetensors
+*.npz
+*.mp4
+*.mov
+*.avi
+*.webm
+*.jpg
+*.jpeg
+*.png
+!sito/**/*.jpg
+!sito/**/*.png
+!webapp/public/**/*.png
+!webapp/src/**/*.png
+# python
+__pycache__/
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.sqlite3
+*.db
+# node
+node_modules/
+webapp/dist/
+# segreti (token Telegram, Kaggle, database)
+.env
+.env.*
+kaggle.json
+token_*
+# diario personale delle decisioni (solo locale)
+DIARIO.md
+# configurazione locale di Claude Code
+.claude/
