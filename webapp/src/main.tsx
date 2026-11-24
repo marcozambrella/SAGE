@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter } from "react-router";
+import { HashRouter } from "react-router";
 import "./stile/variabili.css";
 import "./stile/base.css";
 import "./stile/componenti.css";
@@ -13,10 +13,12 @@ if (radice === null) {
   throw new Error("Manca l'elemento #root in index.html");
 }
 
+// Indirizzi con "#" (es. .../#/demo/today): funzionano su qualunque hosting statico, alla radice o in una
+// sottocartella, e un link a una pagina interna non dà mai "pagina non trovata".
 createRoot(radice).render(
   <StrictMode>
-    <BrowserRouter>
+    <HashRouter>
       <App />
-    </BrowserRouter>
+    </HashRouter>
   </StrictMode>,
 );
