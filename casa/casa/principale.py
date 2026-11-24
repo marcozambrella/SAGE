@@ -29,9 +29,11 @@ from casa.alzata_notturna import AnalizzatoreAlzataNotturna, AnalizzatorePresenz
 from casa.bevuta import AnalizzatoreBevuta
 from casa.caduta import AnalizzatoreCaduta
 from casa.configurazione import leggi_configurazione
+from casa.farmaco import AnalizzatoreFarmaco
 from casa.invio import SECONDI_TRA_LOTTI, Backend, invia_in_sospeso
 from casa.percezione import POSA_PREDEFINITA, RILEVATORE_PREDEFINITO, Percezione
 from casa.registro import RegistroLocale
+from casa.riconoscimento_farmaci import RiconoscitoreFarmaci, crea_riconoscitore
 from casa.sorgenti import apri_sorgente
 from casa.uscita import AnalizzatoreUscita
 from casa.zone import zone_del_tipo
@@ -52,7 +54,8 @@ class Telecamera:
     tracker: object = None
 
 
-def crea_analizzatori(telecamera: TelecameraLocale, personalizzazione: Personalizzazione) -> list:
+def crea_analizzatori(telecamera: TelecameraLocale, personalizzazione: Personalizzazione,
+                      riconoscitore: RiconoscitoreFarmaci | None) -> list:
     analizzatori = []
     for nome in telecamera.analizzatori:
         if nome == "uscita":
@@ -61,6 +64,8 @@ def crea_analizzatori(telecamera: TelecameraLocale, personalizzazione: Personali
             analizzatori.append(AnalizzatoreCaduta(telecamera))
         elif nome == "bevuta":
             analizzatori.append(AnalizzatoreBevuta(telecamera, personalizzazione))
+        elif nome == "farmaco":
+            analizzatori.append(AnalizzatoreFarmaco(telecamera, riconoscitore))
         elif nome == "alzata_notturna":
             notte = personalizzazione.regole.orari_notte
             # senza zona letto la telecamera dice solo che di notte qualcuno è passato di qui
@@ -74,9 +79,17 @@ def crea_analizzatori(telecamera: TelecameraLocale, personalizzazione: Personali
 
 
 def prepara_telecamere(configurazione: ConfigurazioneCasa, fps: float) -> list:
+    # il riconoscimento dei farmaci (CLIP) si carica una volta sola, e solo se qualche telecamera ne ha bisogno
+    serve_riconoscitore = False
+    for telecamera_locale in configurazione.telecamere:
+        if "farmaco" in telecamera_locale.analizzatori:
+            serve_riconoscitore = True
+    riconoscitore = None
+    if serve_riconoscitore:
+        riconoscitore = crea_riconoscitore(configurazione.personalizzazione, configurazione.cartella_foto_farmaci)
     telecamere = []
     for telecamera_locale in configurazione.telecamere:
-        analizzatori = crea_analizzatori(telecamera_locale, configurazione.personalizzazione)
+        analizzatori = crea_analizzatori(telecamera_locale, configurazione.personalizzazione, riconoscitore)
         usa_oggetti = False
         for analizzatore in analizzatori:
             if analizzatore.usa_oggetti:

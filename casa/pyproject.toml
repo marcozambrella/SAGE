@@ -11,6 +11,7 @@ dependencies = [
     "torchvision",
     "lap",  # richiesto dal tracker di Ultralytics
     "python-dotenv",  # token e indirizzo del backend dal file .env (mai nel repo)
+    "open_clip_torch",  # embedding CLIP congelati per riconoscere le scatole dei farmaci dalle foto (come ARGO)
 ]
 
 # Sul PC di Marco torch per CPU (nessuna GPU), dall'indice di PyTorch come in ARGO.
