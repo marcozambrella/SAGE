@@ -4,12 +4,15 @@ Per ogni dataset allegato: file per estensione e per cartella, video (fps, fotog
 sequenze di immagini, esempi dei file di etichette e dei README, quanti video sembrano in infrarosso (saturazione
 quasi zero), un mosaico di fotogrammi per vedere l'inquadratura e una prova della posa YOLO26 n e s su pochi
 fotogrammi (quante persone trova, confidenza, tempo per fotogramma sulla CPU di Kaggle).
+I video si leggono con ffprobe/ffmpeg e non con OpenCV: gli avi di Le2i (video grezzo bgr24 + audio mp3) fanno
+cadere OpenCV con un errore nativo anche leggendo in fila (prova del 24/11), e un errore di ffmpeg non ferma il kernel.
 Uscita in /kaggle/working: esplorazione.json, esplorazione.md, mosaico_<dataset>.jpg, posa_<dataset>.jpg.
 """
 import json
 import os
 import random
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -22,26 +25,35 @@ import numpy as np
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "ultralytics>=8.4"], check=True)
 from ultralytics import YOLO  # noqa: E402  (installato qui sopra)
 
+if shutil.which("ffprobe") is None:   # build statica di ffmpeg se l'immagine di Kaggle non l'ha (come in ARGO)
+    subprocess.run("curl -sL https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz | "
+                   "tar -xJ -C /tmp && cp /tmp/ffmpeg-*-static/ff* /usr/local/bin/", shell=True, check=True)
+
 INGRESSO = Path("/kaggle/input")
 USCITA = Path("/kaggle/working")
 # nome della cartella montata da Kaggle → nome breve del dataset
 DATASET = {
     "caucafall": "caucafall",
-    "gmdcsa24": "gmdcsa24_ambatipallisahasra",
-    "gmdcsa": "gmdcsa24_nguynthnhquang",
+    # copia più recente di GMDCSA24 (v2.1): i csv hanno anche le classi con i secondi, es. "Sitting[0 to 1]"
+    "gmdcsa": "gmdcsa24",
     "ur-fall-detection-dataset": "urfall",
     "falldataset-imvia": "le2i",
+    # seconda ricerca (dataset.md, sez. 12.7): infrarosso e termico; anziani veri ripresi con lo smartphone
+    "muvim-yolo-raw": "muvim",
+    "varishta-mm50-organized": "varishta",
 }
-# la seconda copia di GMDCSA24 serve solo a confrontare le etichette: la posa si prova una volta per dataset
-DATASET_PROVA_POSA = ["caucafall", "gmdcsa24_ambatipallisahasra", "urfall", "le2i"]
+DATASET_PROVA_POSA = ["caucafall", "gmdcsa24", "urfall", "le2i", "muvim", "varishta"]
 MODELLI_POSA = ["yolo26n-pose.pt", "yolo26s-pose.pt"]
 ESTENSIONI_VIDEO = [".avi", ".mp4", ".mov", ".mkv", ".mpg"]
 ESTENSIONI_IMMAGINE = [".png", ".jpg", ".jpeg", ".bmp"]
 ESTENSIONI_ETICHETTE = [".txt", ".csv", ".json", ".xml", ".xlsx", ".xls", ".mat"]
 # una cartella con almeno tante immagini è una sequenza di fotogrammi (UR Fall è distribuito a png)
 IMMAGINI_MINIME_SEQUENZA = 20
-# sotto questa saturazione media (0-255) il fotogramma è in bianco e nero: infrarosso (o video in grigio)
-SATURAZIONE_INFRAROSSO = 12
+# sotto questa saturazione media (0-255) il fotogramma è in bianco e nero: infrarosso (o video in grigio).
+# CAUCAFall (prima esplorazione): avi in infrarosso 10,6-13,4 (la compressione aggiunge colore), a colori ≥ 37
+SATURAZIONE_INFRAROSSO = 25
+# file di etichette letti per tipo: su Kaggle aprire tanti file piccoli è lento (CAUCAFall, 20 mila txt: 25 minuti)
+FILE_ETICHETTE_PER_TIPO = 500
 VIDEO_PER_PROVA = 16
 FRAZIONI_PROVA = [0.25, 0.5, 0.75]
 LARGHEZZA_TESSERA = 320
@@ -78,22 +90,48 @@ def colore_e_luce(frame: np.ndarray) -> tuple:
     return saturazione, luminosita
 
 
+def fotogramma_al_secondo(percorso: Path, secondo: float):
+    """Il fotogramma a quel secondo del video, letto da ffmpeg (None se ffmpeg non ci riesce)."""
+    comando = ["ffmpeg", "-v", "error", "-ss", f"{secondo:.3f}", "-i", str(percorso), "-frames:v", "1",
+               "-f", "image2pipe", "-vcodec", "png", "-"]
+    risultato = subprocess.run(comando, capture_output=True)
+    if risultato.returncode != 0 or not risultato.stdout:
+        return None
+    return cv2.imdecode(np.frombuffer(risultato.stdout, dtype=np.uint8), cv2.IMREAD_COLOR)
+
+
 def leggi_video(percorso: Path) -> dict:
-    """fps, fotogrammi, risoluzione, durata e colore/luce del fotogramma a metà video."""
-    video = cv2.VideoCapture(str(percorso))
-    fps = video.get(cv2.CAP_PROP_FPS)
-    numero_frame = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
-    larghezza = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
-    altezza = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    video.set(cv2.CAP_PROP_POS_FRAMES, numero_frame // 2)
-    letto, frame = video.read()
-    video.release()
-    secondi = 0.0
-    if fps > 0:
-        secondi = numero_frame / fps
-    info = {"percorso": str(percorso), "fps": round(fps, 2), "frame": numero_frame, "larghezza": larghezza,
-            "altezza": altezza, "secondi": round(secondi, 1), "saturazione": None, "luminosita": None}
-    if letto:
+    """Codec, fps, fotogrammi, risoluzione, durata (da ffprobe) e colore/luce del fotogramma a metà video."""
+    info = {"percorso": str(percorso), "codec": None, "fps": 0.0, "frame": 0, "larghezza": 0, "altezza": 0,
+            "secondi": 0.0, "saturazione": None, "luminosita": None}
+    comando = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+               "stream=codec_name,width,height,avg_frame_rate,nb_frames:format=duration", "-of", "json",
+               str(percorso)]
+    risultato = subprocess.run(comando, capture_output=True, text=True)
+    if risultato.returncode != 0:
+        info["errore"] = risultato.stderr[-300:]
+        return info
+    dati = json.loads(risultato.stdout)
+    if not dati.get("streams"):
+        info["errore"] = "nessun flusso video"
+        return info
+    flusso = dati["streams"][0]
+    numeratore, denominatore = flusso.get("avg_frame_rate", "0/0").split("/")
+    fps = 0.0
+    if float(denominatore) > 0:
+        fps = float(numeratore) / float(denominatore)
+    secondi = float(dati.get("format", {}).get("duration", 0) or 0)
+    numero_frame = round(secondi * fps)
+    if str(flusso.get("nb_frames", "")).isdigit():
+        numero_frame = int(flusso["nb_frames"])
+    info["codec"] = flusso.get("codec_name")
+    info["fps"] = round(fps, 2)
+    info["frame"] = numero_frame
+    info["larghezza"] = flusso.get("width", 0)
+    info["altezza"] = flusso.get("height", 0)
+    info["secondi"] = round(secondi, 1)
+    frame = fotogramma_al_secondo(percorso, secondi / 2)
+    if frame is not None:
         saturazione, luminosita = colore_e_luce(frame)
         info["saturazione"] = round(saturazione, 1)
         info["luminosita"] = round(luminosita, 1)
@@ -114,17 +152,13 @@ def leggi_sequenza(cartella: Path, immagini: list) -> dict:
     return info
 
 
-def fotogrammi_del_video(percorso: Path, frazioni: list) -> list:
+def fotogrammi_del_video(info_video: dict, frazioni: list) -> list:
     """I fotogrammi a quelle frazioni della durata (es. 0.5 = metà); salta quelli che non si leggono."""
-    video = cv2.VideoCapture(str(percorso))
-    numero_frame = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
     fotogrammi = []
     for frazione in frazioni:
-        video.set(cv2.CAP_PROP_POS_FRAMES, int(numero_frame * frazione))
-        letto, frame = video.read()
-        if letto:
+        frame = fotogramma_al_secondo(Path(info_video["percorso"]), info_video["secondi"] * frazione)
+        if frame is not None:
             fotogrammi.append(frame)
-    video.release()
     return fotogrammi
 
 
@@ -171,7 +205,7 @@ def riassunto_etichette(file_etichette: list) -> dict:
         if len(percorsi) >= 20 and percorsi[0].suffix.lower() in [".txt", ".csv"]:
             righe_per_file = Counter()
             prima_colonna = Counter()
-            for percorso in percorsi[:3000]:
+            for percorso in percorsi[:FILE_ETICHETTE_PER_TIPO]:
                 righe = prime_righe(percorso, 100000)
                 righe_per_file[len(righe)] += 1
                 for riga in righe:
@@ -325,29 +359,43 @@ def esplora(nome: str, radice: Path) -> dict:
         "etichette": riassunto_etichette(file_etichette), "leggimi": leggimi,
     }
 
-    # fotogrammi per mosaico e posa: video se ci sono, altrimenti sequenze (es. UR Fall)
+    # fotogrammi per mosaico e posa: video se ci sono, altrimenti sequenze (es. UR Fall);
+    # metà dei video scelti in infrarosso, se ci sono, per misurare la posa anche di notte
+    sorgenti = info_video
+    if not info_video:
+        sorgenti = sequenze
+    sorgenti_infrarosso = []
+    sorgenti_colore = []
+    for sorgente in sorgenti:
+        if sorgente["saturazione"] is not None and sorgente["saturazione"] < SATURAZIONE_INFRAROSSO:
+            sorgenti_infrarosso.append(sorgente)
+        else:
+            sorgenti_colore.append(sorgente)
     generatore = random.Random(0)
+    quanti_infrarosso = min(VIDEO_PER_PROVA // 2, len(sorgenti_infrarosso))
+    quanti_colore = min(VIDEO_PER_PROVA - quanti_infrarosso, len(sorgenti_colore))
+    scelti = generatore.sample(sorgenti_infrarosso, quanti_infrarosso)
+    scelti = scelti + generatore.sample(sorgenti_colore, quanti_colore)
     fotogrammi = []
     infrarossi = []
     didascalie = []
-    if info_video:
-        scelti = generatore.sample(info_video, min(VIDEO_PER_PROVA, len(info_video)))
-    else:
-        scelti = generatore.sample(sequenze, min(VIDEO_PER_PROVA, len(sequenze)))
+    indici_centrali = []   # il fotogramma a metà di ogni sorgente: va nei mosaici
     for sorgente in scelti:
         if info_video:
-            letti = fotogrammi_del_video(Path(sorgente["percorso"]), FRAZIONI_PROVA)
+            letti = fotogrammi_del_video(sorgente, FRAZIONI_PROVA)
         else:
             letti = fotogrammi_della_sequenza(immagini_sequenze[sorgente["percorso"]], FRAZIONI_PROVA)
-        infrarosso = sorgente["saturazione"] is not None and sorgente["saturazione"] < SATURAZIONE_INFRAROSSO
+        infrarosso = sorgente in sorgenti_infrarosso
         breve = str(Path(sorgente["percorso"]).relative_to(radice))[-38:]
+        if letti:
+            indici_centrali.append(len(fotogrammi) + len(letti) // 2)
         for frame in letti:
             fotogrammi.append(frame)
             infrarossi.append(infrarosso)
             didascalie.append(breve)
     centrali = []
     didascalie_centrali = []
-    for indice in range(1, len(fotogrammi), len(FRAZIONI_PROVA)):
+    for indice in indici_centrali:
         centrali.append(fotogrammi[indice])
         didascalie_centrali.append(didascalie[indice])
     if centrali:
@@ -361,7 +409,7 @@ def esplora(nome: str, radice: Path) -> dict:
             print(f"[{nome}] posa {nome_modello}: {risultato}", flush=True)
             if nome_modello == MODELLI_POSA[-1]:
                 disegnati_centrali = []
-                for indice in range(1, len(disegnati), len(FRAZIONI_PROVA)):
+                for indice in indici_centrali:
                     disegnati_centrali.append(disegnati[indice])
                 cv2.imwrite(str(USCITA / f"posa_{nome}.jpg"), mosaico(disegnati_centrali, didascalie_centrali))
     riassunto["secondi_esplorazione"] = round(time.perf_counter() - inizio, 1)

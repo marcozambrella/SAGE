@@ -9,10 +9,11 @@
   "enable_internet": true,
   "dataset_sources": [
     "thanhtung09t2/caucafall",
-    "ambatipallisahasra/gmdcsa24",
     "nguynthnhquang/gmdcsa",
     "shahliza27/ur-fall-detection-dataset",
-    "tuyenldvn/falldataset-imvia"
+    "tuyenldvn/falldataset-imvia",
+    "hiugip/muvim-yolo-raw",
+    "abhatewari22/varishta-mm50-organized"
   ],
   "kernel_sources": [],
   "competition_sources": [],
