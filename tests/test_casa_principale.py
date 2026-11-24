@@ -29,7 +29,7 @@ def persona(x_piedi: float) -> Persona:
 
 
 class PercezioneFinta:
-    """Camera da letto: a letto fino a 12 s, poi via, di nuovo a letto da 40 s.
+    """Camera da letto: a letto fino a 12 s, in piedi accanto al letto fino a 15 s, poi via, di nuovo a letto da 45 s.
     Ingresso: nella stanza da 15 a 18 s, nella zona porta da 18 a 20 s, poi sparisce (esce)."""
 
     def nuovo_tracker(self):
@@ -39,8 +39,10 @@ class PercezioneFinta:
         secondi = (ora - INIZIO).total_seconds()
         persone = []
         if telecamera_id == "camera-letto":
-            if secondi < 12 or secondi >= 40:
+            if secondi < 12 or secondi >= 45:
                 persone.append(persona(50))   # zona letto: metà destra
+            elif secondi < 15:
+                persone.append(persona(20))   # in piedi, fuori dal letto
         elif 15 <= secondi < 18:
             persone.append(persona(50))
         elif 18 <= secondi < 20:
@@ -81,7 +83,7 @@ def test_dal_video_al_backend(tmp_path, indirizzo_backend):  # noqa: F811
     assert tipi == ["alzata_notturna", "uscita"]
     alzata = eventi[0]
     assert alzata.inizio == INIZIO + datetime.timedelta(seconds=12)
-    assert alzata.fine == INIZIO + datetime.timedelta(seconds=40)
+    assert alzata.fine == INIZIO + datetime.timedelta(seconds=45)
     assert alzata.valori.stanze == ["bedroom"]
     uscita = eventi[1]
     assert uscita.inizio == INIZIO + datetime.timedelta(seconds=19.8)

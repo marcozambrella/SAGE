@@ -8,7 +8,7 @@ import numpy as np
 from contratti.configurazione import FasciaOraria, TelecameraLocale
 from contratti.eventi import LETTORE_EVENTO, leggi_evento
 
-from casa.alzata_notturna import SECONDI_CONFERMA, AnalizzatoreAlzataNotturna
+from casa.alzata_notturna import AnalizzatoreAlzataNotturna, AnalizzatorePresenzaNotturna
 from casa.percezione import Osservazione, Persona
 from casa.uscita import SECONDI_SPARIZIONE, AnalizzatoreUscita
 from casa.zone import dentro_zona, zona_della_persona
@@ -114,48 +114,116 @@ def passi(persone: list, quanti: int) -> list:
     return posizioni
 
 
+A_LETTO = [persona(1, 150)]
+IN_PIEDI = [persona(2, 60, 0.8)]  # vicino al letto ma con i piedi fuori
+
+
+def alzata(posizioni: list, ora_inizio: datetime.datetime) -> list:
+    return scena(AnalizzatoreAlzataNotturna(CAMERA, NOTTE), ora_inizio, posizioni)
+
+
 def test_alzata_notturna_e_ritorno():
     inizio = datetime.datetime(2026, 12, 2, 2, 0, tzinfo=ROMA)
-    conferma = int(SECONDI_CONFERMA)
-    a_letto = [persona(1, 150, 0.7)]
-    in_piedi = [persona(2, 60)]  # vicino al letto ma con i piedi fuori
-    posizioni = passi(a_letto, conferma + 5) + passi(in_piedi, 30) + passi([], 60) + passi(a_letto, conferma + 5)
-    eventi = scena(AnalizzatoreAlzataNotturna(CAMERA, NOTTE), inizio, posizioni)
+    posizioni = passi(A_LETTO, 10) + passi(IN_PIEDI, 5) + passi([], 40) + passi(A_LETTO, 10)
+    eventi = alzata(posizioni, inizio)
     assert len(eventi) == 1
     evento = eventi[0]
     assert evento.tipo == "alzata_notturna"
-    assert evento.inizio == inizio + datetime.timedelta(seconds=conferma + 5)
-    assert evento.fine == inizio + datetime.timedelta(seconds=conferma + 5 + 90)
+    assert evento.inizio == inizio + datetime.timedelta(seconds=10)  # visto fuori dal letto
+    assert evento.fine == inizio + datetime.timedelta(seconds=55)    # di nuovo a letto
     assert evento.valori.stanze == ["bedroom"]
-    assert evento.confidenza == 0.7
+    assert evento.confidenza == 0.8
+    assert evento.foto_prova is not None
     assert leggi_evento(LETTORE_EVENTO.dump_python(evento, mode="json")) == evento
+
+
+def test_fuori_dal_letto_meno_di_30_secondi_non_e_alzata():
+    inizio = datetime.datetime(2026, 12, 2, 2, 0, tzinfo=ROMA)
+    posizioni = passi(A_LETTO, 10) + passi(IN_PIEDI, 5) + passi([], 10) + passi(A_LETTO, 10)
+    assert alzata(posizioni, inizio) == []
 
 
 def test_di_giorno_non_e_alzata_notturna():
     inizio = datetime.datetime(2026, 12, 2, 14, 0, tzinfo=ROMA)
-    a_letto = [persona(1, 150)]
-    posizioni = passi(a_letto, 15) + passi([], 60) + passi(a_letto, 15)
-    assert scena(AnalizzatoreAlzataNotturna(CAMERA, NOTTE), inizio, posizioni) == []
+    posizioni = passi(A_LETTO, 10) + passi(IN_PIEDI, 5) + passi([], 40) + passi(A_LETTO, 10)
+    assert alzata(posizioni, inizio) == []
 
 
-def test_buco_breve_della_posa_non_e_alzata():
+def test_persona_non_vista_sotto_le_coperte_non_e_alzata():
+    # per un minuto la posa non vede nessuno, ma nessuno è visto fuori dal letto
     inizio = datetime.datetime(2026, 12, 2, 2, 0, tzinfo=ROMA)
-    a_letto = [persona(1, 150)]
-    buco = int(SECONDI_CONFERMA) - 2
-    posizioni = passi(a_letto, 15) + passi([], buco) + passi(a_letto, 15)
-    assert scena(AnalizzatoreAlzataNotturna(CAMERA, NOTTE), inizio, posizioni) == []
+    posizioni = passi(A_LETTO, 10) + passi([], 60) + passi(A_LETTO, 10)
+    assert alzata(posizioni, inizio) == []
+
+
+def test_due_persone_a_letto_una_si_alza():
+    inizio = datetime.datetime(2026, 12, 2, 2, 0, tzinfo=ROMA)
+    tutte_e_due = [persona(1, 120), persona(3, 170)]
+    resta = [persona(3, 170)]
+    alzata_una = [persona(3, 170), persona(2, 60, 0.7)]
+    posizioni = passi(tutte_e_due, 10) + passi(alzata_una, 5) + passi(resta, 40) + passi(tutte_e_due, 10)
+    eventi = alzata(posizioni, inizio)
+    assert len(eventi) == 1
+    assert eventi[0].inizio == inizio + datetime.timedelta(seconds=10)
+    assert eventi[0].fine == inizio + datetime.timedelta(seconds=55)
 
 
 def test_letto_vuoto_all_inizio_non_e_alzata():
     inizio = datetime.datetime(2026, 12, 2, 2, 0, tzinfo=ROMA)
-    posizioni = passi([], 30) + passi([persona(1, 150)], 15)
-    assert scena(AnalizzatoreAlzataNotturna(CAMERA, NOTTE), inizio, posizioni) == []
+    posizioni = passi([], 10) + passi(IN_PIEDI, 40) + passi(A_LETTO, 10)
+    assert alzata(posizioni, inizio) == []
+
+
+def test_ritorno_breve_non_chiude_l_alzata():
+    # torna a letto per 2 secondi e si rialza: è la stessa alzata
+    inizio = datetime.datetime(2026, 12, 2, 2, 0, tzinfo=ROMA)
+    posizioni = (passi(A_LETTO, 10) + passi(IN_PIEDI, 5) + passi([], 20) + passi(A_LETTO, 2) + passi(IN_PIEDI, 2)
+                 + passi([], 18) + passi(A_LETTO, 10))
+    eventi = alzata(posizioni, inizio)
+    assert len(eventi) == 1
+    assert eventi[0].inizio == inizio + datetime.timedelta(seconds=10)
+    assert eventi[0].fine == inizio + datetime.timedelta(seconds=57)
 
 
 def test_alzata_ancora_in_corso_a_fine_video():
     inizio = datetime.datetime(2026, 12, 1, 23, 30, tzinfo=ROMA)
-    posizioni = passi([persona(1, 150)], 15) + passi([], 40)
-    eventi = scena(AnalizzatoreAlzataNotturna(CAMERA, NOTTE), inizio, posizioni)
+    eventi = alzata(passi(A_LETTO, 10) + passi(IN_PIEDI, 5) + passi([], 40), inizio)
     assert len(eventi) == 1
-    assert eventi[0].inizio == inizio + datetime.timedelta(seconds=15)
+    assert eventi[0].inizio == inizio + datetime.timedelta(seconds=10)
     assert eventi[0].fine is None
+    # fuori da meno di 30 s quando finisce il video: non si sa ancora
+    assert alzata(passi(A_LETTO, 10) + passi(IN_PIEDI, 5) + passi([], 10), inizio) == []
+
+
+SOGGIORNO = TelecameraLocale.model_validate({
+    "id": "soggiorno", "nome": "Living room", "stanza": "living room", "sorgente": "x.mp4",
+    "analizzatori": ["alzata_notturna"],
+})
+
+
+def presenza(posizioni: list, ora_inizio: datetime.datetime) -> list:
+    return scena(AnalizzatorePresenzaNotturna(SOGGIORNO, NOTTE), ora_inizio, posizioni)
+
+
+def test_presenza_notturna_in_una_stanza_senza_letto():
+    inizio = datetime.datetime(2026, 12, 2, 3, 0, tzinfo=ROMA)
+    eventi = presenza(passi([], 5) + passi([persona(4, 60, 0.6)], 10) + passi([], 70), inizio)
+    assert len(eventi) == 1
+    assert eventi[0].inizio == inizio + datetime.timedelta(seconds=5)
+    assert eventi[0].fine == inizio + datetime.timedelta(seconds=14)
+    assert eventi[0].valori.stanze == ["living room"]
+    assert eventi[0].stanza == "living room"
+
+
+def test_presenza_breve_o_di_giorno_non_conta():
+    notte = datetime.datetime(2026, 12, 2, 3, 0, tzinfo=ROMA)
+    assert presenza(passi([persona(4, 60)], 1) + passi([], 70), notte) == []
+    giorno = datetime.datetime(2026, 12, 2, 15, 0, tzinfo=ROMA)
+    assert presenza(passi([persona(4, 60)], 10) + passi([], 70), giorno) == []
+
+
+def test_presenza_notturna_a_fine_video():
+    inizio = datetime.datetime(2026, 12, 2, 3, 0, tzinfo=ROMA)
+    eventi = presenza(passi([persona(4, 60)], 10), inizio)
+    assert len(eventi) == 1
+    assert eventi[0].fine == inizio + datetime.timedelta(seconds=9)

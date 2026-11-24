@@ -25,13 +25,14 @@ from dotenv import load_dotenv
 from contratti.configurazione import ConfigurazioneCasa, Personalizzazione, TelecameraLocale
 from contratti.eventi import TIPI_URGENTI
 
-from casa.alzata_notturna import AnalizzatoreAlzataNotturna
+from casa.alzata_notturna import AnalizzatoreAlzataNotturna, AnalizzatorePresenzaNotturna
 from casa.configurazione import leggi_configurazione
 from casa.invio import SECONDI_TRA_LOTTI, Backend, invia_in_sospeso
 from casa.percezione import POSA_PREDEFINITA, RILEVATORE_PREDEFINITO, Percezione
 from casa.registro import RegistroLocale
 from casa.sorgenti import apri_sorgente
 from casa.uscita import AnalizzatoreUscita
+from casa.zone import zone_del_tipo
 
 # Provvisorio: da far scegliere a Marco con le misure di velocità sulla CPU.
 FPS_PREDEFINITI = 5
@@ -55,7 +56,12 @@ def crea_analizzatori(telecamera: TelecameraLocale, personalizzazione: Personali
         if nome == "uscita":
             analizzatori.append(AnalizzatoreUscita(telecamera))
         elif nome == "alzata_notturna":
-            analizzatori.append(AnalizzatoreAlzataNotturna(telecamera, personalizzazione.regole.orari_notte))
+            notte = personalizzazione.regole.orari_notte
+            # senza zona letto la telecamera dice solo che di notte qualcuno è passato di qui
+            if len(zone_del_tipo(telecamera, "letto")) > 0:
+                analizzatori.append(AnalizzatoreAlzataNotturna(telecamera, notte))
+            else:
+                analizzatori.append(AnalizzatorePresenzaNotturna(telecamera, notte))
         else:
             print("telecamera " + telecamera.id + ": analizzatore " + nome + " non ancora disponibile")
     return analizzatori
