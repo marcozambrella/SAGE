@@ -1,0 +1,19 @@
+{
+  "id": "KAGGLE_UTENTE/sage-cadute-stgcn",
+  "title": "sage cadute stgcn",
+  "code_file": "cadute_stgcn.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_internet": true,
+  "dataset_sources": [
+    "KAGGLE_UTENTE/sage-cadute-scheletri-n",
+    "thanhtung09t2/caucafall",
+    "nguynthnhquang/gmdcsa",
+    "tuyenldvn/falldataset-imvia"
+  ],
+  "kernel_sources": [],
+  "competition_sources": [],
+  "model_sources": []
+}
