@@ -140,10 +140,14 @@ def importa_yolo(radice: Path, prefisso: str, mappa_classi, segmentazione: bool,
                  massimo_immagini: int = 0, scarta_box: bool = False) -> None:
     """Ogni data.yaml sotto radice: immagini e etichette YOLO (box o poligoni) con le classi rinominate da
     mappa_classi(nome) → indice o None (classe scartata). Le cartelle train → train, valid/val/test → validazione.
-    scarta_box: per la segmentazione salta le etichette a box invece di farne rettangoli."""
+    scarta_box: per la segmentazione salta le etichette a box invece di farne rettangoli.
+    I nomi hanno anche il numero del data.yaml: i dataset Roboflow caricati insieme hanno più data.yaml nella stessa
+    radice e con il solo indice le immagini prendevano le etichette di un'altra (bug trovato il 24/11)."""
+    numero_yaml = 0
     for percorso_yaml in elenca_file(radice):
         if percorso_yaml.name not in ["data.yaml", "data.yml"]:
             continue
+        numero_yaml = numero_yaml + 1
         nomi = nomi_classi_yaml(leggi_yaml_semplice(percorso_yaml))
         nuove_classi = []
         for nome in nomi:
@@ -195,7 +199,7 @@ def importa_yolo(radice: Path, prefisso: str, mappa_classi, segmentazione: bool,
             if etichette_lette > 0 and not righe:
                 continue
             # anche le immagini senza oggetti delle nostre classi servono (esempi negativi)
-            aggiungi_esempio(divisione, f"{prefisso}_{indice:06d}", percorso_immagine, righe, conteggio)
+            aggiungi_esempio(divisione, f"{prefisso}-{numero_yaml}_{indice:06d}", percorso_immagine, righe, conteggio)
 
 
 def scrivi_yaml(nomi_classi: list) -> Path:
