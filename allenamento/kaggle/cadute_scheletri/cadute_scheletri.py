@@ -7,7 +7,8 @@ originali dei dataset (allegati anche là).
 - Tutti i fotogrammi alla frequenza originale (CAUCAFall 20, GMDCSA 15-30, Le2i 25, UR Fall 30 fps): la frequenza
   delle finestre si sceglie dopo, è una decisione aperta di Marco.
 - Due grandezze di posa (n e s) perché la scelta della grandezza è aperta (Marco, 24/11): n sulla GPU 0, s sulla
-  GPU 1, due processi per GPU (come ARGO).
+  GPU 1, due processi per GPU (come ARGO). Senza GPU (kernel CPU gratuito `cadute_scheletri_cpu`, stesso file)
+  solo n in un processo: s su CPU impiegherebbe più delle 12 ore di una sessione.
 - I video si leggono con ffmpeg e non con OpenCV: gli avi di Le2i (video grezzo + audio mp3) fanno cadere OpenCV
   con un errore nativo (esplorazione del 24/11).
 """
@@ -37,9 +38,13 @@ DATASET = {
     "ur-fall-detection-dataset": "urfall",
     "falldataset-imvia": "le2i",
 }
-# modello di posa → GPU che lo usa
+# modello di posa → GPU che lo usa; si contano le GPU con nvidia-smi per non inizializzare CUDA prima del fork
 MODELLI = {"yolo26n-pose.pt": 0, "yolo26s-pose.pt": 1}
 PROCESSI_PER_GPU = 2
+elenco_gpu = subprocess.run("nvidia-smi -L", shell=True, capture_output=True, text=True).stdout
+if elenco_gpu.count("GPU ") < 2:
+    MODELLI = {"yolo26n-pose.pt": "cpu"}
+    PROCESSI_PER_GPU = 1
 ESTENSIONI_VIDEO = [".avi", ".mp4", ".mov", ".mkv"]
 ESTENSIONI_IMMAGINE = [".png", ".jpg", ".jpeg"]
 IMMAGINI_MINIME_SEQUENZA = 20
