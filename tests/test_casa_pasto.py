@@ -9,7 +9,7 @@ import pytest
 from contratti.configurazione import TelecameraLocale
 from contratti.eventi import LETTORE_EVENTO, leggi_evento
 
-from casa.pasto import AnalizzatorePasto
+from casa.pasto import AnalizzatorePasto, quanto_mangiato
 from casa.percezione import Oggetto, Osservazione, Persona
 
 ROMA = ZoneInfo("Europe/Rome")
@@ -58,8 +58,17 @@ def ripeti(seduta: bool, righe_di_cibo: int, quante: int, oggetti: list) -> list
     return sequenza
 
 
-def test_pasto_con_percentuale_mangiata():
-    # piatto pieno al 60% (24 righe su 40) senza nessuno, 3 minuti a tavola, poi piatto al 15% (6 righe)
+def test_quanto_mangiato_tre_categorie():
+    assert quanto_mangiato(0) == "meno_di_meta"
+    assert quanto_mangiato(34.9) == "meno_di_meta"
+    assert quanto_mangiato(35) == "meta"
+    assert quanto_mangiato(75) == "meta"
+    assert quanto_mangiato(75.1) == "tutto"
+    assert quanto_mangiato(100) == "tutto"
+
+
+def test_pasto_con_quanto_mangiato():
+    # piatto pieno al 60% (24 righe su 40) senza nessuno, 3 minuti a tavola, poi piatto al 15% (6 righe): 75%
     sequenza = (ripeti(False, 24, 3, [PIATTO, PIZZA]) + ripeti(True, 20, 18, [PIATTO, PIZZA])
                 + ripeti(False, 6, 10, [PIATTO]))
     eventi = scena(sequenza)
@@ -69,7 +78,7 @@ def test_pasto_con_percentuale_mangiata():
     assert evento.inizio == INIZIO + datetime.timedelta(seconds=30)
     assert evento.fine == INIZIO + datetime.timedelta(seconds=200)
     assert evento.valori.cibi == ["pizza"]
-    assert evento.valori.percentuale_mangiata == pytest.approx(75)
+    assert evento.valori.quanto_mangiato == "meta"
     assert evento.confidenza == pytest.approx(0.85)
     assert evento.foto_prova is not None
     assert leggi_evento(LETTORE_EVENTO.dump_python(evento, mode="json")) == evento
@@ -90,4 +99,12 @@ def test_pasto_ancora_in_corso_a_fine_video():
     assert len(eventi) == 1
     assert eventi[0].valori.cibi == []
     # con la persona davanti si vedono solo le righe del piatto sotto il suo box (140-160): lì il cibo non c'è più
-    assert 0 <= eventi[0].valori.percentuale_mangiata <= 100
+    assert eventi[0].valori.quanto_mangiato in ["meno_di_meta", "meta", "tutto"]
+
+
+def test_piatto_non_misurato():
+    # quasi niente cibo all'inizio: quanto ha mangiato non si misura, confidenza dimezzata
+    eventi = scena(ripeti(False, 0, 3, [PIATTO]) + ripeti(True, 0, 18, [PIATTO]) + ripeti(False, 0, 10, [PIATTO]))
+    assert len(eventi) == 1
+    assert eventi[0].valori.quanto_mangiato is None
+    assert eventi[0].confidenza == pytest.approx(0.425)

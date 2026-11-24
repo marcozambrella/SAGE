@@ -32,6 +32,18 @@ FRAZIONE_PERSONA_A_TAVOLA = 0.1    # parte del box della persona sopra la zona t
 MISURE_PER_PIATTO = 5
 COPERTURA_MINIMA = 0.02            # meno cibo di così all'inizio: la percentuale non si misura
 PIXEL_MINIMI_VISIBILI = 100        # meno pixel del piatto visibili di così (persone davanti): non si misura
+# la percentuale del piatto non è abbastanza precisa per un numero: tre categorie (Marco, 25/11, API.md)
+SOGLIA_META = 35.0
+SOGLIA_TUTTO = 75.0
+
+
+def quanto_mangiato(percentuale: float) -> str:
+    """Categoria del contratto: sotto il 35% meno_di_meta, dal 35 al 75% meta, oltre il 75% tutto."""
+    if percentuale < SOGLIA_META:
+        return "meno_di_meta"
+    if percentuale <= SOGLIA_TUTTO:
+        return "meta"
+    return "tutto"
 
 
 @dataclass
@@ -171,15 +183,15 @@ class AnalizzatorePasto:
         if len(dopo) == 0:
             dopo = pasto.durante[-MISURE_PER_PIATTO:]
         confidenza = pasto.confidenza
-        percentuale = 0.0
+        categoria = None
         if len(prima) > 0 and len(dopo) > 0 and statistics.median(prima) >= COPERTURA_MINIMA:
             cibo_prima = statistics.median(prima)
             cibo_dopo = statistics.median(dopo)
             percentuale = (cibo_prima - cibo_dopo) / cibo_prima * 100
-            percentuale = min(max(percentuale, 0.0), 100.0)
+            categoria = quanto_mangiato(percentuale)
         else:
             confidenza = confidenza / 2  # pasto visto, quanto ha mangiato non si misura
-            print("telecamera " + self.telecamera_id + ": pasto visto, percentuale mangiata non misurata")
+            print("telecamera " + self.telecamera_id + ": pasto visto, quanto ha mangiato non misurato")
         fonte = Fonte(telecamera_id=self.telecamera_id, analizzatore="pasto", confidenza=confidenza)
         return EventoPasto(
             id=str(uuid.uuid4()),
@@ -190,5 +202,5 @@ class AnalizzatorePasto:
             confidenza=confidenza,
             fonti=[fonte],
             foto_prova=foto_prova(pasto.immagine),
-            valori=ValoriPasto(cibi=pasto.cibi, percentuale_mangiata=percentuale),
+            valori=ValoriPasto(cibi=pasto.cibi, quanto_mangiato=categoria),
         )
