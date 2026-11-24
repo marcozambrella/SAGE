@@ -9,7 +9,7 @@ import {
   leggiReportGiornaliero,
   messaggioErrore,
 } from "../api";
-import { descriviEvento, orariDose, type Descrizione } from "../descrizioni";
+import { bevuteNonMisurate, descriviEvento, orariDose, testoNonMisurate, type Descrizione } from "../descrizioni";
 import { durata, giornoLungo, maiuscola, millilitri, oraDellaCasa } from "../formato";
 import Caricamento from "../componenti/Caricamento";
 import EtichettaDose from "../componenti/EtichettaDose";
@@ -82,6 +82,7 @@ function OggiCasaDemo() {
   const [personalizzazione, setPersonalizzazione] = useState<Personalizzazione | null>(null);
   const [report, setReport] = useState<ReportGiornaliero | null>(null);
   const [urgenti, setUrgenti] = useState<Evento[]>([]);
+  const [nonMisurate, setNonMisurate] = useState(0);
   const [errore, setErrore] = useState("");
 
   useEffect(() => {
@@ -94,6 +95,7 @@ function OggiCasaDemo() {
         const cadute = await leggiEventiDemo(giorno, giorno, "caduta");
         const uscite = await leggiEventiDemo(giorno, giorno, "uscita");
         setUrgenti(cadute.concat(uscite));
+        setNonMisurate(bevuteNonMisurate(await leggiEventiDemo(giorno, giorno, "bevuta")));
       } catch (problema) {
         setErrore(messaggioErrore(problema));
       }
@@ -184,6 +186,7 @@ function OggiCasaDemo() {
               {Math.round(percentualeAcqua)}% of the {millilitri(report.obiettivo_acqua_ml)} goal · {report.bevute}{" "}
               drinks
             </p>
+            {nonMisurate > 0 && <p className="testo-secondario testo-piccolo">{testoNonMisurate(nonMisurate)}</p>}
           </div>
         </Scheda>
 

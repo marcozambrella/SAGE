@@ -114,6 +114,35 @@ function bevuta(
       livello_sceso_px: scesoPx,
       percentuale: percentuale,
       ml: ml,
+      livello_visibile: true,
+    },
+  };
+}
+
+// Bevuta vista (contenitore alla bocca) ma con il livello non visibile, per esempio in una tazza opaca: 0 ml
+// vuol dire "non misurato". Non entra nei ml del report.
+function bevutaNonMisurata(
+  id: string,
+  inizio: string,
+  stanza: string,
+  telecameraId: string,
+  contenitore: TipoContenitore,
+  contenitoreId: string,
+  capienza: number,
+  simulato: boolean,
+): Evento {
+  return {
+    ...base(id, inizio, null, stanza, telecameraId, "bevuta", 0.78, simulato),
+    tipo: "bevuta",
+    valori: {
+      contenitore: contenitore,
+      contenitore_id: contenitoreId,
+      capienza_ml: capienza,
+      altezza_contenitore_px: 90,
+      livello_sceso_px: 0,
+      percentuale: 0,
+      ml: 0,
+      livello_visibile: false,
     },
   };
 }
@@ -175,6 +204,10 @@ function eventiGiornoVero(): Evento[] {
     tipo: "caduta",
     valori: { secondi_a_terra: 48 },
   });
+  // Tè nella tazza opaca: la bevuta si vede, il livello no.
+  eventi.push(
+    bevutaNonMisurata("ev-1610", ora(G, "16:10"), "Living room", "t-soggiorno", "tazza", "c-tazza", 200, false),
+  );
   eventi.push(
     bevuta("ev-1730", ora(G, "17:30"), "Living room", "t-soggiorno", "bicchiere", "c-bicchiere", 250, 120, 96, false),
   );
@@ -467,6 +500,21 @@ function eventiSimulati(report: ReportGiornaliero): Evento[] {
         250,
         120,
         scesoPx,
+        true,
+      ),
+    );
+  }
+  // Un giorno su tre, anche un tè nella tazza opaca, non misurato.
+  if (Number(giorno.slice(8, 10)) % 3 === 0) {
+    eventi.push(
+      bevutaNonMisurata(
+        "sim-" + giorno + "-tazza",
+        ora(giorno, "16:30"),
+        "Living room",
+        "t-soggiorno",
+        "tazza",
+        "c-tazza",
+        200,
         true,
       ),
     );

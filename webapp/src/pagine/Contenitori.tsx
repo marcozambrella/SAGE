@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import type { Contenitore, Evento, Personalizzazione } from "../contratti";
 import { leggiEventiDemo, leggiPeriodoDemo, leggiPersonalizzazioneDemo, messaggioErrore } from "../api";
-import { NOMI_CONTENITORI } from "../descrizioni";
+import { NOMI_CONTENITORI, testoNonMisurate } from "../descrizioni";
 import { giornoLungo, maiuscola, millilitri, quanti } from "../formato";
 import Caricamento from "../componenti/Caricamento";
 import Icona from "../componenti/Icona";
@@ -106,14 +106,19 @@ function ContenitoriCasaDemo() {
   // Quanto si è bevuto da ogni contenitore nel giorno della casa demo (contenitore_id della bevuta).
   const mlPerContenitore: Record<string, number> = {};
   const voltePerContenitore: Record<string, number> = {};
+  // Bevute con il livello non visibile: contate a parte, senza ml.
+  const nonMisuratePerContenitore: Record<string, number> = {};
   for (const contenitore of personalizzazione.contenitori) {
     mlPerContenitore[contenitore.id] = 0;
     voltePerContenitore[contenitore.id] = 0;
+    nonMisuratePerContenitore[contenitore.id] = 0;
   }
   for (const evento of bevute) {
     if (evento.tipo === "bevuta" && evento.valori.contenitore_id !== null) {
       const id = evento.valori.contenitore_id;
-      if (id in mlPerContenitore) {
+      if (id in mlPerContenitore && !evento.valori.livello_visibile) {
+        nonMisuratePerContenitore[id] = nonMisuratePerContenitore[id] + 1;
+      } else if (id in mlPerContenitore) {
         mlPerContenitore[id] = mlPerContenitore[id] + evento.valori.ml;
         voltePerContenitore[id] = voltePerContenitore[id] + 1;
       }
@@ -134,6 +139,9 @@ function ContenitoriCasaDemo() {
               <p className="testo-secondario testo-piccolo riga-con-stato-testo">
                 {maiuscola(NOMI_CONTENITORI[contenitore.tipo])} · holds {millilitri(contenitore.capienza_ml)} ·{" "}
                 {quanti(voltePerContenitore[contenitore.id], "drink", "drinks")}
+                {nonMisuratePerContenitore[contenitore.id] > 0 && (
+                  <> · {testoNonMisurate(nonMisuratePerContenitore[contenitore.id])}</>
+                )}
               </p>
             </li>
           ))}

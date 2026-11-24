@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import type { Personalizzazione, ReportGiornaliero, ReportPeriodo } from "../contratti";
 import {
+  leggiEventiDemo,
   leggiPeriodoDemo,
   leggiPersonalizzazioneDemo,
   leggiReportGiornaliero,
@@ -22,7 +23,7 @@ import {
   spostaGiorno,
 } from "../formato";
 import Caricamento from "../componenti/Caricamento";
-import { orariDose } from "../descrizioni";
+import { bevuteNonMisurate, orariDose, testoNonMisurate } from "../descrizioni";
 import EtichettaDose from "../componenti/EtichettaDose";
 import EtichettaSimulato from "../componenti/EtichettaSimulato";
 import Icona from "../componenti/Icona";
@@ -157,6 +158,7 @@ type ProprietaGiorno = {
 function ReportDelGiorno({ periodo, personalizzazione }: ProprietaGiorno) {
   const [giorno, setGiorno] = useState(periodo.al);
   const [report, setReport] = useState<ReportGiornaliero | null>(null);
+  const [nonMisurate, setNonMisurate] = useState(0);
   const [errore, setErrore] = useState("");
 
   useEffect(() => {
@@ -165,6 +167,7 @@ function ReportDelGiorno({ periodo, personalizzazione }: ProprietaGiorno) {
       setErrore("");
       try {
         setReport(await leggiReportGiornaliero(giorno));
+        setNonMisurate(bevuteNonMisurate(await leggiEventiDemo(giorno, giorno, "bevuta")));
       } catch (problema) {
         setErrore(messaggioErrore(problema));
       }
@@ -220,6 +223,7 @@ function ReportDelGiorno({ periodo, personalizzazione }: ProprietaGiorno) {
             <span className="numero-medio">{millilitri(report.acqua_ml)}</span>{" "}
             <span className="testo-secondario">
               of {millilitri(report.obiettivo_acqua_ml)} · {report.bevute} drinks
+              {nonMisurate > 0 && <> · {testoNonMisurate(nonMisurate)}</>}
             </span>
           </p>
           <Misuratore percentuale={percentualeAcqua} etichetta="Water goal reached" />

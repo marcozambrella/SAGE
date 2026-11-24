@@ -61,6 +61,15 @@ export function descriviEvento(evento: Evento, personalizzazione: Personalizzazi
   if (evento.tipo === "bevuta") {
     const valori = evento.valori;
     const contenitore = NOMI_CONTENITORI[valori.contenitore];
+    // Livello non visibile (tazza opaca): ha bevuto, ma quanto non si sa. Non è "0 ml".
+    if (!valori.livello_visibile) {
+      return {
+        icona: "goccia",
+        titolo: "Drink — level not visible",
+        dettaglio: "Not measured: the level can't be seen in this " + contenitore,
+        gravita: "neutro",
+      };
+    }
     const capienza = millilitri(valori.capienza_ml);
     const dettaglio = "Level dropped " + Math.round(valori.percentuale) + "% in a " + capienza + " " + contenitore;
     return {
@@ -103,4 +112,26 @@ export function orariDose(dose: DoseFarmaco, fusoOrario: string): string {
     testo = testo + " · pill not recognised";
   }
   return testo;
+}
+
+// Quante bevute hanno il livello non visibile: non sono nei ml del giorno e si contano a parte.
+export function bevuteNonMisurate(eventi: Evento[]): number {
+  let quante = 0;
+  for (const evento of eventi) {
+    if (evento.tipo === "bevuta" && !evento.valori.livello_visibile) {
+      quante = quante + 1;
+    }
+  }
+  return quante;
+}
+
+// "+1 drink not measured", "+2 drinks not measured"; vuoto se non ce ne sono.
+export function testoNonMisurate(quante: number): string {
+  if (quante === 0) {
+    return "";
+  }
+  if (quante === 1) {
+    return "+1 drink not measured";
+  }
+  return "+" + quante + " drinks not measured";
 }

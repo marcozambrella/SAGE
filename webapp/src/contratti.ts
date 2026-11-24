@@ -52,6 +52,9 @@ export interface ValoriBevuta {
   livello_sceso_px: number;
   percentuale: number;
   ml: number;
+  // false se il livello non si vedeva (tazza opaca, poco contrasto): ml = 0 vuol dire "non misurato",
+  // non "non ha bevuto". Queste bevute non si sommano ai ml: si contano a parte.
+  livello_visibile: boolean;
 }
 
 export interface ValoriFarmaco {
