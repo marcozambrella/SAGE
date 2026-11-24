@@ -65,7 +65,8 @@ class ReportPeriodo(BaseModel):
     giorni: list[RiassuntoGiorno]
     acqua_media_ml: float
     # Dosi in orario + in ritardo sulle dosi già valutate (quelle "in_attesa" non contano), da 0 a 100.
-    aderenza_farmaci_percentuale: float
+    # None se nel periodo non c'è ancora nessuna dose valutata (la web app scrive "nessun dato").
+    aderenza_farmaci_percentuale: float | None
     cadute: int
     uscite_in_orario_vietato: int
     alzate_notturne_medie: float

@@ -157,3 +157,18 @@ def test_report_si_leggono():
         "alzate_notturne_medie": 2,
     })
     assert len(periodo.giorni) == 1
+
+
+@pytest.mark.parametrize("ora", ["25:00", "7:00", "08:60", "8"])
+def test_orario_scritto_male_rifiutato(ora):
+    with pytest.raises(ValidationError):
+        Personalizzazione.model_validate({"anziano": {"nome": "Anna"},
+                                          "farmaci": [{"id": "f", "nome": "F", "dose": "1", "orari": [ora]}]})
+
+
+def test_aderenza_senza_dosi_valutate_e_none():
+    periodo = ReportPeriodo.model_validate({
+        "tipo": "mensile", "dal": "2026-12-01", "al": "2026-12-31", "giorni": [], "acqua_media_ml": 0,
+        "aderenza_farmaci_percentuale": None, "cadute": 0, "uscite_in_orario_vietato": 0, "alzate_notturne_medie": 0,
+    })
+    assert periodo.aderenza_farmaci_percentuale is None
