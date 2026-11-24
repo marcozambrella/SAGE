@@ -66,8 +66,9 @@ def messaggio_allarme(evento: EventoBase, personalizzazione: Personalizzazione |
 
 
 def scrivi_allarme_nel_log(testo: str, foto: bytes | None) -> None:
-    """Invio provvisorio finché il bot Telegram non c'è: l'allarme finisce solo nel log del server."""
-    registro.warning("Allarme (Telegram non ancora collegato): %s", testo)
+    """Quando il bot Telegram è spento (TELEGRAM_TOKEN mancante o Telegram non raggiungibile all'avvio): l'allarme
+    finisce solo nel log del server."""
+    registro.warning("Allarme (bot Telegram spento): %s", testo)
 
 
 def casa_attiva(eventi: list[EventoBase], adesso: datetime.datetime) -> bool:
