@@ -67,6 +67,35 @@ def test_storico_plausibile():
     assert len(acqua_dei_giorni) > 20
 
 
+def test_tre_giorni_di_poca_acqua_nell_ultima_settimana():
+    eventi = genera_storico(PERSONALIZZAZIONE_DEMO, DAL, AL, SEME_PREDEFINITO)
+    report = calcola_report_periodo("mensile", DAL, AL, eventi, PERSONALIZZAZIONE_DEMO, DOPO)
+    giorni_bassi = []
+    for indice in range(len(report.giorni)):
+        # meno della metà dell'obiettivo (1500 ml)
+        if report.giorni[indice].acqua_ml < 750:
+            giorni_bassi.append(indice)
+    ultima_settimana = []
+    for indice in giorni_bassi:
+        if indice >= len(report.giorni) - 7:
+            ultima_settimana.append(indice)
+    assert len(ultima_settimana) >= 2
+    assert ultima_settimana[-1] - ultima_settimana[0] <= 2
+
+
+def test_bevute_con_il_contenitore_della_personalizzazione():
+    eventi = genera_storico(PERSONALIZZAZIONE_DEMO, DAL, DAL, SEME_PREDEFINITO)
+    ids_contenitori = []
+    for contenitore in PERSONALIZZAZIONE_DEMO.contenitori:
+        ids_contenitori.append(contenitore.id)
+    bevute = 0
+    for evento in eventi:
+        if evento.tipo == "bevuta":
+            bevute = bevute + 1
+            assert evento.valori.contenitore_id in ids_contenitori
+    assert bevute > 0
+
+
 @pytest.fixture
 def client(tmp_path):
     app.state.archivio = ArchivioDatabase(str(tmp_path / "prova.sqlite3"))

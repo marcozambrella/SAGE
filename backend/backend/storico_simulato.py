@@ -44,6 +44,10 @@ ACQUA_MEDIA_ML = 1250
 ACQUA_VARIAZIONE_ML = 250
 ACQUA_MINIMA_ML = 600
 ACQUA_MASSIMA_ML = 2000
+# 3 giorni di fila con poca acqua (Marco, 24/11): un calo da notare nei trend. Cadono nell'ultima settimana, così
+# si vedono sia nel trend settimanale sia in quello mensile.
+GIORNI_DI_POCA_ACQUA = 3
+FATTORE_POCA_ACQUA = 0.5
 BEVUTE_MINIME = 4
 BEVUTE_MASSIME = 9
 
@@ -167,8 +171,12 @@ def minuti_permessi(vietati: list[int]) -> list[int]:
     return minuti
 
 
-def bevute(rng: random.Random, data: datetime.date, personalizzazione: Personalizzazione, fuso: ZoneInfo) -> list:
+def bevute(
+    rng: random.Random, data: datetime.date, personalizzazione: Personalizzazione, fuso: ZoneInfo, poca_acqua: bool
+) -> list:
     acqua_del_giorno = tra(rng.gauss(ACQUA_MEDIA_ML, ACQUA_VARIAZIONE_ML), ACQUA_MINIMA_ML, ACQUA_MASSIMA_ML)
+    if poca_acqua:
+        acqua_del_giorno = acqua_del_giorno * FATTORE_POCA_ACQUA
     numero = rng.randint(BEVUTE_MINIME, BEVUTE_MASSIME)
     contenitori = personalizzazione.contenitori
     if len(contenitori) == 0:
@@ -182,6 +190,8 @@ def bevute(rng: random.Random, data: datetime.date, personalizzazione: Personali
         altezza_px = round(rng.uniform(120, 300), 1)
         valori = {
             "contenitore": contenitore.tipo,
+            # come il programma di casa quando riconosce il contenitore: il backend ricalcola i ml con la capienza
+            "contenitore_id": contenitore.id,
             "capienza_ml": contenitore.capienza_ml,
             "altezza_contenitore_px": altezza_px,
             "livello_sceso_px": round(percentuale / 100 * altezza_px, 1),
@@ -289,10 +299,11 @@ def eventi_del_giorno(
     vietati: list[int],
     permessi: list[int],
     con_caduta: bool,
+    poca_acqua: bool,
 ) -> list[EventoBase]:
     fuso = ZoneInfo(personalizzazione.fuso_orario)
     tutti = []
-    tutti.extend(bevute(rng, data, personalizzazione, fuso))
+    tutti.extend(bevute(rng, data, personalizzazione, fuso, poca_acqua))
     tutti.extend(prese_dei_farmaci(rng, data, personalizzazione, fuso))
     tutti.extend(pasti(rng, data, personalizzazione, fuso))
     tutti.extend(alzate_notturne(rng, data, personalizzazione, fuso))
@@ -320,11 +331,17 @@ def genera_storico(
     numero_cadute = min(round(numero_giorni / 7 * CADUTE_PER_SETTIMANA), numero_giorni)
     # i giorni con una caduta, contati da `dal` (0 = primo giorno)
     giorni_con_caduta = rng.sample(range(numero_giorni), numero_cadute)
+    # il primo dei giorni di poca acqua, tutti dentro l'ultima settimana
+    primo_minimo = max(numero_giorni - 7, 0)
+    primo_massimo = max(numero_giorni - GIORNI_DI_POCA_ACQUA, 0)
+    primo_poca_acqua = rng.randint(primo_minimo, primo_massimo)
     eventi = []
     for indice in range(numero_giorni):
         data = dal + datetime.timedelta(days=indice)
         con_caduta = indice in giorni_con_caduta
-        eventi.extend(eventi_del_giorno(rng, data, personalizzazione, seme, vietati, permessi, con_caduta))
+        poca_acqua = primo_poca_acqua <= indice < primo_poca_acqua + GIORNI_DI_POCA_ACQUA
+        eventi.extend(eventi_del_giorno(rng, data, personalizzazione, seme, vietati, permessi, con_caduta,
+                                        poca_acqua))
     return eventi
 
 
