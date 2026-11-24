@@ -1,6 +1,7 @@
 """Test del programma di casa: file di configurazione, fasce orarie, sorgenti video con limite di fotogrammi."""
 
 import datetime
+import json
 from pathlib import Path
 import time
 
@@ -13,7 +14,6 @@ from casa import sorgenti
 from casa.configurazione import dentro_fascia, leggi_configurazione
 from casa.sorgenti import FlussoDalVivo, VideoRegistrato, apri_sorgente, e_dal_vivo, prossima_attesa
 
-ESEMPIO = Path(__file__).resolve().parents[1] / "casa" / "configurazione.esempio.json"
 
 
 def scrivi_video(percorso: Path, numero_fotogrammi: int, fps: float) -> None:
@@ -25,9 +25,24 @@ def scrivi_video(percorso: Path, numero_fotogrammi: int, fps: float) -> None:
     scrittore.release()
 
 
-def test_configurazione_di_esempio_si_legge():
-    configurazione = leggi_configurazione(str(ESEMPIO))
-    assert len(configurazione.telecamere) == 3
+def test_configurazione_si_legge_dal_file(tmp_path):
+    dati = {
+        "telecamere": [
+            {"id": "camera-letto", "nome": "Bedroom", "stanza": "bedroom", "sorgente": "data/video/camera.mp4",
+             "analizzatori": ["alzata_notturna", "caduta"],
+             "zone": [{"id": "letto", "tipo": "letto", "punti": [[0.3, 0.4], [0.85, 0.4], [0.85, 0.95]]}]},
+            {"id": "ingresso", "nome": "Front door", "stanza": "hall", "sorgente": "rtsp://192.168.1.20:554/s1",
+             "analizzatori": ["uscita"],
+             "zone": [{"id": "porta-ingresso", "tipo": "porta", "punti": [[0.4, 0.2], [0.65, 0.2], [0.65, 1]]}]},
+        ],
+        "personalizzazione": {"anziano": {"nome": "Anna"}, "regole": {"orari_notte": {"dalle": "22:00",
+                                                                                     "alle": "07:00"}}},
+        "cartella_foto_farmaci": "data/foto_farmaci",
+    }
+    percorso = tmp_path / "configurazione.json"
+    percorso.write_text(json.dumps(dati), encoding="utf-8")
+    configurazione = leggi_configurazione(str(percorso))
+    assert len(configurazione.telecamere) == 2
     assert configurazione.telecamere[1].zone[0].tipo == "porta"
     assert configurazione.personalizzazione.regole.orari_notte.dalle == "22:00"
 
