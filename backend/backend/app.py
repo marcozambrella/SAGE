@@ -26,12 +26,13 @@ from pydantic import BaseModel
 from telegram import Update
 
 from contratti.configurazione import Personalizzazione
-from contratti.eventi import Evento, EventoBase
+from contratti.eventi import TIPI_URGENTI, Evento, EventoBase
 from contratti.report import ReportGiornaliero, ReportPeriodo
 
 from backend.allarmi import messaggio_allarme, promemoria_da_mandare, scrivi_allarme_nel_log, serve_allarme
 from backend.archivio import ArchivioDatabase
 from backend.bot_telegram import avvia_bot, ferma_bot, manda_a_tutte_le_chat
+from backend.coordinatore import Coordinato, coordina, fine_o_inizio
 from backend.regole import FUSO_ORARIO_PREDEFINITO, errore_nella_personalizzazione, giorno_locale
 from backend.report import (
     calcola_report_giornaliero,
@@ -42,6 +43,9 @@ from backend.report import (
 )
 
 CARTELLA_BACKEND = Path(__file__).parent.parent
+# Per coordinare i grezzi ai bordi di un intervallo se ne leggono anche un po' prima e dopo: basta per i doppioni
+# (pochi secondi) e per gli eventi lunghi fino a un'ora.
+MARGINE_COORDINAMENTO = datetime.timedelta(hours=1)
 # il database di sviluppo, ignorato da git
 SQLITE_PREDEFINITO = CARTELLA_BACKEND / "sage.sqlite3"
 
@@ -148,14 +152,56 @@ def eventi_dei_giorni(
     fuso_orario: str,
     tipo: str | None,
 ) -> list[EventoBase]:
-    """Gli eventi dei giorni da `dal` ad `al` compresi, contati nel fuso orario della casa. None: nessun limite."""
+    """Gli eventi coordinati dei giorni da `dal` ad `al` compresi, contati nel fuso orario della casa.
+    None: nessun limite."""
     inizio = None
     if dal is not None:
         inizio = inizio_del_giorno(dal, fuso_orario)
     fine = None
     if al is not None:
         fine = inizio_del_giorno(al + datetime.timedelta(days=1), fuso_orario)
-    return archivio.leggi_eventi(inizio, fine, tipo)
+    eventi = []
+    for coordinato in leggi_coordinati(archivio, inizio, fine, tipo):
+        eventi.append(coordinato.evento)
+    return eventi
+
+
+def leggi_coordinati(
+    archivio: ArchivioDatabase,
+    dal: datetime.datetime | None,
+    al: datetime.datetime | None,
+    tipo: str | None,
+) -> list[Coordinato]:
+    """Gli eventi coordinati con inizio da `dal` (compreso) ad `al` (escluso), dai grezzi salvati (API.md:
+    web app, report e Telegram usano solo questi)."""
+    inizio_lettura = None
+    if dal is not None:
+        inizio_lettura = dal - MARGINE_COORDINAMENTO
+    fine_lettura = None
+    if al is not None:
+        fine_lettura = al + MARGINE_COORDINAMENTO
+    grezzi = archivio.leggi_grezzi(inizio_lettura, fine_lettura, tipo)
+    scelti = []
+    for coordinato in coordina(grezzi):
+        if dal is not None and coordinato.evento.inizio < dal:
+            continue
+        if al is not None and coordinato.evento.inizio >= al:
+            continue
+        scelti.append(coordinato)
+    return scelti
+
+
+def coordinato_del_grezzo(archivio: ArchivioDatabase, id_grezzo: str) -> Coordinato | None:
+    """L'evento coordinato di cui fa parte un grezzo (l'id di un coordinato è quello del suo primo grezzo)."""
+    grezzo = archivio.leggi_grezzo(id_grezzo)
+    if grezzo is None:
+        return None
+    dal = grezzo.inizio - MARGINE_COORDINAMENTO
+    al = fine_o_inizio(grezzo) + MARGINE_COORDINAMENTO
+    for coordinato in coordina(archivio.leggi_grezzi(dal, al, grezzo.tipo)):
+        if id_grezzo in coordinato.grezzi:
+            return coordinato
+    return None
 
 
 def report_di_periodo(
@@ -207,10 +253,12 @@ def eventi_demo(
     responses={200: {"content": {"image/jpeg": {}}}, 404: {"description": "No photo for this event"}},
 )
 def foto_evento_demo(request: Request, id_evento: str) -> Response:
-    foto = request.app.state.archivio.leggi_foto(id_evento)
-    if foto is None:
+    """La foto dell'evento coordinato: quella del suo grezzo più sicuro che ne ha una."""
+    archivio = request.app.state.archivio
+    coordinato = coordinato_del_grezzo(archivio, id_evento)
+    if coordinato is None or coordinato.id_foto is None:
         raise HTTPException(status_code=404, detail="No photo for this event")
-    return Response(content=foto, media_type="image/jpeg")
+    return Response(content=archivio.leggi_foto(coordinato.id_foto), media_type="image/jpeg")
 
 
 @app.get("/demo/report/giornaliero", response_model=ReportGiornaliero)
@@ -259,7 +307,8 @@ def ricevi_personalizzazione(request: Request, personalizzazione: Personalizzazi
 
 @app.post("/programma-casa/eventi", response_model=RispostaEventi, dependencies=[Depends(controlla_token_casa)])
 def ricevi_eventi(request: Request, eventi: list[Evento], compiti: BackgroundTasks) -> RispostaEventi:
-    """Salva gli eventi nuovi (un id già visto viene ignorato) e fa partire subito gli allarmi urgenti."""
+    """Salva i grezzi nuovi (un id già visto viene ignorato) e fa partire subito gli allarmi urgenti, uno per
+    evento coordinato (API.md, "Coordinamento degli eventi")."""
     archivio = request.app.state.archivio
     # prima si leggono tutte le foto: se una è sbagliata non si salva niente
     foto_degli_eventi = []
@@ -267,19 +316,37 @@ def ricevi_eventi(request: Request, eventi: list[Evento], compiti: BackgroundTas
         foto_degli_eventi.append(leggi_foto_prova(evento))
 
     personalizzazione = archivio.leggi_personalizzazione()
-    sono_nuovi = archivio.aggiungi_eventi(eventi, foto_degli_eventi)
+    sono_nuovi = archivio.aggiungi_grezzi(eventi, foto_degli_eventi)
     nuovi = 0
-    for evento, foto, nuovo in zip(eventi, foto_degli_eventi, sono_nuovi):
+    for evento, nuovo in zip(eventi, sono_nuovi):
+        # un grezzo rimandato non fa ripartire l'allarme
         if not nuovo:
             continue
         nuovi = nuovi + 1
-        # solo gli eventi nuovi: un evento rimandato non fa ripartire l'allarme
-        if serve_allarme(evento, personalizzazione):
-            messaggio = messaggio_allarme(evento, personalizzazione)
-            # i pulsanti pausa / spegni solo sui messaggi di uscita (D16)
-            pulsanti_uscita = evento.tipo == "uscita"
-            compiti.add_task(manda_su_telegram, request.app, messaggio, foto, pulsanti_uscita)
+        if evento.tipo in TIPI_URGENTI:
+            controlla_allarme(request.app, evento.id, personalizzazione, compiti)
     return RispostaEventi(ricevuti=len(eventi), nuovi=nuovi)
+
+
+def controlla_allarme(
+    app: FastAPI, id_grezzo: str, personalizzazione: Personalizzazione | None, compiti: BackgroundTasks
+) -> None:
+    """Un allarme per evento coordinato: un doppione (da un'altra telecamera o arrivato dopo) aggiorna l'evento
+    coordinato ma non rimanda il messaggio."""
+    archivio = app.state.archivio
+    coordinato = coordinato_del_grezzo(archivio, id_grezzo)
+    if not serve_allarme(coordinato.evento, personalizzazione):
+        return
+    if archivio.allarme_gia_mandato(coordinato.grezzi):
+        return
+    archivio.segna_allarme(id_grezzo)
+    foto = None
+    if coordinato.id_foto is not None:
+        foto = archivio.leggi_foto(coordinato.id_foto)
+    messaggio = messaggio_allarme(coordinato.evento, personalizzazione)
+    # i pulsanti pausa / spegni solo sui messaggi di uscita (D16)
+    pulsanti_uscita = coordinato.evento.tipo == "uscita"
+    compiti.add_task(manda_su_telegram, app, messaggio, foto, pulsanti_uscita)
 
 
 # --- cron esterno ogni 5-10 minuti (D39): promemoria delle dosi e server sveglio ---

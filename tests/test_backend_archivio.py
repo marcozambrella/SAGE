@@ -16,7 +16,8 @@ from contratti.configurazione import Personalizzazione
 from contratti.eventi import leggi_evento
 
 POSTGRES_DI_PROVA = os.environ.get("SAGE_POSTGRES_DI_PROVA", "")
-TABELLE = ["personalizzazione", "eventi", "foto", "chat_telegram", "promemoria_mandati"]
+TABELLE = ["personalizzazione", "eventi_grezzi", "foto", "chat_telegram", "allarmi_mandati",
+           "promemoria_mandati"]
 FONTI = [{"telecamera_id": "cucina", "analizzatore": "prova", "confidenza": 0.9}]
 FOTO = b"\xff\xd8\xff\xe0finto jpeg"
 
@@ -76,12 +77,12 @@ def test_allarme_uscita_deciso_da_telegram_resta(archivio):
 def test_eventi_nuovi_una_volta_sola(archivio):
     prima = evento("a", "caduta", "2026-12-01T10:00:00+01:00", {})
     seconda = evento("b", "caduta", "2026-12-01T11:00:00+01:00", {})
-    assert archivio.aggiungi_eventi([prima, seconda], [None, None]) == [True, True]
-    assert archivio.aggiungi_eventi([seconda], [None]) == [False]
+    assert archivio.aggiungi_grezzi([prima, seconda], [None, None]) == [True, True]
+    assert archivio.aggiungi_grezzi([seconda], [None]) == [False]
     # doppione dentro la stessa lista
     terza = evento("c", "caduta", "2026-12-01T12:00:00+01:00", {})
-    assert archivio.aggiungi_eventi([terza, terza], [None, None]) == [True, False]
-    assert len(archivio.leggi_eventi(None, None, None)) == 3
+    assert archivio.aggiungi_grezzi([terza, terza], [None, None]) == [True, False]
+    assert len(archivio.leggi_grezzi(None, None, None)) == 3
 
 
 def test_evento_riletto_uguale_senza_foto(archivio):
@@ -89,9 +90,12 @@ def test_evento_riletto_uguale_senza_foto(archivio):
         "contenitore": "bottiglia", "capienza_ml": 2000, "altezza_contenitore_px": 100, "livello_sceso_px": 10,
         "percentuale": 10, "ml": 200})
     originale = originale.model_copy(update={"foto_prova": "base64 qualsiasi", "simulato": True})
-    archivio.aggiungi_eventi([originale], [FOTO])
-    riletto = archivio.leggi_eventi(None, None, None)[0]
-    assert riletto == originale.model_copy(update={"foto_prova": None})
+    archivio.aggiungi_grezzi([originale], [FOTO])
+    riletto = archivio.leggi_grezzi(None, None, None)[0]
+    # così com'è, ma la foto sta nella sua tabella e ha_foto lo dice
+    assert riletto == originale.model_copy(update={"foto_prova": None, "ha_foto": True})
+    assert archivio.leggi_grezzo("b1") == riletto
+    assert archivio.leggi_grezzo("altro") is None
     # il fuso orario con cui è arrivato resta
     assert riletto.inizio.isoformat() == "2026-12-01T09:00:00+01:00"
 
@@ -105,23 +109,44 @@ def test_eventi_filtrati_e_in_ordine_di_tempo(archivio):
         evento("uscita", "uscita", "2026-12-01T07:15:00+00:00", {"zona_id": "porta"}),
         evento("giorno-dopo", "caduta", "2026-12-02T07:00:00+00:00", {}),
     ]
-    archivio.aggiungi_eventi(eventi, [None, None, None, None])
-    assert ids(archivio.leggi_eventi(None, None, None)) == ["prima", "uscita", "dopo", "giorno-dopo"]
+    archivio.aggiungi_grezzi(eventi, [None, None, None, None])
+    assert ids(archivio.leggi_grezzi(None, None, None)) == ["prima", "uscita", "dopo", "giorno-dopo"]
     dal = datetime.datetime(2026, 12, 1, 7, 15, tzinfo=datetime.UTC)
     al = datetime.datetime(2026, 12, 2, 7, 0, tzinfo=datetime.UTC)
     # dal compreso, al escluso
-    assert ids(archivio.leggi_eventi(dal, al, None)) == ["uscita", "dopo"]
-    assert ids(archivio.leggi_eventi(None, al, "caduta")) == ["prima", "dopo"]
+    assert ids(archivio.leggi_grezzi(dal, al, None)) == ["uscita", "dopo"]
+    assert ids(archivio.leggi_grezzi(None, al, "caduta")) == ["prima", "dopo"]
 
 
 def test_foto(archivio):
     con_foto = evento("c1", "caduta", "2026-12-01T10:00:00+01:00", {})
-    archivio.aggiungi_eventi([con_foto], [FOTO])
+    archivio.aggiungi_grezzi([con_foto], [FOTO])
     assert archivio.leggi_foto("c1") == FOTO
     assert archivio.leggi_foto("altro") is None
     # un evento rimandato con un'altra foto non la cambia
-    archivio.aggiungi_eventi([con_foto], [b"altra foto"])
+    archivio.aggiungi_grezzi([con_foto], [b"altra foto"])
     assert archivio.leggi_foto("c1") == FOTO
+
+
+def test_primo_e_ultimo_inizio(archivio):
+    assert archivio.inizio_primo_e_ultimo() == (None, None)
+    eventi = [
+        evento("b", "caduta", "2026-12-03T10:00:00+01:00", {}),
+        evento("a", "caduta", "2026-12-01T10:00:00+01:00", {}),
+    ]
+    archivio.aggiungi_grezzi(eventi, [None, None])
+    primo, ultimo = archivio.inizio_primo_e_ultimo()
+    assert primo == datetime.datetime(2026, 12, 1, 9, 0, tzinfo=datetime.UTC)
+    assert ultimo == datetime.datetime(2026, 12, 3, 9, 0, tzinfo=datetime.UTC)
+
+
+def test_allarmi_mandati(archivio):
+    assert archivio.allarme_gia_mandato([]) is False
+    assert archivio.allarme_gia_mandato(["a", "b"]) is False
+    archivio.segna_allarme("b")
+    archivio.segna_allarme("b")
+    assert archivio.allarme_gia_mandato(["a", "b"]) is True
+    assert archivio.allarme_gia_mandato(["c"]) is False
 
 
 def test_chat_telegram(archivio):
@@ -143,7 +168,7 @@ def test_dati_restano_dopo_un_riavvio(tmp_path):
     percorso = str(tmp_path / "prova.sqlite3")
     primo = ArchivioDatabase(percorso)
     primo.salva_personalizzazione(personalizzazione("Anna"))
-    primo.aggiungi_eventi([evento("c1", "caduta", "2026-12-01T10:00:00+01:00", {})], [None])
+    primo.aggiungi_grezzi([evento("c1", "caduta", "2026-12-01T10:00:00+01:00", {})], [None])
     secondo = ArchivioDatabase(percorso)
     assert secondo.leggi_personalizzazione().anziano.nome == "Anna"
-    assert len(secondo.leggi_eventi(None, None, None)) == 1
+    assert len(secondo.leggi_grezzi(None, None, None)) == 1

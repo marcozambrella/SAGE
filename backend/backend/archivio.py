@@ -1,5 +1,8 @@
-"""Dove il backend tiene i dati della casa demo: personalizzazione, eventi, foto di prova, chat Telegram collegate,
-promemoria già mandati.
+"""Dove il backend tiene i dati della casa demo: personalizzazione, eventi grezzi, foto di prova, chat Telegram
+collegate, allarmi e promemoria già mandati.
+
+Si salvano gli eventi grezzi così come arrivano dal programma di casa (API.md, "Coordinamento degli eventi"): gli
+eventi coordinati li calcola coordinatore.py a ogni lettura.
 
 SQLite in sviluppo e PostgreSQL online (D12), con sqlite3 e psycopg scritti a mano (D36). L'SQL è scritto una volta
 sola con i segnaposto "?" di sqlite3: per PostgreSQL diventano "%s" (adatta). Le tabelle sono le stesse sui due
@@ -21,32 +24,46 @@ TABELLE = [
     # una riga sola (id = 1): c'è una sola casa, la casa demo (D27)
     "CREATE TABLE IF NOT EXISTS personalizzazione (id INTEGER PRIMARY KEY, dati TEXT NOT NULL)",
     # inizio_utc: testo a lunghezza fissa in UTC, così l'ordine alfabetico è l'ordine nel tempo
-    "CREATE TABLE IF NOT EXISTS eventi (id TEXT PRIMARY KEY, tipo TEXT NOT NULL, inizio_utc TEXT NOT NULL, "
+    "CREATE TABLE IF NOT EXISTS eventi_grezzi (id TEXT PRIMARY KEY, tipo TEXT NOT NULL, inizio_utc TEXT NOT NULL, "
     "dati TEXT NOT NULL)",
-    "CREATE INDEX IF NOT EXISTS eventi_per_inizio ON eventi (inizio_utc)",
+    "CREATE INDEX IF NOT EXISTS eventi_grezzi_per_inizio ON eventi_grezzi (inizio_utc)",
     "CREATE TABLE IF NOT EXISTS chat_telegram (chat_id BIGINT PRIMARY KEY)",
+    # il grezzo che ha fatto partire l'allarme: un allarme per evento coordinato, anche se i doppioni arrivano dopo
+    "CREATE TABLE IF NOT EXISTS allarmi_mandati (id_grezzo TEXT PRIMARY KEY)",
     # chiave = giorno + farmaco + orario: il cron passa ogni pochi minuti, il promemoria parte una volta sola
     "CREATE TABLE IF NOT EXISTS promemoria_mandati (chiave TEXT PRIMARY KEY)",
 ]
-TABELLA_FOTO_SQLITE = "CREATE TABLE IF NOT EXISTS foto (id_evento TEXT PRIMARY KEY, jpeg BLOB NOT NULL)"
-TABELLA_FOTO_POSTGRES = "CREATE TABLE IF NOT EXISTS foto (id_evento TEXT PRIMARY KEY, jpeg BYTEA NOT NULL)"
+TABELLA_FOTO_SQLITE = "CREATE TABLE IF NOT EXISTS foto (id_grezzo TEXT PRIMARY KEY, jpeg BLOB NOT NULL)"
+TABELLA_FOTO_POSTGRES = "CREATE TABLE IF NOT EXISTS foto (id_grezzo TEXT PRIMARY KEY, jpeg BYTEA NOT NULL)"
 
 LEGGI_PERSONALIZZAZIONE = "SELECT dati FROM personalizzazione WHERE id = 1"
 SCRIVI_PERSONALIZZAZIONE = (
     "INSERT INTO personalizzazione (id, dati) VALUES (1, ?) ON CONFLICT (id) DO UPDATE SET dati = excluded.dati"
 )
 # un id già visto viene ignorato (API.md): il numero di righe inserite dice se l'evento è nuovo
-NUOVO_EVENTO = "INSERT INTO eventi (id, tipo, inizio_utc, dati) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO NOTHING"
-NUOVA_FOTO = "INSERT INTO foto (id_evento, jpeg) VALUES (?, ?) ON CONFLICT (id_evento) DO NOTHING"
-LEGGI_FOTO = "SELECT jpeg FROM foto WHERE id_evento = ?"
+NUOVO_GREZZO = (
+    "INSERT INTO eventi_grezzi (id, tipo, inizio_utc, dati) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO NOTHING"
+)
+LEGGI_GREZZO = "SELECT dati FROM eventi_grezzi WHERE id = ?"
+PRIMO_E_ULTIMO = "SELECT MIN(inizio_utc), MAX(inizio_utc) FROM eventi_grezzi"
+NUOVA_FOTO = "INSERT INTO foto (id_grezzo, jpeg) VALUES (?, ?) ON CONFLICT (id_grezzo) DO NOTHING"
+LEGGI_FOTO = "SELECT jpeg FROM foto WHERE id_grezzo = ?"
+NUOVO_ALLARME = "INSERT INTO allarmi_mandati (id_grezzo) VALUES (?) ON CONFLICT (id_grezzo) DO NOTHING"
 NUOVA_CHAT = "INSERT INTO chat_telegram (chat_id) VALUES (?) ON CONFLICT (chat_id) DO NOTHING"
 LEGGI_CHAT = "SELECT chat_id FROM chat_telegram ORDER BY chat_id"
 NUOVO_PROMEMORIA = "INSERT INTO promemoria_mandati (chiave) VALUES (?) ON CONFLICT (chiave) DO NOTHING"
 
 
+FORMATO_UTC = "%Y-%m-%dT%H:%M:%S.%f"
+
+
 def testo_utc(momento: datetime.datetime) -> str:
     """Il momento in UTC come testo a lunghezza fissa (es. 2026-12-01T07:05:00.000000)."""
-    return momento.astimezone(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")
+    return momento.astimezone(datetime.UTC).strftime(FORMATO_UTC)
+
+
+def momento_da_testo_utc(testo: str) -> datetime.datetime:
+    return datetime.datetime.strptime(testo, FORMATO_UTC).replace(tzinfo=datetime.UTC)
 
 
 def e_postgres(indirizzo: str) -> bool:
@@ -142,37 +159,38 @@ class ArchivioDatabase:
         self.scrivi_personalizzazione(personalizzazione)
         return personalizzazione
 
-    # --- eventi e foto ---
+    # --- eventi grezzi e foto ---
 
-    def aggiungi_eventi(self, eventi: list[EventoBase], foto_degli_eventi: list[bytes | None]) -> list[bool]:
-        """Salva gli eventi nuovi con le loro foto, tutti in una transazione (lo storico simulato ne manda centinaia).
-        Per ogni evento dice se era nuovo: un id già visto viene ignorato, anche dentro la stessa lista."""
+    def aggiungi_grezzi(self, grezzi: list[EventoBase], foto_dei_grezzi: list[bytes | None]) -> list[bool]:
+        """Salva i grezzi nuovi così come sono, con le loro foto, tutti in una transazione (lo storico simulato ne
+        manda centinaia). Per ogni grezzo dice se era nuovo: un id già visto viene ignorato, anche nella stessa
+        lista."""
         nuovi = []
         connessione = self.connetti()
         try:
             cursore = connessione.cursor()
-            for evento, foto in zip(eventi, foto_degli_eventi):
-                # la foto sta nella sua tabella: la lista degli eventi non la restituisce mai (API.md)
-                senza_foto = evento.model_copy(update={"foto_prova": None})
+            for grezzo, foto in zip(grezzi, foto_dei_grezzi):
+                # la foto sta nella sua tabella; ha_foto lo dice a chi legge il grezzo senza caricarla
+                senza_foto = grezzo.model_copy(update={"foto_prova": None, "ha_foto": foto is not None})
                 dati = LETTORE_EVENTO.dump_json(senza_foto).decode()
-                parametri = (evento.id, evento.tipo, testo_utc(evento.inizio), dati)
-                cursore.execute(self.adatta(NUOVO_EVENTO), parametri)
+                parametri = (grezzo.id, grezzo.tipo, testo_utc(grezzo.inizio), dati)
+                cursore.execute(self.adatta(NUOVO_GREZZO), parametri)
                 nuovo = cursore.rowcount == 1
                 if nuovo and foto is not None:
-                    cursore.execute(self.adatta(NUOVA_FOTO), (evento.id, foto))
+                    cursore.execute(self.adatta(NUOVA_FOTO), (grezzo.id, foto))
                 nuovi.append(nuovo)
             connessione.commit()
         finally:
             connessione.close()
         return nuovi
 
-    def leggi_eventi(
+    def leggi_grezzi(
         self,
         dal: datetime.datetime | None,
         al: datetime.datetime | None,
         tipo: str | None,
     ) -> list[EventoBase]:
-        """Gli eventi con inizio da `dal` (compreso) ad `al` (escluso), in ordine di inizio. None: nessun limite."""
+        """I grezzi con inizio da `dal` (compreso) ad `al` (escluso), in ordine di inizio. None: nessun limite."""
         condizioni = []
         parametri = []
         if dal is not None:
@@ -184,22 +202,48 @@ class ArchivioDatabase:
         if tipo is not None:
             condizioni.append("tipo = ?")
             parametri.append(tipo)
-        sql = "SELECT dati FROM eventi"
+        sql = "SELECT dati FROM eventi_grezzi"
         if len(condizioni) > 0:
             sql = sql + " WHERE " + " AND ".join(condizioni)
         sql = sql + " ORDER BY inizio_utc, id"
 
-        eventi = []
+        grezzi = []
         for riga in self.leggi(sql, tuple(parametri)):
-            eventi.append(LETTORE_EVENTO.validate_json(riga[0]))
-        return eventi
+            grezzi.append(LETTORE_EVENTO.validate_json(riga[0]))
+        return grezzi
 
-    def leggi_foto(self, id_evento: str) -> bytes | None:
-        righe = self.leggi(LEGGI_FOTO, (id_evento,))
+    def leggi_grezzo(self, id_grezzo: str) -> EventoBase | None:
+        righe = self.leggi(LEGGI_GREZZO, (id_grezzo,))
+        if len(righe) == 0:
+            return None
+        return LETTORE_EVENTO.validate_json(righe[0][0])
+
+    def inizio_primo_e_ultimo(self) -> tuple[datetime.datetime | None, datetime.datetime | None]:
+        """Inizio del primo e dell'ultimo grezzo (None se non ce ne sono): per GET /demo/periodo."""
+        primo, ultimo = self.leggi(PRIMO_E_ULTIMO, ())[0]
+        if primo is None:
+            return None, None
+        return momento_da_testo_utc(primo), momento_da_testo_utc(ultimo)
+
+    def leggi_foto(self, id_grezzo: str) -> bytes | None:
+        righe = self.leggi(LEGGI_FOTO, (id_grezzo,))
         if len(righe) == 0:
             return None
         # psycopg può dare un memoryview per BYTEA: sempre bytes
         return bytes(righe[0][0])
+
+    # --- allarmi ---
+
+    def segna_allarme(self, id_grezzo: str) -> None:
+        self.esegui(NUOVO_ALLARME, (id_grezzo,))
+
+    def allarme_gia_mandato(self, ids_grezzi: list[str]) -> bool:
+        """True se uno di questi grezzi (di solito quelli di un evento coordinato) ha già fatto partire l'allarme."""
+        if len(ids_grezzi) == 0:
+            return False
+        segnaposti = ", ".join(["?"] * len(ids_grezzi))
+        sql = "SELECT id_grezzo FROM allarmi_mandati WHERE id_grezzo IN (" + segnaposti + ")"
+        return len(self.leggi(sql, tuple(ids_grezzi))) > 0
 
     # --- Telegram ---
 

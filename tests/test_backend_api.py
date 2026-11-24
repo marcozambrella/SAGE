@@ -259,3 +259,66 @@ def test_report_mensile_mese_sbagliato(client):
 def test_cors_aperto_per_la_web_app(client):
     risposta = client.get("/demo/eventi", headers={"Origin": "http://localhost:5173"})
     assert risposta.headers["access-control-allow-origin"] == "*"
+
+
+# --- coordinamento degli eventi (API.md): i doppioni non si duplicano e non si perdono ---
+
+def da_telecamera(dati: dict, telecamera: str, confidenza: float) -> dict:
+    """Lo stesso evento come lo manderebbe un'altra telecamera."""
+    copia = dict(dati)
+    copia["fonti"] = [{"telecamera_id": telecamera, "analizzatore": dati["tipo"], "confidenza": confidenza}]
+    copia["confidenza"] = confidenza
+    return copia
+
+
+def test_caduta_da_due_telecamere_un_solo_evento_e_un_solo_allarme(client, caplog):
+    configura(client)
+    dalla_cucina = da_telecamera(evento("c-cucina", "caduta", "2025-12-01T10:00:00+01:00", {}), "cucina", 0.7)
+    dal_salotto = da_telecamera(evento("c-salotto", "caduta", "2025-12-01T10:00:04+01:00", {}, foto=FOTO),
+                                "salotto", 0.9)
+    client.post("/programma-casa/eventi", json=[dalla_cucina], headers=CON_TOKEN)
+    # il doppione arriva dopo, in un'altra chiamata: aggiorna l'evento ma non rimanda l'allarme
+    risposta = client.post("/programma-casa/eventi", json=[dal_salotto], headers=CON_TOKEN)
+    assert risposta.json() == {"ricevuti": 1, "nuovi": 1}
+    assert len(allarmi_nel_log(caplog)) == 1
+
+    eventi = client.get("/demo/eventi").json()
+    assert len(eventi) == 1
+    assert eventi[0]["id"] == "c-cucina"
+    assert eventi[0]["confidenza"] == 0.9
+    assert len(eventi[0]["fonti"]) == 2
+    assert eventi[0]["ha_foto"] is True
+    assert eventi[0]["foto_prova"] is None
+    # la foto dell'evento coordinato è quella del salotto, l'unica che c'è
+    assert client.get("/demo/eventi/c-cucina/foto").content == FOTO
+
+
+def test_doppioni_nella_stessa_chiamata_e_rinvii(client, caplog):
+    configura(client)
+    prima = da_telecamera(evento("a", "caduta", "2025-12-01T10:00:00+01:00", {}), "cucina", 0.8)
+    seconda = da_telecamera(evento("b", "caduta", "2025-12-01T10:00:02+01:00", {}), "salotto", 0.8)
+    client.post("/programma-casa/eventi", json=[prima, seconda], headers=CON_TOKEN)
+    # rimandati dopo un errore di rete
+    risposta = client.post("/programma-casa/eventi", json=[prima, seconda], headers=CON_TOKEN)
+    assert risposta.json() == {"ricevuti": 2, "nuovi": 0}
+    assert len(allarmi_nel_log(caplog)) == 1
+    assert len(client.get("/demo/eventi").json()) == 1
+
+
+def test_cadute_lontane_due_eventi_e_due_allarmi(client, caplog):
+    configura(client)
+    prima = evento("a", "caduta", "2025-12-01T10:00:00+01:00", {})
+    dopo = evento("b", "caduta", "2025-12-01T10:05:00+01:00", {})
+    client.post("/programma-casa/eventi", json=[prima, dopo], headers=CON_TOKEN)
+    assert len(allarmi_nel_log(caplog)) == 2
+    assert len(client.get("/demo/eventi").json()) == 2
+
+
+def test_bevuta_da_due_telecamere_contata_una_volta(client):
+    configura(client)
+    dalla_cucina = da_telecamera(bevuta("b-cucina", "2025-12-01T09:00:00+01:00", 200), "cucina", 0.9)
+    dal_salotto = da_telecamera(bevuta("b-salotto", "2025-12-01T09:00:03+01:00", 180), "salotto", 0.6)
+    client.post("/programma-casa/eventi", json=[dalla_cucina, dal_salotto], headers=CON_TOKEN)
+    report = client.get("/demo/report/giornaliero", params={"data": "2025-12-01"}).json()
+    assert report["bevute"] == 1
+    assert report["acqua_ml"] == 200

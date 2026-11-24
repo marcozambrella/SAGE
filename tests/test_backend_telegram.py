@@ -257,6 +257,18 @@ def test_caduta_arriva_su_telegram_con_la_foto(con_bot):
     assert "reply_markup" not in foto
 
 
+def test_caduta_da_due_telecamere_un_solo_messaggio(con_bot):
+    client, richiesta = con_bot
+    inizio = datetime.datetime(2025, 12, 1, 10, 0, tzinfo=ROMA)
+    dalla_cucina = evento("c-cucina", "caduta", inizio, {}, foto=FOTO)
+    dal_salotto = evento("c-salotto", "caduta", inizio + datetime.timedelta(seconds=3), {}, foto=FOTO)
+    dal_salotto["fonti"] = [{"telecamera_id": "salotto", "analizzatore": "caduta", "confidenza": 0.8}]
+    con_token = {"Authorization": "Bearer " + TOKEN_CASA}
+    client.post("/programma-casa/eventi", json=[dalla_cucina], headers=con_token)
+    client.post("/programma-casa/eventi", json=[dal_salotto], headers=con_token)
+    assert richiesta.metodi().count("sendPhoto") == 1
+
+
 def test_uscita_vietata_arriva_con_i_pulsanti(con_bot):
     client, richiesta = con_bot
     uscita = evento("u1", "uscita", datetime.datetime(2025, 12, 1, 23, 0, tzinfo=ROMA), {"zona_id": "porta"})
