@@ -64,9 +64,9 @@ FRAZIONE_SALTO_STRISCIA = 0.5      # in ogni striscia il salto è almeno metà d
 
 
 def valori_bevuta(contenitore: str, contenitore_id: str | None, capienza_ml: float, altezza_contenitore_px: float,
-                  percentuale: float) -> ValoriBevuta:
+                  percentuale: float, livello_visibile: bool) -> ValoriBevuta:
     """Valori del contratto dalla percentuale scesa, con la formula di D9: i pixel scesi sono la percentuale
-    dell'altezza del contenitore."""
+    dell'altezza del contenitore. Se il livello non era visibile la percentuale è 0 e vuol dire "non misurato"."""
     livello_sceso_px = percentuale / 100 * altezza_contenitore_px
     ml = percentuale / 100 * capienza_ml
     return ValoriBevuta(
@@ -77,6 +77,7 @@ def valori_bevuta(contenitore: str, contenitore_id: str | None, capienza_ml: flo
         livello_sceso_px=livello_sceso_px,
         percentuale=percentuale,
         ml=ml,
+        livello_visibile=livello_visibile,
     )
 
 
@@ -316,17 +317,19 @@ class AnalizzatoreBevuta:
             percentuale = percentuale_scesa(statistics.median(frazioni_prima), statistics.median(frazioni_dopo))
             altezza = statistics.median(altezze_prima)
         else:
-            # bevuta vista ma livello non visibile: 0 ml e confidenza dimezzata. Proposta per il contratto: un campo
-            # livello_visibile in ValoriBevuta, così la web app non lo confonde con "non ha bevuto niente"
+            # bevuta vista ma livello non visibile: 0 ml, confidenza dimezzata e livello_visibile False, così la web
+            # app non lo confonde con "non ha bevuto niente"
             confidenza = confidenza / 2
             print("telecamera " + self.telecamera_id + ": bevuta vista, livello del liquido non visibile "
                   "(contenitore non trasparente, troppo lontano o sempre in mano)")
         contenitore = contenitore_della_personalizzazione(self.personalizzazione, sorso.classe)
         if contenitore is None:
             tipo = TIPI_DA_CLASSE[sorso.classe][0]
-            valori = valori_bevuta(tipo, None, CAPIENZA_PREDEFINITA[tipo], altezza, percentuale)
+            capienza = CAPIENZA_PREDEFINITA[tipo]
+            valori = valori_bevuta(tipo, None, capienza, altezza, percentuale, livello_visibile)
         else:
-            valori = valori_bevuta(contenitore.tipo, contenitore.id, contenitore.capienza_ml, altezza, percentuale)
+            capienza = contenitore.capienza_ml
+            valori = valori_bevuta(contenitore.tipo, contenitore.id, capienza, altezza, percentuale, livello_visibile)
         fonte = Fonte(telecamera_id=self.telecamera_id, analizzatore="bevuta", confidenza=confidenza)
         return EventoBevuta(
             id=str(uuid.uuid4()),

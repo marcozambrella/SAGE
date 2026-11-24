@@ -30,7 +30,7 @@ PERSONALIZZAZIONE = Personalizzazione.model_validate({
 
 def test_esempio_di_marco():
     # scende 10 px su una bottiglia alta 100 px da 2 L → 10% → 200 ml
-    valori = valori_bevuta("bottiglia", None, 2000, 100, 10)
+    valori = valori_bevuta("bottiglia", None, 2000, 100, 10, True)
     assert valori.livello_sceso_px == pytest.approx(10)
     assert valori.ml == pytest.approx(200)
     assert valori.contenitore == "bottiglia"
@@ -210,6 +210,7 @@ def test_bevuta_dalla_bottiglia():
     assert evento.valori.contenitore_id == "bottiglia-acqua"
     assert evento.valori.altezza_contenitore_px == pytest.approx(60)
     assert evento.valori.livello_sceso_px == pytest.approx(12)
+    assert evento.valori.livello_visibile
     assert evento.confidenza == pytest.approx(0.7)
     assert evento.foto_prova is not None
     assert leggi_evento(LETTORE_EVENTO.dump_python(evento, mode="json")) == evento
@@ -231,7 +232,17 @@ def test_livello_non_visibile_zero_ml_e_confidenza_dimezzata():
     eventi = scena_bevuta(3, 100)
     assert len(eventi) == 1
     assert eventi[0].valori.ml == 0
+    assert not eventi[0].valori.livello_visibile
     assert eventi[0].confidenza == pytest.approx(0.35)
+
+
+def test_livello_non_visibile_arriva_al_backend():
+    # nel JSON mandato al backend: ml 0 vuol dire "non misurato", non "non ha bevuto"
+    evento = scena_bevuta(3, 100)[0]
+    dati = LETTORE_EVENTO.dump_python(evento, mode="json")
+    assert dati["valori"]["livello_visibile"] is False
+    assert dati["valori"]["ml"] == 0
+    assert not leggi_evento(dati).valori.livello_visibile
 
 
 def test_contenitore_non_nella_personalizzazione():
