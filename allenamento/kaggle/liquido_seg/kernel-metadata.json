@@ -1,0 +1,18 @@
+{
+  "id": "KAGGLE_UTENTE/sage-liquido-seg",
+  "title": "sage liquido seg",
+  "code_file": "liquido_seg.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": [
+    "sagieppel/labpics-chemistry-labpics-medical",
+    "goktani/liquid-level-detection-dataset-yolov11"
+  ],
+  "kernel_sources": [],
+  "competition_sources": [],
+  "model_sources": []
+}

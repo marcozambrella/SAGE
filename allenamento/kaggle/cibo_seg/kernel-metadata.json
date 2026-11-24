@@ -1,0 +1,19 @@
+{
+  "id": "KAGGLE_UTENTE/sage-cibo-seg",
+  "title": "sage cibo seg",
+  "code_file": "cibo_seg.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": [
+    "ggrill/foodseg103",
+    "dangvanthuc0209/unimib2016",
+    "awsaf49/food-recognition-2022-dataset"
+  ],
+  "kernel_sources": [],
+  "competition_sources": [],
+  "model_sources": []
+}
