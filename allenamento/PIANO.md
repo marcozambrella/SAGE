@@ -99,7 +99,7 @@ dopo con precisione sulla validazione e millisecondi su CPU.
 |---|---|---|---|---|
 | `esplora_cadute` | Marco | CPU | 0 | fatto (v2): numeri nella sez. 8 |
 | `cadute_scheletri_cpu` (posa n, stesso file di `cadute_scheletri`) | Marco | CPU | 0 (~4-5 h di sessione) | in corso |
-| `vlm_cibo` (Qwen3-VL-2B, SmolVLM2-2.2B, SmolVLM2-500M su 40 foto Food-101) | Marco | CPU | 0 (~2-3 h) | in corso |
+| `vlm_cibo` (Qwen3-VL-2B, SmolVLM2-2.2B, SmolVLM2-500M su 40 foto Food-101) | Marco | CPU | 0 | fatto: risultati sotto |
 | `cadute_scheletri` (posa n + s) | Marco | GPU T4 x2 | ~1,5 | pronto, **lancio GPU bloccato** (sez. 9) |
 | `liquido_seg` (LabPics + goktani, 4 h di allenamento) | Marco | GPU T4 x2 | ~5 | pronto, bloccato |
 | `cibo_seg` (FoodSeg103 + UNIMIB2016 + Food Recognition 2022, 9 h) | Marco | GPU T4 x2 | ~10 | pronto, bloccato |
@@ -141,3 +141,17 @@ s 44/48 (IR 21/24); GMDCSA n 45, s 47; Le2i n 43, s 45; UR Fall n 39, s 41. n ~8
   (e per il cibo `runs/roboflow/cibo hust-ajpvu/food-srnub miyams-workspace/tray-segmentation-vgevo crab-robot-2025/leftover-foods xuhong0987-gmail-com/hospital-meal georges-workspace/food-tray-detection cv-eu0de/food-detection-erjhm`;
   per il liquido `runs/roboflow/liquidi nonbiodegradable-data-sets/waterbottle-level nunnut1s-workspace/water-level-in-cup mohamed-6qlja/glass-of-water-segmentation`).
   Poi l'agente carica le cartelle come dataset privati sull'account che le usa e le aggiunge ai kernel.
+
+## 10. Tipo di cibo: confronto dei modelli visione+linguaggio (kernel `vlm_cibo`, 24/11)
+40 foto di Food-101 (metà piatti italiani), CPU di Kaggle a 4 thread, pesi float32, foto ridotte a 512 px.
+"Esatte" = il nome del piatto compare nella risposta; "parziali" = ne compare almeno una parola lunga.
+
+| Modello (licenza Apache 2.0) | Esatte | Parziali | Secondi per foto (mediana) | Picco di memoria |
+|---|---|---|---|---|
+| Qwen3-VL-2B-Instruct | 20/40 | 28/40 | 16,8 | 12,4 GB |
+| SmolVLM2-2.2B-Instruct | 13/40 | 24/40 | 167 | 9,8 GB |
+| SmolVLM2-500M-Video-Instruct | 8/40 | 19/40 | 50,7 | 3,0 GB |
+
+Proposta: Qwen3-VL-2B (il più corretto e anche il più veloce). In float32 non sta nei 6,7 GB del PC di Marco:
+serve una versione ridotta (bf16 circa 4,5 GB o quantizzata), da provare. Risposte complete in
+`runs/kaggle/vlm_cibo/risposte_*.json` (fuori da git).
