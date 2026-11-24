@@ -2,6 +2,7 @@
 nel backend con la stessa chiamata del programma di casa (client di test di FastAPI, niente rete vera)."""
 
 import datetime
+from collections import Counter
 
 import pytest
 from fastapi.testclient import TestClient
@@ -81,6 +82,31 @@ def test_tre_giorni_di_poca_acqua_nell_ultima_settimana():
             ultima_settimana.append(indice)
     assert len(ultima_settimana) >= 2
     assert ultima_settimana[-1] - ultima_settimana[0] <= 2
+
+
+def test_pasti_in_categorie_credibili_e_scarsi_nei_giorni_di_poca_acqua():
+    eventi = genera_storico(PERSONALIZZAZIONE_DEMO, DAL, AL, SEME_PREDEFINITO)
+    report = calcola_report_periodo("mensile", DAL, AL, eventi, PERSONALIZZAZIONE_DEMO, DOPO)
+    categorie = Counter()
+    for evento in eventi:
+        if evento.tipo == "pasto":
+            categorie[evento.valori.quanto_mangiato] = categorie[evento.valori.quanto_mangiato] + 1
+    # di solito mangia tutto o metà; qualche pasto lasciato e qualcuno non misurato
+    assert categorie["tutto"] > categorie["meta"] > categorie["meno_di_meta"] > 0
+    assert categorie[None] > 0
+
+    # i giorni di poca acqua (meno di metà dell'obiettivo) sono anche quelli dei pasti scarsi
+    scarsi_nei_giorni_difficili = 0
+    scarsi_negli_altri = 0
+    giorni_difficili = 0
+    for giorno in report.giorni:
+        if giorno.acqua_ml < 750:
+            giorni_difficili = giorni_difficili + 1
+            scarsi_nei_giorni_difficili = scarsi_nei_giorni_difficili + giorno.pasti_meno_di_meta
+        else:
+            scarsi_negli_altri = scarsi_negli_altri + giorno.pasti_meno_di_meta
+    altri_giorni = len(report.giorni) - giorni_difficili
+    assert scarsi_nei_giorni_difficili / giorni_difficili > 3 * scarsi_negli_altri / altri_giorni
 
 
 def test_bevute_con_il_contenitore_della_personalizzazione():

@@ -44,8 +44,8 @@ ACQUA_MEDIA_ML = 1250
 ACQUA_VARIAZIONE_ML = 250
 ACQUA_MINIMA_ML = 600
 ACQUA_MASSIMA_ML = 2000
-# 3 giorni di fila con poca acqua (Marco, 24/11): un calo da notare nei trend. Cadono nell'ultima settimana, così
-# si vedono sia nel trend settimanale sia in quello mensile.
+# 3 giorni di fila con poca acqua (Marco, 24/11) e pasti scarsi (25/11): un calo da notare nei trend. Cadono
+# nell'ultima settimana, così si vedono sia nel trend settimanale sia in quello mensile.
 GIORNI_DI_POCA_ACQUA = 3
 FATTORE_POCA_ACQUA = 0.5
 BEVUTE_MINIME = 4
@@ -58,8 +58,11 @@ PROBABILITA_DOSE_IN_RITARDO = 0.15
 PROBABILITA_FARMACO_NON_RICONOSCIUTO = 0.05
 
 PROBABILITA_PASTO_SALTATO = 0.05
-MANGIATO_MEDIO_PERCENTUALE = 75
-MANGIATO_VARIAZIONE_PERCENTUALE = 15
+# quanto ha mangiato (API.md, "Quanto ha mangiato"), None = non misurato (piatto coperto): pesi di ogni categoria
+CATEGORIE_MANGIATO = ["tutto", "meta", "meno_di_meta", None]
+PESI_MANGIATO = [50, 35, 10, 5]
+# nei giorni di poca acqua mangia anche poco: la stessa settimana difficile si vede in tutti e due i trend
+PESI_MANGIATO_GIORNI_DIFFICILI = [10, 30, 55, 5]
 
 # alzate per notte: 0, 1, 2 o 3 con questi pesi
 PESI_ALZATE_PER_NOTTE = [35, 40, 20, 5]
@@ -235,15 +238,20 @@ def prese_dei_farmaci(
     return eventi
 
 
-def pasti(rng: random.Random, data: datetime.date, personalizzazione: Personalizzazione, fuso: ZoneInfo) -> list:
+def pasti(
+    rng: random.Random, data: datetime.date, personalizzazione: Personalizzazione, fuso: ZoneInfo, scarsi: bool
+) -> list:
+    pesi = PESI_MANGIATO
+    if scarsi:
+        pesi = PESI_MANGIATO_GIORNI_DIFFICILI
     eventi = []
     for primo_minuto, ultimo_minuto, menu in PASTI:
         if rng.random() < PROBABILITA_PASTO_SALTATO:
             continue
         inizio = momento(data, rng.randint(primo_minuto, ultimo_minuto), fuso)
         fine = inizio + datetime.timedelta(minutes=rng.randint(15, 40))
-        mangiato = tra(rng.gauss(MANGIATO_MEDIO_PERCENTUALE, MANGIATO_VARIAZIONE_PERCENTUALE), 10, 100)
-        valori = {"cibi": rng.choice(menu), "percentuale_mangiata": round(mangiato)}
+        quanto_mangiato = rng.choices(CATEGORIE_MANGIATO, weights=pesi)[0]
+        valori = {"cibi": rng.choice(menu), "quanto_mangiato": quanto_mangiato}
         eventi.append(dati_evento(rng, personalizzazione, "pasto", inizio, fine, "kitchen", valori))
     return eventi
 
@@ -305,7 +313,7 @@ def eventi_del_giorno(
     tutti = []
     tutti.extend(bevute(rng, data, personalizzazione, fuso, poca_acqua))
     tutti.extend(prese_dei_farmaci(rng, data, personalizzazione, fuso))
-    tutti.extend(pasti(rng, data, personalizzazione, fuso))
+    tutti.extend(pasti(rng, data, personalizzazione, fuso, poca_acqua))
     tutti.extend(alzate_notturne(rng, data, personalizzazione, fuso))
     tutti.extend(cadute_e_uscite(rng, data, personalizzazione, fuso, vietati, permessi, con_caduta))
 
