@@ -98,7 +98,7 @@ dopo con precisione sulla validazione e millisecondi su CPU.
 | Kernel (cartella `allenamento/kaggle/`) | Account | Macchina | Ore stimate | Stato (24/11, 02:30) |
 |---|---|---|---|---|
 | `esplora_cadute` | Marco | CPU | 0 | fatto (v2): numeri nella sez. 8 |
-| `cadute_scheletri_cpu` (posa n, stesso file di `cadute_scheletri`) | Marco | CPU | 0 (~4-5 h di sessione) | in corso |
+| `cadute_scheletri_cpu` (posa n, stesso file di `cadute_scheletri`) | Marco | CPU | 0 | fatto: 520 npz, 142.127 fotogrammi in 5,0 h (7,8 fps); persona trovata nel 91-100% dei fotogrammi (mediana per dataset) |
 | `vlm_cibo` (Qwen3-VL-2B, SmolVLM2-2.2B, SmolVLM2-500M su 40 foto Food-101) | Marco | CPU | 0 | fatto: risultati sotto |
 | `cadute_scheletri` (posa n + s) | Marco | GPU T4 x2 | ~1,5 | pronto, **lancio GPU bloccato** (sez. 9) |
 | `liquido_seg` (LabPics + goktani, 4 h di allenamento) | Marco | GPU T4 x2 | ~5 | pronto, bloccato |
