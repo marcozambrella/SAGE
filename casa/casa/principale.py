@@ -1,5 +1,5 @@
 """Programma di casa di SAGE: legge le telecamere del file di configurazione, fa la percezione condivisa, passa ogni
-osservazione agli analizzatori, unisce gli eventi, li salva nel registro locale e li manda al backend.
+osservazione agli analizzatori, salva gli eventi grezzi nel registro locale e li manda al backend.
 
 Uso dalla radice del repo (D6, D23: i video registrati si elaborano sul PC di Marco o su Kaggle):
     uv run python -m casa --configurazione casa/configurazione.json --ora-inizio 2026-12-01T08:00:00+01:00
@@ -31,7 +31,6 @@ from casa.invio import SECONDI_TRA_LOTTI, Backend, invia_in_sospeso
 from casa.percezione import POSA_PREDEFINITA, RILEVATORE_PREDEFINITO, Percezione
 from casa.registro import RegistroLocale
 from casa.sorgenti import apri_sorgente
-from casa.unione import Unione
 from casa.uscita import AnalizzatoreUscita
 
 # Provvisorio: da far scegliere a Marco con le misure di velocità sulla CPU.
@@ -77,7 +76,8 @@ def prepara_telecamere(configurazione: ConfigurazioneCasa, fps: float) -> list:
 
 
 def registra(eventi: list, registro: RegistroLocale, backend: Backend | None) -> None:
-    """Salva gli eventi usciti dall'unione; se c'è un urgente lo manda subito (allarme Telegram, D10)."""
+    """Salva gli eventi grezzi degli analizzatori; se c'è un urgente lo manda subito (allarme Telegram, D10).
+    Niente fusione qui: i doppioni tra telecamere li coordina il backend (API.md, Marco 24/11)."""
     c_e_un_urgente = False
     for evento in eventi:
         registro.salva(evento)
@@ -89,23 +89,20 @@ def registra(eventi: list, registro: RegistroLocale, backend: Backend | None) ->
         invia_in_sospeso(registro, backend, True)
 
 
-def fine_sorgente(telecamera: Telecamera, unione: Unione, ora: datetime.datetime, registro: RegistroLocale,
-                  backend: Backend | None) -> None:
+def fine_sorgente(telecamera: Telecamera, registro: RegistroLocale, backend: Backend | None) -> None:
     """La sorgente è finita (fine del video o flusso interrotto): gli analizzatori chiudono quello che è in corso."""
     print("telecamera " + telecamera.id + ": sorgente finita")
     for analizzatore in telecamera.analizzatori:
-        for evento in analizzatore.fine():
-            registra(unione.aggiungi(evento, ora), registro, backend)
+        registra(analizzatore.fine(), registro, backend)
 
 
-def elabora(telecamere: list, percezione, unione: Unione, registro: RegistroLocale, backend: Backend | None,
+def elabora(telecamere: list, percezione, registro: RegistroLocale, backend: Backend | None,
             ora_inizio: datetime.datetime) -> None:
     """Ciclo principale: un fotogramma per telecamera a turno, finché tutte le sorgenti sono finite.
-    Con i file video le telecamere avanzano insieme nel tempo del video, così l'unione confronta istanti vicini."""
+    Con i file video le telecamere avanzano insieme nel tempo del video."""
     for telecamera in telecamere:
         telecamera.tracker = percezione.nuovo_tracker()
     ultimo_lotto = time.monotonic()
-    ora_attuale = ora_inizio  # l'ora più avanti vista finora
     while True:
         tutte_finite = True
         elaborato_qualcosa = False
@@ -116,19 +113,14 @@ def elabora(telecamere: list, percezione, unione: Unione, registro: RegistroLoca
             fotogramma = telecamera.sorgente.leggi()
             if fotogramma is None:
                 if telecamera.sorgente.finita:
-                    fine_sorgente(telecamera, unione, ora_attuale, registro, backend)
+                    fine_sorgente(telecamera, registro, backend)
                 continue
             elaborato_qualcosa = True
             ora = ora_inizio + datetime.timedelta(seconds=fotogramma.secondi)
-            ora_attuale = max(ora_attuale, ora)
             osservazione = percezione.osserva(fotogramma.immagine, telecamera.tracker, telecamera.usa_oggetti,
                                               telecamera.id, telecamera.stanza, ora)
-            if len(osservazione.persone) > 0:
-                unione.registra_presenza(telecamera.stanza, ora)
             for analizzatore in telecamera.analizzatori:
-                for evento in analizzatore.elabora(osservazione):
-                    registra(unione.aggiungi(evento, ora), registro, backend)
-        registra(unione.pronti(ora_attuale), registro, backend)
+                registra(analizzatore.elabora(osservazione), registro, backend)
         if tutte_finite:
             break
         if backend is not None and time.monotonic() - ultimo_lotto >= SECONDI_TRA_LOTTI:
@@ -136,7 +128,6 @@ def elabora(telecamere: list, percezione, unione: Unione, registro: RegistroLoca
             ultimo_lotto = time.monotonic()
         if not elaborato_qualcosa:
             time.sleep(0.01)  # telecamere dal vivo: nessun fotogramma pronto, si aspetta un attimo
-    registra(unione.chiudi_tutti(), registro, backend)
     if backend is not None:
         invia_in_sospeso(registro, backend, False)
 
@@ -193,5 +184,5 @@ def main(argomenti: list | None = None) -> None:
     if serve_rilevatore:
         percorso_rilevatore = RILEVATORE_PREDEFINITO
     percezione = Percezione(POSA_PREDEFINITA, percorso_rilevatore)
-    elabora(telecamere, percezione, Unione(), registro, backend, ora_inizio)
+    elabora(telecamere, percezione, registro, backend, ora_inizio)
     registro.chiudi()

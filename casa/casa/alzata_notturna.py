@@ -3,7 +3,6 @@
 Non usa gli id delle tracce (di notte, sotto le coperte, il tracker li cambia spesso): guarda solo se nel letto c'è
 qualcuno. Un cambio (letto vuoto, letto di nuovo occupato) vale solo se dura almeno SECONDI_CONFERMA, così un
 fotogramma in cui la posa non vede la persona sotto le coperte non diventa un'alzata.
-Le stanze attraversate dalle altre telecamere le aggiunge l'unione.
 """
 
 import datetime

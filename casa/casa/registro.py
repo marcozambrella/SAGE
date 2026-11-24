@@ -1,4 +1,4 @@
-"""Registro locale degli eventi (SQLite, libreria standard). Ogni evento uscito dall'unione si salva qui prima di
+"""Registro locale degli eventi (SQLite, libreria standard). Ogni evento degli analizzatori si salva qui prima di
 mandarlo al backend: se manca la rete resta "da inviare" e si rimanda dopo. Il backend ignora un id già visto,
 quindi rimandare non crea doppioni (API.md). Un evento che il backend rifiuta (errore 4xx) diventa "rifiutato",
 con il messaggio d'errore, ed esce dalla coda: rimandarlo uguale non servirebbe.

@@ -1,4 +1,4 @@
-"""Test d'insieme del programma di casa: video sintetici → percezione finta → analizzatori → unione → registro →
+"""Test d'insieme del programma di casa: video sintetici → percezione finta → analizzatori → registro →
 backend finto. La percezione è finta (persone scritte a mano) così il test non dipende dai pesi."""
 
 import datetime
@@ -15,7 +15,6 @@ from casa.invio import Backend
 from casa.percezione import Osservazione, Persona
 from casa.principale import elabora, leggi_backend, ora_di_inizio, prepara_telecamere
 from casa.registro import RegistroLocale
-from casa.unione import Unione
 from test_casa_invio import BackendFinto, indirizzo_backend  # noqa: F401 (fixture del backend finto)
 from test_casa_sorgenti import scrivi_video
 
@@ -73,7 +72,7 @@ def test_dal_video_al_backend(tmp_path, indirizzo_backend):  # noqa: F811
     assert not telecamere[0].usa_oggetti
     registro = RegistroLocale(str(tmp_path / "registro.sqlite3"))
     backend = Backend(indirizzo_backend, "token-finto")
-    elabora(telecamere, PercezioneFinta(), Unione(), registro, backend, INIZIO)
+    elabora(telecamere, PercezioneFinta(), registro, backend, INIZIO)
 
     eventi = registro.tutti()
     tipi = []
@@ -83,7 +82,7 @@ def test_dal_video_al_backend(tmp_path, indirizzo_backend):  # noqa: F811
     alzata = eventi[0]
     assert alzata.inizio == INIZIO + datetime.timedelta(seconds=12)
     assert alzata.fine == INIZIO + datetime.timedelta(seconds=40)
-    assert alzata.valori.stanze == ["bedroom", "hall"]
+    assert alzata.valori.stanze == ["bedroom"]
     uscita = eventi[1]
     assert uscita.inizio == INIZIO + datetime.timedelta(seconds=19.8)
     assert uscita.valori.zona_id == "porta-ingresso"
@@ -125,7 +124,7 @@ def test_evento_nel_registro_e_json_dei_contratti(tmp_path, indirizzo_backend): 
     # il corpo del POST è una lista JSON che il backend legge con i contratti
     telecamere = prepara_telecamere(configurazione(tmp_path), 5)
     registro = RegistroLocale(str(tmp_path / "registro.sqlite3"))
-    elabora(telecamere, PercezioneFinta(), Unione(), registro, None, INIZIO)
+    elabora(telecamere, PercezioneFinta(), registro, None, INIZIO)
     assert BackendFinto.richieste == []  # senza backend niente rete
     assert len(registro.da_inviare(False)) == 2
     for evento in registro.tutti():
