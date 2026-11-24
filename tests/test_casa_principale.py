@@ -5,6 +5,7 @@ import datetime
 import json
 from zoneinfo import ZoneInfo
 
+import cv2
 import numpy as np
 import pytest
 
@@ -30,7 +31,7 @@ def persona(x_piedi: float) -> Persona:
 
 class PercezioneFinta:
     """Camera da letto: a letto fino a 12 s, in piedi accanto al letto fino a 15 s, poi via, di nuovo a letto da 45 s.
-    Ingresso: nella stanza da 15 a 18 s, nella zona porta da 18 a 20 s, poi sparisce (esce)."""
+    Ingresso: nella stanza da 15 a 18 s, nella zona porta da 18 a 20 s mentre apre la porta, poi esce."""
 
     def nuovo_tracker(self):
         return None
@@ -50,9 +51,22 @@ class PercezioneFinta:
         return Osservazione(telecamera_id, stanza, ora, immagine, persone, [])
 
 
+def scrivi_video_ingresso(percorso) -> None:
+    """40 s a 5 fotogrammi al secondo: stanza grigia, porta nel quarto sinistro che si apre tra 18 e 21 s."""
+    scrittore = cv2.VideoWriter(str(percorso), cv2.VideoWriter_fourcc(*"mp4v"), 5, (64, 48))
+    for indice in range(40 * 5):
+        secondi = indice / 5
+        immagine = np.full((48, 64, 3), 80, np.uint8)
+        immagine[:, 0:16] = 100
+        if 18 <= secondi < 21:
+            immagine[:, 0:16] = 200
+        scrittore.write(immagine)
+    scrittore.release()
+
+
 def configurazione(cartella) -> ConfigurazioneCasa:
     scrivi_video(cartella / "camera.mp4", 60 * 5, 5)
-    scrivi_video(cartella / "ingresso.mp4", 40 * 5, 5)
+    scrivi_video_ingresso(cartella / "ingresso.mp4")
     return ConfigurazioneCasa.model_validate({
         "telecamere": [
             {"id": "camera-letto", "nome": "Bedroom", "stanza": "bedroom", "sorgente": str(cartella / "camera.mp4"),

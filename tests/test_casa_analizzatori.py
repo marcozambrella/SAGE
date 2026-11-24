@@ -36,17 +36,22 @@ def persona(id_traccia: int, x_piedi: float, confidenza: float = 0.9) -> Persona
     return Persona(id_traccia, box, confidenza, np.zeros((17, 3), np.float32))
 
 
-def osservazione(ora: datetime.datetime, persone: list, stanza: str = "hall") -> Osservazione:
-    immagine = np.zeros((ALTEZZA, LARGHEZZA, 3), np.uint8)
-    return Osservazione("prova", stanza, ora, immagine, persone, [])
+def osservazione(ora: datetime.datetime, persone: list, immagine: np.ndarray | None = None) -> Osservazione:
+    if immagine is None:
+        immagine = np.zeros((ALTEZZA, LARGHEZZA, 3), np.uint8)
+    return Osservazione("prova", "hall", ora, immagine, persone, [])
 
 
-def scena(analizzatore, ora_inizio: datetime.datetime, posizioni: list, secondi_per_passo: float = 1.0):
-    """Fa passare una scena: posizioni[i] = lista di persone al passo i. Restituisce tutti gli eventi, fine compresa."""
+def scena(analizzatore, ora_inizio: datetime.datetime, posizioni: list, immagini: list | None = None):
+    """Fa passare una scena di un passo al secondo: posizioni[i] = persone al passo i, immagini[i] (se c'è)
+    il fotogramma. Restituisce tutti gli eventi, fine compresa."""
     eventi = []
     for passo in range(len(posizioni)):
-        ora = ora_inizio + datetime.timedelta(seconds=passo * secondi_per_passo)
-        for evento in analizzatore.elabora(osservazione(ora, posizioni[passo])):
+        ora = ora_inizio + datetime.timedelta(seconds=passo)
+        immagine = None
+        if immagini is not None:
+            immagine = immagini[passo]
+        for evento in analizzatore.elabora(osservazione(ora, posizioni[passo], immagine)):
             eventi.append(evento)
     for evento in analizzatore.fine():
         eventi.append(evento)
@@ -62,18 +67,49 @@ def test_punto_nel_poligono():
     assert zona_della_persona(persona(1, 150), INGRESSO.zone, LARGHEZZA, ALTEZZA) is None
 
 
-def test_uscita_dalla_porta():
+def immagine_ingresso(porta_aperta: bool) -> np.ndarray:
+    """Stanza grigia con la porta nel quarto sinistro: chiusa vale 100, aperta 200 (si vede fuori)."""
+    immagine = np.full((ALTEZZA, LARGHEZZA, 3), 80, np.uint8)
+    immagine[:, 0:50] = 100
+    if porta_aperta:
+        immagine[:, 0:50] = 200
+    return immagine
+
+
+def uscita(passi_scena: list) -> list:
+    """passi_scena[i] = (persone, porta aperta?) al secondo i."""
     inizio = datetime.datetime(2026, 12, 1, 15, 0, tzinfo=ROMA)
-    # cammina dalla stanza verso la porta, ci entra e sparisce
-    posizioni = [[persona(1, 150)], [persona(1, 100)], [persona(1, 30, 0.8)]]
-    for passo in range(int(SECONDI_SPARIZIONE) + 2):
-        posizioni.append([])
-    eventi = scena(AnalizzatoreUscita(INGRESSO), inizio, posizioni)
+    posizioni = []
+    immagini = []
+    for passo in passi_scena:
+        posizioni.append(passo[0])
+        immagini.append(immagine_ingresso(passo[1]))
+    return scena(AnalizzatoreUscita(INGRESSO), inizio, posizioni, immagini)
+
+
+def ripeti(persone: list, porta_aperta: bool, quanti: int) -> list:
+    passi_scena = []
+    for volta in range(quanti):
+        passi_scena.append((persone, porta_aperta))
+    return passi_scena
+
+
+DOPO_LA_SPARIZIONE = int(SECONDI_SPARIZIONE) + 2
+
+
+def test_uscita_aprendo_il_portone():
+    inizio = datetime.datetime(2026, 12, 1, 15, 0, tzinfo=ROMA)
+    # stanza vuota (riferimento "porta chiusa"), cammina fino alla porta, la apre, esce, la porta si richiude
+    passi_scena = (ripeti([], False, 3) + ripeti([persona(1, 150)], False, 1) + ripeti([persona(1, 100)], False, 1)
+                   + ripeti([persona(1, 30, 0.8)], False, 1) + ripeti([persona(1, 30, 0.8)], True, 2)
+                   + ripeti([], True, 2) + ripeti([], False, DOPO_LA_SPARIZIONE))
+    eventi = uscita(passi_scena)
     assert len(eventi) == 1
     evento = eventi[0]
     assert evento.tipo == "uscita"
     assert evento.valori.zona_id == "porta-ingresso"
-    assert evento.inizio == inizio + datetime.timedelta(seconds=2)  # ultima volta vista nella porta
+    assert evento.valori.in_orario_vietato is None  # lo decide il backend
+    assert evento.inizio == inizio + datetime.timedelta(seconds=7)  # ultima volta vista davanti alla porta
     assert evento.stanza == "hall"
     assert evento.confidenza == 0.8
     assert evento.fonti[0].telecamera_id == "ingresso"
@@ -82,29 +118,42 @@ def test_uscita_dalla_porta():
     assert leggi_evento(LETTORE_EVENTO.dump_python(evento, mode="json")) == evento
 
 
-def test_sparire_lontano_dalla_porta_non_e_uscita():
-    inizio = datetime.datetime(2026, 12, 1, 15, 0, tzinfo=ROMA)
-    posizioni = [[persona(1, 150)], [persona(1, 120)]]
-    for passo in range(int(SECONDI_SPARIZIONE) + 2):
-        posizioni.append([])
-    assert scena(AnalizzatoreUscita(INGRESSO), inizio, posizioni) == []
+def test_porta_che_si_vede_aperta_solo_dopo_che_e_uscito():
+    # la persona copre la porta mentre la apre: la porta aperta si vede appena è uscita
+    passi_scena = (ripeti([], False, 3) + ripeti([persona(1, 30)], False, 3) + ripeti([], True, 2)
+                   + ripeti([], False, DOPO_LA_SPARIZIONE))
+    assert len(uscita(passi_scena)) == 1
 
 
-def test_fermo_nella_porta_non_e_uscita():
-    inizio = datetime.datetime(2026, 12, 1, 15, 0, tzinfo=ROMA)
-    posizioni = []
-    for passo in range(20):
-        posizioni.append([persona(1, 30)])
-    assert scena(AnalizzatoreUscita(INGRESSO), inizio, posizioni) == []
+def test_sparire_davanti_alla_porta_chiusa_non_e_uscita():
+    # es. esce dall'inquadratura passando vicino alla porta senza aprirla
+    passi_scena = ripeti([], False, 3) + ripeti([persona(1, 30)], False, 3) + ripeti([], False, DOPO_LA_SPARIZIONE)
+    assert uscita(passi_scena) == []
+
+
+def test_chi_entra_dalla_porta_non_esce():
+    passi_scena = (ripeti([], False, 3) + ripeti([], True, 1) + ripeti([persona(1, 30)], True, 1)
+                   + ripeti([persona(1, 100)], False, 1) + ripeti([persona(1, 150)], False, 15))
+    assert uscita(passi_scena) == []
+
+
+def test_apre_e_torna_dentro_non_e_uscita():
+    # apre la porta (es. per la posta), torna nella stanza ed esce dall'inquadratura da un'altra parte
+    passi_scena = (ripeti([], False, 3) + ripeti([persona(1, 30)], True, 2) + ripeti([persona(1, 120)], False, 2)
+                   + ripeti([], False, DOPO_LA_SPARIZIONE))
+    assert uscita(passi_scena) == []
 
 
 def test_sparizione_breve_nella_porta_non_e_uscita():
-    # coperta un attimo dalla porta e ritrovata con lo stesso id: niente uscita
-    inizio = datetime.datetime(2026, 12, 1, 15, 0, tzinfo=ROMA)
-    posizioni = [[persona(1, 30)], [], [], [persona(1, 30)], [persona(1, 150)]]
-    for passo in range(int(SECONDI_SPARIZIONE) + 2):
-        posizioni.append([])
-    assert scena(AnalizzatoreUscita(INGRESSO), inizio, posizioni) == []
+    # coperta un attimo dalla porta e ritrovata con lo stesso id, poi torna nella stanza
+    passi_scena = (ripeti([], False, 3) + ripeti([persona(1, 30)], True, 1) + ripeti([], True, 2)
+                   + ripeti([persona(1, 30)], False, 1) + ripeti([persona(1, 150)], False, DOPO_LA_SPARIZIONE))
+    assert uscita(passi_scena) == []
+
+
+def test_fermo_davanti_alla_porta_aperta_non_e_uscita():
+    passi_scena = ripeti([], False, 3) + ripeti([persona(1, 30)], True, 20)
+    assert uscita(passi_scena) == []
 
 
 def passi(persone: list, quanti: int) -> list:
