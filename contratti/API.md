@@ -71,4 +71,7 @@ dopo un errore di rete. Il backend non deve né duplicarlo né perderlo:
   è più lontano o più vicino. Se `contenitore_id` è nella personalizzazione, il backend ricalcola
   `ml = percentuale / 100 × capienza_ml` di quel contenitore; altrimenti tiene i ml del programma di casa.
 - **Aderenza ai farmaci**: `null` se nel periodo non c'è ancora nessuna dose valutata.
+- **Quanto ha mangiato** (Marco, 25/11): niente percentuale, tre categorie. Il programma di casa arrotonda la
+  percentuale del piatto: sotto il 35% `meno_di_meta`, dal 35 al 75% `meta`, oltre il 75% `tutto`; `null` se non
+  misurata. Nei riassunti dei giorni: `pasti` visti e `pasti_meno_di_meta`.
 - **Notte**: le alzate contano negli `orari_notte`.
