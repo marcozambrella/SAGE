@@ -69,6 +69,9 @@ class ValoriBevuta(BaseModel):
     percentuale: float
     # percentuale / 100 × capienza_ml
     ml: float
+    # False se il livello non si vedeva (tazza opaca, poco contrasto): ml = 0 vuol dire "non misurato", non
+    # "non ha bevuto" (24/11).
+    livello_visibile: bool = True
 
 
 class ValoriFarmaco(BaseModel):
