@@ -6,20 +6,22 @@
   Gli indirizzi delle telecamere non passano mai dalla web app né dal server (D21).
 """
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import AwareDatetime, BaseModel
+from pydantic import AwareDatetime, BaseModel, Field
 
 from contratti.eventi import TipoContenitore
 
+# Un'ora locale "HH:MM" (00:00 - 23:59): un orario scritto male viene rifiutato subito.
+Ora = Annotated[str, Field(pattern=r"^([01][0-9]|2[0-3]):[0-5][0-9]$")]
 TipoZona = Literal["porta", "letto", "tavolo", "portapillole"]
 Analizzatore = Literal["caduta", "uscita", "bevuta", "farmaco", "pasto", "alzata_notturna"]
 
 
 class FasciaOraria(BaseModel):
     # Ore locali della casa, "HH:MM". Se alle < dalle la fascia passa la mezzanotte (es. 22:00 → 07:00).
-    dalle: str
-    alle: str
+    dalle: Ora
+    alle: Ora
 
 
 class Anziano(BaseModel):
@@ -35,7 +37,7 @@ class Farmaco(BaseModel):
     # Testo libero mostrato nei report, es. "1 tablet".
     dose: str
     # Orari previsti, "HH:MM".
-    orari: list[str]
+    orari: list[Ora]
     # Entro questa finestra la dose è "in orario", dopo "in ritardo"; finita la finestra senza presa è "saltata".
     tolleranza_minuti: int = 30
     # Foto di scatola/blister caricate dall'app: servono a riconoscere il farmaco (D15).
