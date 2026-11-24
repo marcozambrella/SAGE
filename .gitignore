@@ -37,3 +37,10 @@ token_*
 DIARIO.md
 # configurazione locale di Claude Code
 .claude/
+
+# Marco (24/11): nel repo solo codice, niente esempi né note di lavoro
+*esempio*
+PIANO.md
+RIPRESE.md
+MODELLI.md
+PUBBLICAZIONE.md
