@@ -33,7 +33,12 @@ from backend.allarmi import messaggio_allarme, promemoria_da_mandare, scrivi_all
 from backend.archivio import ArchivioDatabase
 from backend.bot_telegram import avvia_bot, ferma_bot, manda_a_tutte_le_chat
 from backend.coordinatore import Coordinato, coordina, fine_o_inizio
-from backend.regole import FUSO_ORARIO_PREDEFINITO, errore_nella_personalizzazione, giorno_locale
+from backend.regole import (
+    FUSO_ORARIO_PREDEFINITO,
+    con_regole_del_backend,
+    errore_nella_personalizzazione,
+    giorno_locale,
+)
 from backend.report import (
     calcola_report_giornaliero,
     calcola_report_periodo,
@@ -85,6 +90,12 @@ class RispostaEventi(BaseModel):
     ricevuti: int
     # quelli con un id mai visto prima: gli altri sono stati ignorati
     nuovi: int
+
+
+class PeriodoDemo(BaseModel):
+    # primo e ultimo giorno con eventi nella casa demo, None se non ce ne sono (API.md)
+    dal: datetime.date | None
+    al: datetime.date | None
 
 
 class RispostaControlli(BaseModel):
@@ -181,12 +192,14 @@ def leggi_coordinati(
     if al is not None:
         fine_lettura = al + MARGINE_COORDINAMENTO
     grezzi = archivio.leggi_grezzi(inizio_lettura, fine_lettura, tipo)
+    personalizzazione = archivio.leggi_personalizzazione()
     scelti = []
     for coordinato in coordina(grezzi):
         if dal is not None and coordinato.evento.inizio < dal:
             continue
         if al is not None and coordinato.evento.inizio >= al:
             continue
+        coordinato.evento = con_regole_del_backend(coordinato.evento, personalizzazione)
         scelti.append(coordinato)
     return scelti
 
@@ -200,6 +213,7 @@ def coordinato_del_grezzo(archivio: ArchivioDatabase, id_grezzo: str) -> Coordin
     al = fine_o_inizio(grezzo) + MARGINE_COORDINAMENTO
     for coordinato in coordina(archivio.leggi_grezzi(dal, al, grezzo.tipo)):
         if id_grezzo in coordinato.grezzi:
+            coordinato.evento = con_regole_del_backend(coordinato.evento, archivio.leggi_personalizzazione())
             return coordinato
     return None
 
@@ -233,6 +247,17 @@ def leggi_foto_prova(evento: EventoBase) -> bytes | None:
 @app.get("/demo/personalizzazione", response_model=Personalizzazione)
 def personalizzazione_demo(request: Request) -> Personalizzazione:
     return personalizzazione_o_404(request.app.state.archivio)
+
+
+@app.get("/demo/periodo", response_model=PeriodoDemo)
+def periodo_demo(request: Request) -> PeriodoDemo:
+    """Primo e ultimo giorno con eventi: la web app ci apre lo storico e i trend."""
+    archivio = request.app.state.archivio
+    primo, ultimo = archivio.inizio_primo_e_ultimo()
+    if primo is None:
+        return PeriodoDemo(dal=None, al=None)
+    fuso_orario = fuso_della_casa(archivio)
+    return PeriodoDemo(dal=giorno_locale(primo, fuso_orario), al=giorno_locale(ultimo, fuso_orario))
 
 
 @app.get("/demo/eventi", response_model=list[Evento])

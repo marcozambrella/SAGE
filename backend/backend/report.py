@@ -170,8 +170,8 @@ def calcola_report_periodo(
         acqua_media_ml = round(acqua_totale / len(giorni), 1)
         alzate_notturne_medie = round(alzate_totali / len(giorni), 2)
 
-    # le dosi ancora in attesa non contano: non sono né prese né saltate
-    aderenza = 100.0
+    # le dosi ancora in attesa non contano: non sono né prese né saltate; None se non c'è niente da valutare
+    aderenza = None
     dosi_valutate = dosi_prese + dosi_saltate
     if dosi_valutate > 0:
         aderenza = round(dosi_prese / dosi_valutate * 100, 1)

@@ -67,6 +67,29 @@ def alzata_di_notte(evento: EventoAlzataNotturna, personalizzazione: Personalizz
     return ora_nella_fascia(ora, personalizzazione.regole.orari_notte)
 
 
+def con_regole_del_backend(evento: EventoBase, personalizzazione: Personalizzazione | None) -> EventoBase:
+    """I valori che scrive il backend (API.md, "Regole che calcola il backend"):
+    - bevuta: se contenitore_id è nella personalizzazione, ml = percentuale / 100 × capienza di quel contenitore
+      (la percentuale vale anche se il contenitore è più vicino o più lontano); altrimenti restano i ml mandati;
+    - uscita: in_orario_vietato secondo gli orari vietati (D16).
+    Senza personalizzazione l'evento resta com'è."""
+    if personalizzazione is None:
+        return evento
+    if evento.tipo == "bevuta":
+        for contenitore in personalizzazione.contenitori:
+            if contenitore.id == evento.valori.contenitore_id:
+                ml = round(evento.valori.percentuale / 100 * contenitore.capienza_ml, 1)
+                modifiche = {"capienza_ml": float(contenitore.capienza_ml), "ml": ml}
+                valori = evento.valori.model_copy(update=modifiche)
+                return evento.model_copy(update={"valori": valori})
+        return evento
+    if evento.tipo == "uscita":
+        vietato = uscita_in_orario_vietato(evento, personalizzazione)
+        valori = evento.valori.model_copy(update={"in_orario_vietato": vietato})
+        return evento.model_copy(update={"valori": valori})
+    return evento
+
+
 def errore_nella_personalizzazione(personalizzazione: Personalizzazione) -> str | None:
     """Gli orari "HH:MM" li controllano già i contratti; il fuso orario è testo libero: qui si controlla che il
     backend lo sappia leggere, così l'errore arriva subito al programma di casa invece di rompere i report."""

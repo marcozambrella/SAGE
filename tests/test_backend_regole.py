@@ -10,6 +10,7 @@ import pytest
 from backend.allarmi import messaggio_allarme, serve_allarme
 from backend.regole import (
     alzata_di_notte,
+    con_regole_del_backend,
     errore_nella_personalizzazione,
     ora_nella_fascia,
     stato_delle_dosi,
@@ -326,7 +327,8 @@ def test_report_di_periodo_senza_giorni_futuri():
 def test_aderenza_senza_farmaci():
     report = calcola_report_periodo("settimanale", GIORNO, datetime.date(2026, 12, 7), [], crea_personalizzazione(),
                                     DOPO)
-    assert report.aderenza_farmaci_percentuale == 100
+    # nessuna dose da valutare: la web app scrive "nessun dato"
+    assert report.aderenza_farmaci_percentuale is None
     assert report.acqua_media_ml == 0
 
 
@@ -389,3 +391,33 @@ def test_messaggi_degli_allarmi_con_ora_locale():
     assert testo == "Possible fall: Anna may have fallen in the kitchen at 10:05."
     testo = messaggio_allarme(USCITA_DI_NOTTE, personalizzazione_uscite())
     assert testo == "Exit alert: Anna left the house at 23:00, during restricted hours."
+
+
+# --- valori che scrive il backend ---
+
+def bevuta_con_contenitore(contenitore_id: str | None):
+    # mezza bottiglia vista da lontano: 30 px su 60 px, il programma di casa pensava a una capienza di 1000 ml
+    valori = {"contenitore": "bottiglia", "contenitore_id": contenitore_id, "capienza_ml": 1000,
+              "altezza_contenitore_px": 60, "livello_sceso_px": 30, "percentuale": 50, "ml": 500}
+    return crea_evento("bevuta", "2026-12-01T09:00:00+01:00", valori)
+
+
+def test_ml_ricalcolati_con_la_capienza_del_contenitore():
+    contenitori = [{"id": "bottiglia-anna", "nome": "Water bottle", "tipo": "bottiglia", "capienza_ml": 1500}]
+    personalizzazione = Personalizzazione.model_validate({"anziano": {"nome": "Anna"}, "contenitori": contenitori})
+    ricalcolata = con_regole_del_backend(bevuta_con_contenitore("bottiglia-anna"), personalizzazione)
+    assert ricalcolata.valori.ml == 750
+    assert ricalcolata.valori.capienza_ml == 1500
+    # contenitore sconosciuto o non riconosciuto: restano i ml del programma di casa
+    assert con_regole_del_backend(bevuta_con_contenitore("altro"), personalizzazione).valori.ml == 500
+    assert con_regole_del_backend(bevuta_con_contenitore(None), personalizzazione).valori.ml == 500
+    assert con_regole_del_backend(bevuta_con_contenitore("bottiglia-anna"), None).valori.ml == 500
+
+
+def test_uscita_segnata_in_orario_vietato():
+    personalizzazione = crea_personalizzazione(regole={"orari_uscita_vietati": [{"dalle": "22:00", "alle": "07:00"}]})
+    di_notte = crea_evento("uscita", "2026-12-01T23:00:00+01:00", {"zona_id": "porta"})
+    di_giorno = crea_evento("uscita", "2026-12-01T11:00:00+01:00", {"zona_id": "porta"})
+    assert di_notte.valori.in_orario_vietato is None
+    assert con_regole_del_backend(di_notte, personalizzazione).valori.in_orario_vietato is True
+    assert con_regole_del_backend(di_giorno, personalizzazione).valori.in_orario_vietato is False

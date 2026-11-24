@@ -322,3 +322,42 @@ def test_bevuta_da_due_telecamere_contata_una_volta(client):
     report = client.get("/demo/report/giornaliero", params={"data": "2025-12-01"}).json()
     assert report["bevute"] == 1
     assert report["acqua_ml"] == 200
+
+
+# --- valori scritti dal backend e periodo ---
+
+def test_eventi_con_i_valori_del_backend(client):
+    personalizzazione = dict(PERSONALIZZAZIONE)
+    personalizzazione["contenitori"] = [{"id": "bicchiere-anna", "nome": "Glass", "tipo": "bicchiere",
+                                         "capienza_ml": 300}]
+    client.put("/programma-casa/personalizzazione", json=personalizzazione, headers=CON_TOKEN)
+    bevuta_riconosciuta = bevuta("b1", "2025-12-01T09:00:00+01:00", 125)
+    bevuta_riconosciuta["valori"]["contenitore_id"] = "bicchiere-anna"
+    uscita = evento("u1", "uscita", "2025-12-01T23:00:00+01:00", {"zona_id": "porta"})
+    client.post("/programma-casa/eventi", json=[bevuta_riconosciuta, uscita], headers=CON_TOKEN)
+    eventi = client.get("/demo/eventi").json()
+    # 50% di un bicchiere da 300 ml
+    assert eventi[0]["valori"]["ml"] == 150
+    assert eventi[1]["valori"]["in_orario_vietato"] is True
+    assert eventi[1]["ha_foto"] is False
+    report = client.get("/demo/report/giornaliero", params={"data": "2025-12-01"}).json()
+    assert report["acqua_ml"] == 150
+
+
+def test_periodo_della_casa_demo(client):
+    assert client.get("/demo/periodo").json() == {"dal": None, "al": None}
+    configura(client)
+    eventi = [
+        bevuta("b1", "2025-12-03T09:00:00+01:00", 100),
+        # 23:30 UTC del 30 novembre = 00:30 del primo dicembre a Roma
+        bevuta("b2", "2025-11-30T23:30:00+00:00", 100),
+        bevuta("b3", "2025-12-05T20:00:00+01:00", 100),
+    ]
+    client.post("/programma-casa/eventi", json=eventi, headers=CON_TOKEN)
+    assert client.get("/demo/periodo").json() == {"dal": "2025-12-01", "al": "2025-12-05"}
+
+
+def test_aderenza_nulla_senza_dosi_valutate(client):
+    client.put("/programma-casa/personalizzazione", json={"anziano": {"nome": "Anna"}}, headers=CON_TOKEN)
+    report = client.get("/demo/report/settimanale", params={"dal": "2025-12-01"}).json()
+    assert report["aderenza_farmaci_percentuale"] is None
