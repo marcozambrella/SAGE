@@ -68,6 +68,29 @@ def test_bevuta_da_due_telecamere_i_ml_non_si_sommano():
     assert coordinati[0].evento.fine == ORA + datetime.timedelta(seconds=7)
 
 
+def test_valori_da_chi_ha_misurato():
+    # la telecamera più sicura vede la tazza ma non il livello dell'acqua: i ml vengono dall'altra
+    livello_nascosto = bevuta_valori(0)
+    livello_nascosto["livello_visibile"] = False
+    sicura_senza_livello = grezzo("a", "bevuta", 0, "cucina", 0.9, livello_nascosto)
+    con_livello = grezzo("b", "bevuta", 2, "salotto", 0.6, bevuta_valori(180))
+    bevuta = coordina([sicura_senza_livello, con_livello])[0]
+    assert bevuta.evento.valori.ml == 180
+    assert bevuta.evento.confidenza == 0.9
+    # lo stesso per il pasto: piatto coperto da una telecamera, misurato dall'altra
+    coperto = grezzo("c", "pasto", 0, "cucina", 0.9, {"cibi": ["pasta"], "quanto_mangiato": None})
+    misurato = grezzo("d", "pasto", 3, "salotto", 0.5, {"cibi": ["pasta"], "quanto_mangiato": "meta"})
+    assert coordina([coperto, misurato])[0].evento.valori.quanto_mangiato == "meta"
+
+
+def test_nessuno_ha_misurato_valori_dal_piu_sicuro():
+    coperto = grezzo("a", "pasto", 0, "cucina", 0.9, {"cibi": ["pasta"], "quanto_mangiato": None})
+    anche_coperto = grezzo("b", "pasto", 3, "salotto", 0.5, {"cibi": ["soup"], "quanto_mangiato": None})
+    pasto = coordina([coperto, anche_coperto])[0]
+    assert pasto.evento.valori.cibi == ["pasta"]
+    assert pasto.evento.valori.quanto_mangiato is None
+
+
 def test_alzata_in_pezzi_dalla_stessa_telecamera_con_le_stanze_unite():
     pezzo_uno = grezzo("a", "alzata_notturna", 0, "camera", 0.8, {"stanze": ["bedroom", "hall"]}, durata=60)
     pezzo_due = grezzo("b", "alzata_notturna", 65, "camera", 0.7, {"stanze": ["hall", "bathroom"]}, durata=120)

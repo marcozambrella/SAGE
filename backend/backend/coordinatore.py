@@ -118,6 +118,16 @@ def raggruppa(grezzi: list[EventoBase]) -> list[list[EventoBase]]:
     return gruppi
 
 
+def ha_misurato(grezzo: EventoBase) -> bool:
+    """False se la telecamera ha visto il fatto ma non ha potuto misurarlo: livello dell'acqua non visibile, piatto
+    non misurato. Allora i valori si prendono da un'altra telecamera che ha misurato, se c'è."""
+    if grezzo.tipo == "bevuta":
+        return grezzo.valori.livello_visibile
+    if grezzo.tipo == "pasto":
+        return grezzo.valori.quanto_mangiato is not None
+    return True
+
+
 def aggiungi_senza_ripetere(elenco: list, nuovi: list) -> None:
     for elemento in nuovi:
         if elemento not in elenco:
@@ -127,11 +137,19 @@ def aggiungi_senza_ripetere(elenco: list, nuovi: list) -> None:
 def unisci(gruppo: list[EventoBase]) -> Coordinato:
     """L'evento coordinato di un gruppo (API.md): id del primo grezzo, inizio il più presto, fine la più tardi,
     tutte le fonti, confidenza la più alta, valori e foto dal grezzo più sicuro, stanze dell'alzata unite.
-    I ml di una bevuta vista da due telecamere non si sommano: valgono quelli del grezzo più sicuro."""
+    I ml di una bevuta vista da due telecamere non si sommano: valgono quelli del grezzo più sicuro.
+    Per i valori conta il più sicuro tra quelli che hanno misurato (ha_misurato), se ce n'è almeno uno."""
     migliore = gruppo[0]
     for grezzo in gruppo:
         if grezzo.confidenza > migliore.confidenza:
             migliore = grezzo
+    # il grezzo da cui vengono valori, stanza e il resto: il più sicuro tra quelli che hanno misurato
+    per_i_valori = None
+    for grezzo in gruppo:
+        if ha_misurato(grezzo) and (per_i_valori is None or grezzo.confidenza > per_i_valori.confidenza):
+            per_i_valori = grezzo
+    if per_i_valori is None:
+        per_i_valori = migliore
 
     # la foto dal grezzo più sicuro che ne ha una
     con_foto = None
@@ -153,12 +171,12 @@ def unisci(gruppo: list[EventoBase]) -> Coordinato:
         if grezzo.fine is not None and (fine is None or grezzo.fine > fine):
             fine = grezzo.fine
 
-    valori = migliore.valori
-    if migliore.tipo == "alzata_notturna":
-        stanze = list(migliore.valori.stanze)
+    valori = per_i_valori.valori
+    if per_i_valori.tipo == "alzata_notturna":
+        stanze = list(per_i_valori.valori.stanze)
         for grezzo in gruppo:
             aggiungi_senza_ripetere(stanze, grezzo.valori.stanze)
-        valori = migliore.valori.model_copy(update={"stanze": stanze})
+        valori = per_i_valori.valori.model_copy(update={"stanze": stanze})
 
     modifiche = {
         "id": gruppo[0].id,
@@ -170,7 +188,7 @@ def unisci(gruppo: list[EventoBase]) -> Coordinato:
         "foto_prova": None,
         "ha_foto": con_foto is not None,
     }
-    return Coordinato(evento=migliore.model_copy(update=modifiche), id_foto=id_foto, grezzi=ids)
+    return Coordinato(evento=per_i_valori.model_copy(update=modifiche), id_foto=id_foto, grezzi=ids)
 
 
 def coordina(grezzi: list[EventoBase]) -> list[Coordinato]:
