@@ -377,18 +377,22 @@
   }
 }
 
-/* ---------- Riquadro segnaposto per i grafici (libreria ancora da scegliere) ---------- */
-.segnaposto-grafico {
-  display: grid;
-  place-items: center;
-  min-height: 180px;
-  padding: var(--spazio-4);
-  border-radius: var(--raggio-medio);
-  border: 2px dashed #c9bdb2;
-  background: var(--latte);
-  color: var(--testo-secondario);
-  text-align: center;
-  font-weight: 700;
+/* ---------- Grafico (Recharts) dentro una scheda ---------- */
+.grafico {
+  margin: var(--spazio-3) 0 0;
+  min-width: 0;
+}
+
+/* Il riquadro del grafico che riceve il fuoco da tastiera: niente bordo nero del browser */
+.grafico .recharts-wrapper:focus-visible,
+.grafico .recharts-surface:focus-visible {
+  outline: 3px solid var(--accento);
+  outline-offset: 4px;
+  border-radius: var(--raggio-piccolo);
+}
+
+.grafico .recharts-legend-item-text {
+  font-size: 14px;
 }
 
 /* ---------- Tabella morbida ---------- */

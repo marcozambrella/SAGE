@@ -1,13 +1,14 @@
 // Trends: idratazione, aderenza ai farmaci, pasti, notte, cadute nel tempo (da ReportPeriodo.giorni, API.md).
-// I grafici aspettano la scelta della libreria: per ora numeri riassuntivi e riquadri segnaposto.
 import { useEffect, useState } from "react";
-import type { Personalizzazione, ReportPeriodo } from "../contratti";
-import { leggiPeriodoDemo, leggiReportMensile, leggiReportSettimanale } from "../api";
-import { millilitri, percentuale, spostaGiorno } from "../formato";
+import type { Personalizzazione, ReportPeriodo, RiassuntoGiorno } from "../contratti";
+import { leggiPeriodoDemo, leggiPersonalizzazioneDemo, leggiReportMensile, leggiReportSettimanale } from "../api";
+import { giornoBreve, giornoEMese, millilitri, percentuale, quanti, spostaGiorno } from "../formato";
 import Caricamento from "../componenti/Caricamento";
-import EtichettaSimulato from "../componenti/EtichettaSimulato";
+import { GraficoAcqua, GraficoDosi, GraficoNotti, GraficoPasti } from "../componenti/Grafici";
+import Icona from "../componenti/Icona";
 import InAttesaTelecamere from "../componenti/InAttesaTelecamere";
 import Scheda from "../componenti/Scheda";
+import TabellaGiorni from "../componenti/TabellaGiorni";
 import TitoloPagina from "../componenti/TitoloPagina";
 
 type Proprieta = {
@@ -34,8 +35,25 @@ export default function Andamenti({ demo, personalizzazione }: Proprieta) {
   );
 }
 
+// Media della parte di piatto mangiata, solo sui giorni con almeno un pasto; null se non ce ne sono.
+function mediaMangiato(giorni: RiassuntoGiorno[]): number | null {
+  let somma = 0;
+  let quanti = 0;
+  for (const riga of giorni) {
+    if (riga.percentuale_mangiata_media !== null) {
+      somma = somma + riga.percentuale_mangiata_media;
+      quanti = quanti + 1;
+    }
+  }
+  if (quanti === 0) {
+    return null;
+  }
+  return somma / quanti;
+}
+
 function AndamentiCasaDemo() {
   const [mensile, setMensile] = useState(false);
+  const [personalizzazione, setPersonalizzazione] = useState<Personalizzazione | null>(null);
   const [report, setReport] = useState<ReportPeriodo | null>(null);
   const [errore, setErrore] = useState("");
 
@@ -45,6 +63,7 @@ function AndamentiCasaDemo() {
       setErrore("");
       try {
         const ultimo = (await leggiPeriodoDemo()).al;
+        setPersonalizzazione(await leggiPersonalizzazioneDemo());
         if (mensile) {
           setReport(await leggiReportMensile(ultimo.slice(0, 7)));
         } else {
@@ -58,55 +77,8 @@ function AndamentiCasaDemo() {
   }, [mensile]);
 
   let corpo = <Caricamento errore={errore} />;
-  if (report !== null) {
-    let simulati = false;
-    for (const riga of report.giorni) {
-      if (riga.simulato) {
-        simulati = true;
-      }
-    }
-    let etichetta = null;
-    if (simulati) {
-      etichetta = <EtichettaSimulato />;
-    }
-    corpo = (
-      <div className="griglia">
-        <Scheda titolo="Hydration" icona="goccia" accanto={etichetta}>
-          <p>
-            <span className="numero-medio">{millilitri(report.acqua_media_ml)}</span>{" "}
-            <span className="testo-secondario">a day on average</span>
-          </p>
-          <div className="segnaposto-grafico">Line chart: water per day against the goal</div>
-        </Scheda>
-        <Scheda titolo="Medications" icona="pillola" accanto={etichetta}>
-          <p>
-            <span className="numero-medio">{percentuale(report.aderenza_farmaci_percentuale)}</span>{" "}
-            <span className="testo-secondario">of doses taken</span>
-          </p>
-          <div className="segnaposto-grafico">Stacked bars: on time, late and missed doses per day</div>
-        </Scheda>
-        <Scheda titolo="Meals" icona="pasto" accanto={etichetta}>
-          <p className="testo-secondario">Share of the plate eaten, on average per day.</p>
-          <div className="segnaposto-grafico">Line chart: share of the plate eaten per day</div>
-        </Scheda>
-        <Scheda titolo="Nights" icona="luna" accanto={etichetta}>
-          <p>
-            <span className="numero-medio">{report.alzate_notturne_medie.toFixed(1)}</span>{" "}
-            <span className="testo-secondario">rises per night on average</span>
-          </p>
-          <div className="segnaposto-grafico">Bars: night-time rises per night</div>
-        </Scheda>
-        <Scheda titolo="Falls and exits" icona="avviso" accanto={etichetta}>
-          <p>
-            <span className="numero-medio">{report.cadute}</span> <span className="testo-secondario">falls</span>
-            {" · "}
-            <span className="numero-medio">{report.uscite_in_orario_vietato}</span>{" "}
-            <span className="testo-secondario">exits in no-exit hours</span>
-          </p>
-          <div className="segnaposto-grafico">Dots on a timeline: each fall and each exit</div>
-        </Scheda>
-      </div>
-    );
+  if (personalizzazione !== null && report !== null) {
+    corpo = <GraficiDelPeriodo report={report} personalizzazione={personalizzazione} />;
   }
 
   return (
@@ -121,6 +93,105 @@ function AndamentiCasaDemo() {
         </button>
       </div>
       {corpo}
+    </div>
+  );
+}
+
+type ProprietaGrafici = {
+  report: ReportPeriodo;
+  personalizzazione: Personalizzazione;
+};
+
+function GraficiDelPeriodo({ report, personalizzazione }: ProprietaGrafici) {
+  // Quali giorni vengono dai video registrati: tutti gli altri sono simulati (va sempre detto).
+  const giorniVeri: string[] = [];
+  let giorniSimulati = 0;
+  for (const riga of report.giorni) {
+    if (riga.simulato) {
+      giorniSimulati = giorniSimulati + 1;
+    } else {
+      giorniVeri.push(giornoBreve(riga.data));
+    }
+  }
+
+  // Cadute e uscite sono poche: invece di un grafico quasi vuoto, l'elenco dei giorni in cui sono successe.
+  const giorniDaRicordare: { data: string; testo: string }[] = [];
+  for (const riga of report.giorni) {
+    if (riga.cadute > 0) {
+      giorniDaRicordare.push({ data: riga.data, testo: quanti(riga.cadute, "fall", "falls") });
+    }
+    if (riga.uscite_in_orario_vietato > 0) {
+      const uscite = quanti(riga.uscite_in_orario_vietato, "exit", "exits");
+      giorniDaRicordare.push({ data: riga.data, testo: uscite + " in no-exit hours" });
+    }
+  }
+
+  return (
+    <div className="pila-larga">
+      {giorniSimulati > 0 && (
+        <p className="nota-simulato">
+          <span className="simulato">Simulated</span>
+          <span>
+            {giorniSimulati} of {report.giorni.length} days are simulated.
+            {giorniVeri.length > 0 && <> From the recorded videos: {giorniVeri.join(", ")}.</>}
+          </span>
+        </p>
+      )}
+
+      <div className="griglia">
+        <Scheda titolo="Hydration" icona="goccia">
+          <p>
+            <span className="numero-medio">{millilitri(report.acqua_media_ml)}</span>{" "}
+            <span className="testo-secondario">a day on average</span>
+          </p>
+          <GraficoAcqua giorni={report.giorni} obiettivoMl={personalizzazione.anziano.obiettivo_acqua_ml} />
+        </Scheda>
+        <Scheda titolo="Medications" icona="pillola">
+          <p>
+            <span className="numero-medio">{percentuale(report.aderenza_farmaci_percentuale)}</span>{" "}
+            <span className="testo-secondario">of doses taken</span>
+          </p>
+          <GraficoDosi giorni={report.giorni} />
+        </Scheda>
+        <Scheda titolo="Meals" icona="pasto">
+          <p>
+            <span className="numero-medio">{percentuale(mediaMangiato(report.giorni))}</span>{" "}
+            <span className="testo-secondario">of the plate eaten on average</span>
+          </p>
+          <GraficoPasti giorni={report.giorni} />
+        </Scheda>
+        <Scheda titolo="Nights" icona="luna">
+          <p>
+            <span className="numero-medio">{report.alzate_notturne_medie.toFixed(1)}</span>{" "}
+            <span className="testo-secondario">rises per night on average</span>
+          </p>
+          <GraficoNotti giorni={report.giorni} />
+        </Scheda>
+        <Scheda titolo="Falls and exits" icona="avviso">
+          <div className="pila">
+            <p className="testo-secondario">
+              {quanti(report.cadute, "fall", "falls")} and{" "}
+              {quanti(report.uscite_in_orario_vietato, "exit", "exits")} in no-exit hours.
+            </p>
+            {giorniDaRicordare.length === 0 && <p className="testo-secondario">None in this period.</p>}
+            <ul className="lista-semplice">
+              {giorniDaRicordare.map((voce) => (
+                <li key={voce.data + voce.testo} className="riga-lista riga">
+                  <span className="stato stato-critico">
+                    <Icona nome="avviso" dimensione={18} /> {giornoEMese(voce.data)}
+                  </span>
+                  <span>{voce.testo}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </Scheda>
+      </div>
+
+      <details className="scheda dettagli">
+        <summary>See every day as a table</summary>
+        <TabellaGiorni giorni={report.giorni} />
+      </details>
     </div>
   );
 }

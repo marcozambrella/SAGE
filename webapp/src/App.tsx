@@ -1,7 +1,7 @@
 // Pagine della web app e flusso (D28): apertura → personalizzazione → "Coming soon" → dashboard.
 // Ogni pagina dati esiste due volte: nella casa dell'utente ("/today", vuota finché non ci sono telecamere)
 // e nella casa demo ("/demo/today", dati del backend, D22).
-import { useState, type ReactNode } from "react";
+import { lazy, useState, type ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router";
 import type { Personalizzazione } from "./contratti";
 import Struttura from "./componenti/Struttura";
@@ -10,14 +10,17 @@ import Personalizza from "./pagine/Personalizza";
 import ProssimeFunzioni from "./pagine/ProssimeFunzioni";
 import Oggi from "./pagine/Oggi";
 import Storico from "./pagine/Storico";
-import Andamenti from "./pagine/Andamenti";
-import Report from "./pagine/Report";
 import Farmaci from "./pagine/Farmaci";
 import Contenitori from "./pagine/Contenitori";
 import Telecamere from "./pagine/Telecamere";
 import Allarmi from "./pagine/Allarmi";
 import Impostazioni from "./pagine/Impostazioni";
 import { cancellaPersonalizzazione, leggiPersonalizzazione, salvaPersonalizzazione } from "./salvataggio";
+
+// Le due pagine con i grafici si scaricano solo quando servono: la libreria dei grafici pesa più di tutto il resto,
+// e così la prima apertura dal telefono resta veloce. Mentre arrivano, Struttura mostra la scheda di caricamento.
+const Andamenti = lazy(() => import("./pagine/Andamenti"));
+const Report = lazy(() => import("./pagine/Report"));
 
 export default function App() {
   // La personalizzazione della famiglia, letta dal browser all'avvio (null se non è ancora stata fatta).

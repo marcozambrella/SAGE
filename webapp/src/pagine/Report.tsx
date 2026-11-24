@@ -11,7 +11,6 @@ import {
 } from "../api";
 import {
   durata,
-  giornoBreve,
   giornoEMese,
   giornoLungo,
   maiuscola,
@@ -28,7 +27,9 @@ import EtichettaSimulato from "../componenti/EtichettaSimulato";
 import Icona from "../componenti/Icona";
 import InAttesaTelecamere from "../componenti/InAttesaTelecamere";
 import Misuratore from "../componenti/Misuratore";
+import TabellaGiorni from "../componenti/TabellaGiorni";
 import TitoloPagina from "../componenti/TitoloPagina";
+import { GraficoAcqua, GraficoDosi } from "../componenti/Grafici";
 
 type Proprieta = {
   demo: boolean;
@@ -79,7 +80,9 @@ function ReportCasaDemo() {
     if (tipo === "giornaliero") {
       contenuto = <ReportDelGiorno periodo={periodo} personalizzazione={personalizzazione} />;
     } else {
-      contenuto = <ReportDelPeriodo tipo={tipo} periodo={periodo} key={tipo} />;
+      contenuto = (
+        <ReportDelPeriodo tipo={tipo} periodo={periodo} personalizzazione={personalizzazione} key={tipo} />
+      );
     }
   }
 
@@ -282,7 +285,13 @@ function ReportDelGiorno({ periodo, personalizzazione }: ProprietaGiorno) {
   );
 }
 
-function ReportDelPeriodo({ tipo, periodo }: { tipo: "settimanale" | "mensile"; periodo: GiorniDemo }) {
+type ProprietaPeriodo = {
+  tipo: "settimanale" | "mensile";
+  periodo: GiorniDemo;
+  personalizzazione: Personalizzazione;
+};
+
+function ReportDelPeriodo({ tipo, periodo, personalizzazione }: ProprietaPeriodo) {
   // Settimana: i 7 giorni che finiscono con l'ultimo giorno della casa demo. Mese: il mese di quel giorno.
   const [dal, setDal] = useState(spostaGiorno(periodo.al, -6));
   const [mese, setMese] = useState(periodo.al.slice(0, 7));
@@ -392,42 +401,24 @@ function ReportDelPeriodo({ tipo, periodo }: { tipo: "settimanale" | "mensile"; 
           </div>
         </div>
 
-        <div className="tabella-contenitore">
-          <table className="tabella">
-            <thead>
-              <tr>
-                <th scope="col">Day</th>
-                <th scope="col">Water</th>
-                <th scope="col">Doses</th>
-                <th scope="col">Eaten</th>
-                <th scope="col">Night</th>
-                <th scope="col">Falls</th>
-                <th scope="col">Exits</th>
-              </tr>
-            </thead>
-            <tbody>
-              {report.giorni.map((riga) => (
-                <tr key={riga.data}>
-                  <th scope="row">
-                    {giornoBreve(riga.data)} {riga.simulato && <span className="asterisco" title="Simulated">*</span>}
-                  </th>
-                  <td>{millilitri(riga.acqua_ml)}</td>
-                  <td>
-                    {riga.dosi_in_orario} · {riga.dosi_in_ritardo} · {riga.dosi_saltate}
-                  </td>
-                  <td>{riga.percentuale_mangiata_media === null ? "–" : Math.round(riga.percentuale_mangiata_media) + "%"}</td>
-                  <td>{riga.alzate_notturne}</td>
-                  <td>{riga.cadute}</td>
-                  <td>{riga.uscite_in_orario_vietato}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <p className="testo-secondario testo-piccolo">
-          Doses: on time · late · missed. Night: times out of bed. Exits: during no-exit hours.
-          {giorniSimulati > 0 && <> * Simulated day.</>}
-        </p>
+        <section className="pila">
+          <h3 className="titolo-sezione">
+            <Icona nome="goccia" /> Water each day
+          </h3>
+          <GraficoAcqua giorni={report.giorni} obiettivoMl={personalizzazione.anziano.obiettivo_acqua_ml} />
+        </section>
+        <section className="pila">
+          <h3 className="titolo-sezione">
+            <Icona nome="pillola" /> Doses each day
+          </h3>
+          <GraficoDosi giorni={report.giorni} />
+        </section>
+        <section className="pila">
+          <h3 className="titolo-sezione">
+            <Icona nome="calendario" /> Day by day
+          </h3>
+          <TabellaGiorni giorni={report.giorni} />
+        </section>
       </article>
     </>
   );

@@ -1,8 +1,9 @@
 // Struttura comune delle pagine: testata, menu e contenuto. La stessa struttura serve la casa dell'utente
 // (percorsi "/today", "/history"...) e la casa demo (percorsi "/demo/today", "/demo/history"..., D22).
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router";
 import Icona, { type NomeIcona } from "./Icona";
+import Caricamento from "./Caricamento";
 import Logo from "./Logo";
 import { USA_DATI_SVILUPPO } from "../api";
 
@@ -104,7 +105,9 @@ export default function Struttura({ demo, nomeAnziano }: Proprieta) {
               </Link>
             </div>
           )}
-          <Outlet />
+          <Suspense fallback={<Caricamento errore="" />}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
 

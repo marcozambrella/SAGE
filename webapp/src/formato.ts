@@ -44,6 +44,11 @@ export function giornoSettimana(giorno: string): string {
   return formato.format(giornoComeData(giorno));
 }
 
+// "8" da "2026-12-08"
+export function giornoDelMese(giorno: string): string {
+  return String(Number(giorno.slice(8, 10)));
+}
+
 // "14 Dec"
 export function giornoEMese(giorno: string): string {
   const formato = new Intl.DateTimeFormat(LINGUA, { day: "numeric", month: "short", timeZone: "UTC" });
@@ -90,6 +95,14 @@ export function durata(minuti: number): string {
   const ore = Math.floor(tondi / 60);
   const resto = tondi % 60;
   return ore + " h " + String(resto).padStart(2, "0") + " min";
+}
+
+// "1 fall", "2 falls"
+export function quanti(numero: number, singolare: string, plurale: string): string {
+  if (numero === 1) {
+    return numero + " " + singolare;
+  }
+  return numero + " " + plurale;
 }
 
 // Prima lettera maiuscola: "pasta with tomato sauce" → "Pasta with tomato sauce"

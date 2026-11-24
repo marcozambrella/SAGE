@@ -359,6 +359,30 @@
   color: var(--testo-secondario);
 }
 
+/* ---------- Trends ---------- */
+.nota-simulato {
+  display: flex;
+  align-items: center;
+  gap: var(--spazio-3);
+  color: var(--testo-secondario);
+  font-size: 15px;
+}
+
+/* "See every day as a table": si apre come una scheda */
+.dettagli summary {
+  min-height: var(--altezza-tocco);
+  display: flex;
+  align-items: center;
+  font-family: var(--carattere-titoli);
+  font-size: 18px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dettagli[open] summary {
+  margin-bottom: var(--spazio-3);
+}
+
 /* ---------- History: striscia dei giorni e linea del tempo ---------- */
 .striscia-giorni {
   display: flex;
