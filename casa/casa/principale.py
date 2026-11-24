@@ -26,6 +26,7 @@ from contratti.configurazione import ConfigurazioneCasa, Personalizzazione, Tele
 from contratti.eventi import TIPI_URGENTI
 
 from casa.alzata_notturna import AnalizzatoreAlzataNotturna, AnalizzatorePresenzaNotturna
+from casa.bevuta import AnalizzatoreBevuta
 from casa.configurazione import leggi_configurazione
 from casa.invio import SECONDI_TRA_LOTTI, Backend, invia_in_sospeso
 from casa.percezione import POSA_PREDEFINITA, RILEVATORE_PREDEFINITO, Percezione
@@ -55,6 +56,8 @@ def crea_analizzatori(telecamera: TelecameraLocale, personalizzazione: Personali
     for nome in telecamera.analizzatori:
         if nome == "uscita":
             analizzatori.append(AnalizzatoreUscita(telecamera))
+        elif nome == "bevuta":
+            analizzatori.append(AnalizzatoreBevuta(telecamera, personalizzazione))
         elif nome == "alzata_notturna":
             notte = personalizzazione.regole.orari_notte
             # senza zona letto la telecamera dice solo che di notte qualcuno è passato di qui
