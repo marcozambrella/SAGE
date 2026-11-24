@@ -70,9 +70,9 @@ function ComeSiMisura() {
           <span className="bottiglia-sceso" />
         </div>
         <p className="testo-secondario">
-          The camera sees how far the level drops while they drink. If it drops by 30% of the height of a
-          1,000 ml bottle, that is <strong>300 ml</strong>. It is an estimate: it works best with straight-sided
-          glasses and bottles.
+          The camera sees how far the level drops while they drink. If it drops by 30% of the height of a 1,000 ml
+          bottle, that is <strong>300 ml</strong>. It is an estimate: it works best with straight-sided glasses and
+          bottles.
         </p>
       </div>
     </Scheda>

@@ -102,13 +102,7 @@ export interface EventoAlzataNotturna extends EventoBase {
 }
 
 // Il campo "tipo" dice quale evento è (e quindi che "valori" aspettarsi).
-export type Evento =
-  | EventoCaduta
-  | EventoUscita
-  | EventoBevuta
-  | EventoFarmaco
-  | EventoPasto
-  | EventoAlzataNotturna;
+export type Evento = EventoCaduta | EventoUscita | EventoBevuta | EventoFarmaco | EventoPasto | EventoAlzataNotturna;
 
 // ---------- configurazione.py (solo la parte che vede la web app) ----------
 

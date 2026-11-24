@@ -123,7 +123,10 @@ function FarmaciCasaDemo() {
 
   return (
     <div className="pila-larga entrata">
-      <TitoloPagina titolo="Medications" sotto={"The plan for " + personalizzazione.anziano.nome + ", and how it went."} />
+      <TitoloPagina
+        titolo="Medications"
+        sotto={"The plan for " + personalizzazione.anziano.nome + ", and how it went."}
+      />
       <div className="griglia">
         <Scheda titolo={"Doses on " + giornoLungo(oggi.data)} icona="sole">
           <ul className="lista-semplice">
@@ -131,7 +134,9 @@ function FarmaciCasaDemo() {
               <li key={dose.farmaco_id + dose.orario_previsto} className="riga-con-stato riga-lista">
                 <strong>{dose.nome}</strong>
                 <EtichettaDose dose={dose} />
-                <p className="testo-secondario testo-piccolo riga-con-stato-testo">{orariDose(dose, personalizzazione.fuso_orario)}</p>
+                <p className="testo-secondario testo-piccolo riga-con-stato-testo">
+                  {orariDose(dose, personalizzazione.fuso_orario)}
+                </p>
               </li>
             ))}
           </ul>

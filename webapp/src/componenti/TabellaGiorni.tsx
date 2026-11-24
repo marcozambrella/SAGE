@@ -28,7 +28,12 @@ export default function TabellaGiorni({ giorni }: { giorni: RiassuntoGiorno[] })
             {giorni.map((riga) => (
               <tr key={riga.data}>
                 <th scope="row">
-                  {giornoBreve(riga.data)} {riga.simulato && <span className="asterisco" title="Simulated">*</span>}
+                  {giornoBreve(riga.data)}{" "}
+                  {riga.simulato && (
+                    <span className="asterisco" title="Simulated">
+                      *
+                    </span>
+                  )}
                 </th>
                 <td>{millilitri(riga.acqua_ml)}</td>
                 <td>

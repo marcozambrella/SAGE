@@ -122,7 +122,12 @@ function OggiCasaDemo() {
       attenzioni.push({
         chiave: dose.farmaco_id + dose.orario_previsto,
         ora: dose.orario_previsto,
-        descrizione: { icona: "pillola", titolo: dose.nome + " missed", dettaglio: "Planned at " + dose.orario_previsto, gravita: "critico" },
+        descrizione: {
+          icona: "pillola",
+          titolo: dose.nome + " missed",
+          dettaglio: "Planned at " + dose.orario_previsto,
+          gravita: "critico",
+        },
       });
     }
   }
@@ -176,7 +181,8 @@ function OggiCasaDemo() {
             </p>
             <Misuratore percentuale={percentualeAcqua} etichetta="Water goal reached" />
             <p className="testo-secondario">
-              {Math.round(percentualeAcqua)}% of the {millilitri(report.obiettivo_acqua_ml)} goal · {report.bevute} drinks
+              {Math.round(percentualeAcqua)}% of the {millilitri(report.obiettivo_acqua_ml)} goal · {report.bevute}{" "}
+              drinks
             </p>
           </div>
         </Scheda>
@@ -187,7 +193,9 @@ function OggiCasaDemo() {
               <li key={dose.farmaco_id + dose.orario_previsto} className="riga-con-stato riga-lista">
                 <strong>{dose.nome}</strong>
                 <EtichettaDose dose={dose} />
-                <p className="testo-secondario testo-piccolo riga-con-stato-testo">{orariDose(dose, personalizzazione.fuso_orario)}</p>
+                <p className="testo-secondario testo-piccolo riga-con-stato-testo">
+                  {orariDose(dose, personalizzazione.fuso_orario)}
+                </p>
               </li>
             ))}
           </ul>
@@ -202,7 +210,9 @@ function OggiCasaDemo() {
                   <span className="testo-secondario testo-piccolo">{oraDellaCasa(pasto.ora, fuso)}</span>
                 </div>
                 <Misuratore percentuale={pasto.percentuale_mangiata} etichetta="Share of the plate eaten" sottile />
-                <span className="testo-secondario testo-piccolo">Ate about {Math.round(pasto.percentuale_mangiata)}%</span>
+                <span className="testo-secondario testo-piccolo">
+                  Ate about {Math.round(pasto.percentuale_mangiata)}%
+                </span>
               </li>
             ))}
           </ul>

@@ -81,9 +81,7 @@ function ReportCasaDemo() {
     if (tipo === "giornaliero") {
       contenuto = <ReportDelGiorno periodo={periodo} personalizzazione={personalizzazione} />;
     } else {
-      contenuto = (
-        <ReportDelPeriodo tipo={tipo} periodo={periodo} personalizzazione={personalizzazione} key={tipo} />
-      );
+      contenuto = <ReportDelPeriodo tipo={tipo} periodo={periodo} personalizzazione={personalizzazione} key={tipo} />;
     }
   }
 

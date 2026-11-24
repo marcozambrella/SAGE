@@ -17,7 +17,12 @@ export function oraDellaCasa(iso: string, fusoOrario: string): string {
 // "AAAA-MM-GG" del giorno in cui è successo l'evento, nel fuso orario della casa.
 export function giornoDellaCasa(iso: string, fusoOrario: string): string {
   // Il formato canadese scrive le date proprio come "AAAA-MM-GG".
-  const formato = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: fusoOrario });
+  const formato = new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: fusoOrario,
+  });
   return formato.format(new Date(iso));
 }
 

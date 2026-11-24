@@ -156,7 +156,11 @@ export default function Struttura({ demo, nomeAnziano }: Proprieta) {
                   {voce.titolo}
                 </NavLink>
               ))}
-              <NavLink to="/coming-soon" className="pulsante pulsante-secondario" onClick={() => setFoglioAperto(false)}>
+              <NavLink
+                to="/coming-soon"
+                className="pulsante pulsante-secondario"
+                onClick={() => setFoglioAperto(false)}
+              >
                 <Icona nome="scintilla" />
                 What's coming
               </NavLink>

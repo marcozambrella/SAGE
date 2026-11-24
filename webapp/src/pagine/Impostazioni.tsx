@@ -27,8 +27,8 @@ export default function Impostazioni({ demo, personalizzazione, onSalva, onCance
         <Scheda titolo="The demo home can't be changed" icona="casa">
           <div className="pila">
             <p className="testo-secondario">
-              Its medications, containers, cameras and alert hours come from the recorded demo. Your own settings
-              are saved only in this browser.
+              Its medications, containers, cameras and alert hours come from the recorded demo. Your own settings are
+              saved only in this browser.
             </p>
             <Link to="/settings" className="pulsante pulsante-secondario">
               Open my settings <Icona nome="freccia" />

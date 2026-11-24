@@ -41,7 +41,12 @@ export function descriviEvento(evento: Evento, personalizzazione: Personalizzazi
     if (evento.valori.secondi_a_terra !== null) {
       dettaglio = "On the floor for " + Math.round(evento.valori.secondi_a_terra) + " seconds";
     }
-    return { icona: "avviso", titolo: "Fall in the " + evento.stanza.toLowerCase(), dettaglio: dettaglio, gravita: "critico" };
+    return {
+      icona: "avviso",
+      titolo: "Fall in the " + evento.stanza.toLowerCase(),
+      dettaglio: dettaglio,
+      gravita: "critico",
+    };
   }
   if (evento.tipo === "uscita") {
     // Se era in un orario vietato lo dice il backend (null: non ancora valutato).
@@ -57,8 +62,18 @@ export function descriviEvento(evento: Evento, personalizzazione: Personalizzazi
     const valori = evento.valori;
     const contenitore = NOMI_CONTENITORI[valori.contenitore];
     const dettaglio =
-      "Level dropped " + Math.round(valori.percentuale) + "% in a " + Math.round(valori.capienza_ml) + " ml " + contenitore;
-    return { icona: "goccia", titolo: "Drank " + Math.round(valori.ml) + " ml", dettaglio: dettaglio, gravita: "buono" };
+      "Level dropped " +
+      Math.round(valori.percentuale) +
+      "% in a " +
+      Math.round(valori.capienza_ml) +
+      " ml " +
+      contenitore;
+    return {
+      icona: "goccia",
+      titolo: "Drank " + Math.round(valori.ml) + " ml",
+      dettaglio: dettaglio,
+      gravita: "buono",
+    };
   }
   if (evento.tipo === "farmaco") {
     if (evento.valori.farmaco_id === null) {

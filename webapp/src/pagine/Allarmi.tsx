@@ -89,7 +89,8 @@ function AllarmiCasaUtente({ personalizzazione, onSalva }: ProprietaCasaUtente) 
     statoPausa = (
       <div className="riquadro riga-spaziata">
         <span className="stato stato-attenzione">
-          <Icona nome="pausa" dimensione={18} /> Paused until {oraDellaCasa(regole.pausa_fino_a, personalizzazione.fuso_orario)}
+          <Icona nome="pausa" dimensione={18} /> Paused until{" "}
+          {oraDellaCasa(regole.pausa_fino_a, personalizzazione.fuso_orario)}
         </span>
         <Pulsante variante="secondario" onClick={riattiva}>
           Resume now
@@ -179,7 +180,8 @@ function AllarmiCasaDemo() {
   } else if (inPausa(regole.pausa_fino_a) && regole.pausa_fino_a !== null) {
     statoAllarme = (
       <span className="stato stato-attenzione">
-        <Icona nome="pausa" dimensione={18} /> Paused until {oraDellaCasa(regole.pausa_fino_a, personalizzazione.fuso_orario)}
+        <Icona nome="pausa" dimensione={18} /> Paused until{" "}
+        {oraDellaCasa(regole.pausa_fino_a, personalizzazione.fuso_orario)}
       </span>
     );
   }

@@ -119,7 +119,14 @@ export function GraficoAcqua({ giorni, obiettivoMl }: ProprietaAcqua) {
             strokeWidth={2}
             label={{ value: "Goal", position: "insideTopRight", fill: TESTO_SECONDARIO, fontSize: 13 }}
           />
-          <Bar dataKey="acqua_ml" name="Water" fill={ACCENTO} radius={[4, 4, 0, 0]} maxBarSize={24} isAnimationActive={false} />
+          <Bar
+            dataKey="acqua_ml"
+            name="Water"
+            fill={ACCENTO}
+            radius={[4, 4, 0, 0]}
+            maxBarSize={24}
+            isAnimationActive={false}
+          />
         </BarChart>
       </ResponsiveContainer>
     </figure>
@@ -217,7 +224,11 @@ export function GraficoPasti({ giorni }: { giorni: RiassuntoGiorno[] }) {
             axisLine={false}
             width={48}
           />
-          <Tooltip contentStyle={STILE_SUGGERIMENTO} labelFormatter={titoloSuggerimento} formatter={formattaPercentuale} />
+          <Tooltip
+            contentStyle={STILE_SUGGERIMENTO}
+            labelFormatter={titoloSuggerimento}
+            formatter={formattaPercentuale}
+          />
           <Line
             type="monotone"
             dataKey="percentuale_mangiata_media"
@@ -253,7 +264,14 @@ export function GraficoNotti({ giorni }: { giorni: RiassuntoGiorno[] }) {
           />
           <YAxis allowDecimals={false} tick={TESTO_ASSI} tickLine={false} axisLine={false} width={48} />
           <Tooltip cursor={CURSORE_BARRE} contentStyle={STILE_SUGGERIMENTO} labelFormatter={titoloSuggerimento} />
-          <Bar dataKey="alzate_notturne" name="Rises" fill={ACCENTO} radius={[4, 4, 0, 0]} maxBarSize={24} isAnimationActive={false} />
+          <Bar
+            dataKey="alzate_notturne"
+            name="Rises"
+            fill={ACCENTO}
+            radius={[4, 4, 0, 0]}
+            maxBarSize={24}
+            isAnimationActive={false}
+          />
         </BarChart>
       </ResponsiveContainer>
     </figure>

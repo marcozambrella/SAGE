@@ -176,8 +176,8 @@ function GraficiDelPeriodo({ report, personalizzazione }: ProprietaGrafici) {
         <Scheda titolo="Falls and exits" icona="avviso">
           <div className="pila">
             <p className="testo-secondario">
-              {quanti(report.cadute, "fall", "falls")} and{" "}
-              {quanti(report.uscite_in_orario_vietato, "exit", "exits")} in no-exit hours.
+              {quanti(report.cadute, "fall", "falls")} and {quanti(report.uscite_in_orario_vietato, "exit", "exits")} in
+              no-exit hours.
             </p>
             {giorniDaRicordare.length === 0 && <p className="testo-secondario">None in this period.</p>}
             <ul className="lista-semplice">

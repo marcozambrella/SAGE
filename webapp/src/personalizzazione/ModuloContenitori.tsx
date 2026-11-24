@@ -32,7 +32,12 @@ export default function ModuloContenitori({ valore, onCambia }: Proprieta) {
 
   function aggiungi(tipo: TipoContenitore) {
     const proposta = PROPOSTE[tipo];
-    const nuovo: Contenitore = { id: nuovoId("contenitore"), nome: proposta.nome, tipo: tipo, capienza_ml: proposta.capienza };
+    const nuovo: Contenitore = {
+      id: nuovoId("contenitore"),
+      nome: proposta.nome,
+      tipo: tipo,
+      capienza_ml: proposta.capienza,
+    };
     onCambia(valore.concat([nuovo]));
   }
 

@@ -56,7 +56,10 @@ export default function App() {
         <Route path="/containers" element={<Contenitori demo={false} personalizzazione={p} />} />
         <Route path="/cameras" element={<Telecamere demo={false} personalizzazione={p} />} />
         <Route path="/alerts" element={<Allarmi demo={false} personalizzazione={p} onSalva={salva} />} />
-        <Route path="/settings" element={<Impostazioni demo={false} personalizzazione={p} onSalva={salva} onCancella={cancella} />} />
+        <Route
+          path="/settings"
+          element={<Impostazioni demo={false} personalizzazione={p} onSalva={salva} onCancella={cancella} />}
+        />
       </Route>
     );
   }
@@ -84,7 +87,10 @@ export default function App() {
         <Route path="containers" element={<Contenitori demo={true} personalizzazione={null} />} />
         <Route path="cameras" element={<Telecamere demo={true} personalizzazione={null} />} />
         <Route path="alerts" element={<Allarmi demo={true} personalizzazione={null} onSalva={salva} />} />
-        <Route path="settings" element={<Impostazioni demo={true} personalizzazione={null} onSalva={salva} onCancella={cancella} />} />
+        <Route
+          path="settings"
+          element={<Impostazioni demo={true} personalizzazione={null} onSalva={salva} onCancella={cancella} />}
+        />
       </Route>
 
       {casaUtente}

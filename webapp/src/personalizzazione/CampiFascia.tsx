@@ -10,8 +10,18 @@ type Proprieta = {
 export default function CampiFascia({ valore, onCambia }: Proprieta) {
   return (
     <div className="due-colonne">
-      <Campo etichetta="From" tipo="time" valore={valore.dalle} onCambia={(testo) => onCambia({ ...valore, dalle: testo })} />
-      <Campo etichetta="To" tipo="time" valore={valore.alle} onCambia={(testo) => onCambia({ ...valore, alle: testo })} />
+      <Campo
+        etichetta="From"
+        tipo="time"
+        valore={valore.dalle}
+        onCambia={(testo) => onCambia({ ...valore, dalle: testo })}
+      />
+      <Campo
+        etichetta="To"
+        tipo="time"
+        valore={valore.alle}
+        onCambia={(testo) => onCambia({ ...valore, alle: testo })}
+      />
     </div>
   );
 }

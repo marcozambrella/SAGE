@@ -33,7 +33,14 @@ function ora(giorno: string, hhmm: string): string {
 export const PERSONALIZZAZIONE_DEMO: Personalizzazione = {
   anziano: { nome: "Rosa", anno_nascita: 1942, obiettivo_acqua_ml: 1500, note: "" },
   farmaci: [
-    { id: "f-memantina", nome: "Memantine", dose: "1 tablet", orari: ["08:00", "20:00"], tolleranza_minuti: 30, foto_ids: [] },
+    {
+      id: "f-memantina",
+      nome: "Memantine",
+      dose: "1 tablet",
+      orari: ["08:00", "20:00"],
+      tolleranza_minuti: 30,
+      foto_ids: [],
+    },
     { id: "f-ramipril", nome: "Ramipril", dose: "1 tablet", orari: ["08:00"], tolleranza_minuti: 45, foto_ids: [] },
     { id: "f-donepezil", nome: "Donepezil", dose: "1 tablet", orari: ["20:00"], tolleranza_minuti: 30, foto_ids: [] },
   ],
@@ -143,17 +150,20 @@ function eventiGiornoVero(): Evento[] {
     tipo: "farmaco",
     valori: { farmaco_id: "f-ramipril", somiglianza: 0.87, portapillole_aperto: true, mano_alla_bocca: true },
   });
-  eventi.push(bevuta("ev-1030", ora(G, "10:30"), "Living room", "t-soggiorno",
-    "bicchiere", "c-bicchiere", 250, 120, 96, false));
+  eventi.push(
+    bevuta("ev-1030", ora(G, "10:30"), "Living room", "t-soggiorno", "bicchiere", "c-bicchiere", 250, 120, 96, false),
+  );
   eventi.push({
     ...base("ev-1240", ora(G, "12:40"), ora(G, "13:05"), "Kitchen", "t-cucina", "pasto", 0.82, false),
     tipo: "pasto",
     valori: { cibi: ["pasta with tomato sauce", "green salad"], percentuale_mangiata: 60 },
   });
-  eventi.push(bevuta("ev-1245", ora(G, "12:45"), "Kitchen", "t-cucina",
-    "bicchiere", "c-bicchiere", 250, 120, 72, false));
-  eventi.push(bevuta("ev-1500", ora(G, "15:00"), "Living room", "t-soggiorno",
-    "bottiglia", "c-bottiglia", 1000, 260, 78, false));
+  eventi.push(
+    bevuta("ev-1245", ora(G, "12:45"), "Kitchen", "t-cucina", "bicchiere", "c-bicchiere", 250, 120, 72, false),
+  );
+  eventi.push(
+    bevuta("ev-1500", ora(G, "15:00"), "Living room", "t-soggiorno", "bottiglia", "c-bottiglia", 1000, 260, 78, false),
+  );
   // La caduta l'hanno vista due telecamere: il backend ha coordinato i due eventi grezzi in uno.
   eventi.push({
     ...base("ev-1520", ora(G, "15:20"), ora(G, "15:21"), "Living room", "t-soggiorno", "caduta", 0.94, false),
@@ -165,15 +175,17 @@ function eventiGiornoVero(): Evento[] {
     tipo: "caduta",
     valori: { secondi_a_terra: 48 },
   });
-  eventi.push(bevuta("ev-1730", ora(G, "17:30"), "Living room", "t-soggiorno",
-    "bicchiere", "c-bicchiere", 250, 120, 96, false));
+  eventi.push(
+    bevuta("ev-1730", ora(G, "17:30"), "Living room", "t-soggiorno", "bicchiere", "c-bicchiere", 250, 120, 96, false),
+  );
   eventi.push({
     ...base("ev-1930", ora(G, "19:30"), ora(G, "19:52"), "Kitchen", "t-cucina", "pasto", 0.8, false),
     tipo: "pasto",
     valori: { cibi: ["vegetable soup", "cheese"], percentuale_mangiata: 45 },
   });
-  eventi.push(bevuta("ev-1940", ora(G, "19:40"), "Kitchen", "t-cucina",
-    "bicchiere", "c-bicchiere", 250, 120, 48, false));
+  eventi.push(
+    bevuta("ev-1940", ora(G, "19:40"), "Kitchen", "t-cucina", "bicchiere", "c-bicchiere", 250, 120, 48, false),
+  );
   eventi.push({
     ...base("ev-2012", ora(G, "20:12"), null, "Kitchen", "t-cucina", "farmaco", 0.86, false),
     tipo: "farmaco",
@@ -425,8 +437,16 @@ function eventiSimulati(report: ReportGiornaliero): Evento[] {
   for (let i = 0; i < report.alzate_notturne; i++) {
     const inizio = oreAlzate[i];
     eventi.push({
-      ...base("sim-" + giorno + "-alzata-" + i, ora(giorno, inizio), ora(giorno, aggiungiMinuti(inizio, 9)),
-        "Bedroom", "t-camera", "alzata_notturna", 0.9, true),
+      ...base(
+        "sim-" + giorno + "-alzata-" + i,
+        ora(giorno, inizio),
+        ora(giorno, aggiungiMinuti(inizio, 9)),
+        "Bedroom",
+        "t-camera",
+        "alzata_notturna",
+        0.9,
+        true,
+      ),
       tipo: "alzata_notturna",
       valori: { stanze: ["Bedroom"] },
     });
@@ -436,8 +456,20 @@ function eventiSimulati(report: ReportGiornaliero): Evento[] {
   const mlPerBevuta = report.acqua_ml / 5;
   for (let i = 0; i < oreBevute.length; i++) {
     const scesoPx = (mlPerBevuta / 250) * 120;
-    eventi.push(bevuta("sim-" + giorno + "-bevuta-" + i, ora(giorno, oreBevute[i]), "Kitchen", "t-cucina",
-      "bicchiere", "c-bicchiere", 250, 120, scesoPx, true));
+    eventi.push(
+      bevuta(
+        "sim-" + giorno + "-bevuta-" + i,
+        ora(giorno, oreBevute[i]),
+        "Kitchen",
+        "t-cucina",
+        "bicchiere",
+        "c-bicchiere",
+        250,
+        120,
+        scesoPx,
+        true,
+      ),
+    );
   }
   for (let i = 0; i < report.dosi.length; i++) {
     const dose = report.dosi[i];
@@ -460,8 +492,16 @@ function eventiSimulati(report: ReportGiornaliero): Evento[] {
   }
   if (report.cadute > 0) {
     eventi.push({
-      ...base("sim-" + giorno + "-caduta", ora(giorno, "16:40"), ora(giorno, "16:41"), "Living room", "t-soggiorno",
-        "caduta", 0.9, true),
+      ...base(
+        "sim-" + giorno + "-caduta",
+        ora(giorno, "16:40"),
+        ora(giorno, "16:41"),
+        "Living room",
+        "t-soggiorno",
+        "caduta",
+        0.9,
+        true,
+      ),
       ha_foto: true,
       tipo: "caduta",
       valori: { secondi_a_terra: 35 },
