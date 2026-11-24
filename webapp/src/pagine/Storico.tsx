@@ -1,7 +1,7 @@
 // History: giorno per giorno, la linea del tempo degli eventi con le foto di prova.
 import { useEffect, useState } from "react";
 import type { Evento, Personalizzazione } from "../contratti";
-import { GIORNO_DEMO, leggiEventiDemo, leggiPersonalizzazioneDemo } from "../api";
+import { leggiEventiDemo, leggiPeriodoDemo, leggiPersonalizzazioneDemo, type GiorniDemo } from "../api";
 import { giornoLungo, giornoSettimana, spostaGiorno } from "../formato";
 import Caricamento from "../componenti/Caricamento";
 import InAttesaTelecamere from "../componenti/InAttesaTelecamere";
@@ -36,17 +36,36 @@ export default function Storico({ demo, personalizzazione }: Proprieta) {
 }
 
 function StoricoCasaDemo() {
-  const [giorno, setGiorno] = useState(GIORNO_DEMO);
+  const [periodo, setPeriodo] = useState<GiorniDemo | null>(null);
   const [personalizzazione, setPersonalizzazione] = useState<Personalizzazione | null>(null);
+  const [giorno, setGiorno] = useState("");
   const [eventi, setEventi] = useState<Evento[] | null>(null);
   const [errore, setErrore] = useState("");
 
+  // Prima si chiede quali giorni ha la casa demo: si parte dall'ultimo.
   useEffect(() => {
     async function carica() {
+      try {
+        const giorniDemo = await leggiPeriodoDemo();
+        setPersonalizzazione(await leggiPersonalizzazioneDemo());
+        setPeriodo(giorniDemo);
+        setGiorno(giorniDemo.al);
+      } catch (problema) {
+        setErrore(String(problema));
+      }
+    }
+    carica();
+  }, []);
+
+  // Poi gli eventi del giorno scelto.
+  useEffect(() => {
+    async function carica() {
+      if (giorno === "") {
+        return;
+      }
       setEventi(null);
       setErrore("");
       try {
-        setPersonalizzazione(await leggiPersonalizzazioneDemo());
         setEventi(await leggiEventiDemo(giorno, giorno, null));
       } catch (problema) {
         setErrore(String(problema));
@@ -55,10 +74,17 @@ function StoricoCasaDemo() {
     carica();
   }, [giorno]);
 
-  // Gli ultimi giorni della casa demo, dal più recente.
+  if (periodo === null) {
+    return <Caricamento errore={errore} />;
+  }
+
+  // Gli ultimi giorni della casa demo, dal più recente, senza andare prima del primo giorno.
   const giorni: string[] = [];
   for (let i = 0; i < GIORNI_NELLA_STRISCIA; i++) {
-    giorni.push(spostaGiorno(GIORNO_DEMO, -i));
+    const voce = spostaGiorno(periodo.al, -i);
+    if (voce >= periodo.dal) {
+      giorni.push(voce);
+    }
   }
 
   let contenuto = <Caricamento errore={errore} />;

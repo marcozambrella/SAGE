@@ -68,6 +68,14 @@ export function numero(valore: number): string {
   return Math.round(valore).toLocaleString(LINGUA);
 }
 
+// "96%", oppure "No data" se il valore non c'è (es. aderenza senza dosi valutate).
+export function percentuale(valore: number | null): string {
+  if (valore === null) {
+    return "No data";
+  }
+  return Math.round(valore) + "%";
+}
+
 // "1,150 ml"
 export function millilitri(valore: number): string {
   return numero(valore) + " ml";

@@ -1,6 +1,6 @@
 // Come si racconta un evento a una famiglia: icona, titolo, dettaglio e gravità (per il colore e l'etichetta).
 import type { NomeIcona } from "./componenti/Icona";
-import type { DoseFarmaco, Evento, FasciaOraria, Personalizzazione, TipoContenitore } from "./contratti";
+import type { DoseFarmaco, Evento, Personalizzazione, TipoContenitore } from "./contratti";
 import { durata, maiuscola, oraDellaCasa } from "./formato";
 
 export type Gravita = "critico" | "attenzione" | "buono" | "neutro";
@@ -17,32 +17,6 @@ export const NOMI_CONTENITORI: Record<TipoContenitore, string> = {
   bottiglia: "bottle",
   tazza: "cup",
 };
-
-// "HH:MM" → minuti dalla mezzanotte.
-function minutiDelGiorno(hhmm: string): number {
-  return Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
-}
-
-// True se l'ora (nel fuso della casa) cade nella fascia; se alle < dalle la fascia passa la mezzanotte.
-// Nota: lo decide anche il backend (API.md); qui serve solo a scrivere "during no-exit hours" accanto all'uscita.
-export function dentroFascia(iso: string, fascia: FasciaOraria, fusoOrario: string): boolean {
-  const minuti = minutiDelGiorno(oraDellaCasa(iso, fusoOrario));
-  const dalle = minutiDelGiorno(fascia.dalle);
-  const alle = minutiDelGiorno(fascia.alle);
-  if (dalle <= alle) {
-    return minuti >= dalle && minuti < alle;
-  }
-  return minuti >= dalle || minuti < alle;
-}
-
-export function uscitaVietata(evento: Evento, personalizzazione: Personalizzazione): boolean {
-  for (const fascia of personalizzazione.regole.orari_uscita_vietati) {
-    if (dentroFascia(evento.inizio, fascia, personalizzazione.fuso_orario)) {
-      return true;
-    }
-  }
-  return false;
-}
 
 function nomeFarmaco(farmacoId: string, personalizzazione: Personalizzazione): string {
   for (const farmaco of personalizzazione.farmaci) {
@@ -70,10 +44,14 @@ export function descriviEvento(evento: Evento, personalizzazione: Personalizzazi
     return { icona: "avviso", titolo: "Fall in the " + evento.stanza.toLowerCase(), dettaglio: dettaglio, gravita: "critico" };
   }
   if (evento.tipo === "uscita") {
-    if (uscitaVietata(evento, personalizzazione)) {
+    // Se era in un orario vietato lo dice il backend (null: non ancora valutato).
+    if (evento.valori.in_orario_vietato === true) {
       return { icona: "porta", titolo: "Went out", dettaglio: "During no-exit hours", gravita: "critico" };
     }
-    return { icona: "porta", titolo: "Went out", dettaglio: "Outside no-exit hours", gravita: "neutro" };
+    if (evento.valori.in_orario_vietato === false) {
+      return { icona: "porta", titolo: "Went out", dettaglio: "Outside no-exit hours", gravita: "neutro" };
+    }
+    return { icona: "porta", titolo: "Went out", dettaglio: "Through the front door", gravita: "neutro" };
   }
   if (evento.tipo === "bevuta") {
     const valori = evento.valori;

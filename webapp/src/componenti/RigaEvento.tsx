@@ -1,6 +1,6 @@
 // Un evento nella linea del tempo: ora, icona, cosa è successo e, se c'è, la foto di prova.
 import { useState } from "react";
-import { TIPI_URGENTI, type Evento, type Personalizzazione } from "../contratti";
+import type { Evento, Personalizzazione } from "../contratti";
 import { descriviEvento } from "../descrizioni";
 import { oraDellaCasa } from "../formato";
 import { indirizzoFotoEvento } from "../api";
@@ -13,12 +13,12 @@ type Proprieta = {
 };
 
 export default function RigaEvento({ evento, personalizzazione }: Proprieta) {
-  // La foto si chiede a parte (/demo/eventi/{id}/foto): se non c'è (404) il riquadro sparisce.
+  // La foto si chiede a parte (/demo/eventi/{id}/foto), solo se ha_foto: se poi non arriva il riquadro sparisce.
   const [fotoMancante, setFotoMancante] = useState(false);
   const descrizione = descriviEvento(evento, personalizzazione);
-  const indirizzoFoto = indirizzoFotoEvento(evento.id);
-  // Con i dati di sviluppo non ci sono foto: per gli eventi urgenti si mostra dove andrà la foto.
-  const segnapostoFoto = indirizzoFoto === null && TIPI_URGENTI.includes(evento.tipo);
+  const indirizzoFoto = indirizzoFotoEvento(evento);
+  // Con i dati di sviluppo non ci sono immagini: si mostra solo dove andrà la foto.
+  const segnapostoFoto = evento.ha_foto && indirizzoFoto === null;
 
   return (
     <li className={"evento evento-" + descrizione.gravita}>

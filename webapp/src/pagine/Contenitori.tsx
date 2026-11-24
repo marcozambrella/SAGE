@@ -1,8 +1,8 @@
 // Containers: bicchieri, bottiglie e tazze con la capienza, e come si calcolano i ml bevuti (D9).
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import type { Contenitore, Evento, Personalizzazione, TipoContenitore } from "../contratti";
-import { GIORNO_DEMO, leggiEventiDemo, leggiPersonalizzazioneDemo } from "../api";
+import type { Contenitore, Evento, Personalizzazione } from "../contratti";
+import { leggiEventiDemo, leggiPeriodoDemo, leggiPersonalizzazioneDemo } from "../api";
 import { NOMI_CONTENITORI } from "../descrizioni";
 import { giornoLungo, maiuscola, millilitri } from "../formato";
 import Caricamento from "../componenti/Caricamento";
@@ -81,14 +81,17 @@ function ComeSiMisura() {
 
 function ContenitoriCasaDemo() {
   const [personalizzazione, setPersonalizzazione] = useState<Personalizzazione | null>(null);
+  const [giorno, setGiorno] = useState("");
   const [bevute, setBevute] = useState<Evento[] | null>(null);
   const [errore, setErrore] = useState("");
 
   useEffect(() => {
     async function carica() {
       try {
+        const ultimo = (await leggiPeriodoDemo()).al;
+        setGiorno(ultimo);
         setPersonalizzazione(await leggiPersonalizzazioneDemo());
-        setBevute(await leggiEventiDemo(GIORNO_DEMO, GIORNO_DEMO, "bevuta"));
+        setBevute(await leggiEventiDemo(ultimo, ultimo, "bevuta"));
       } catch (problema) {
         setErrore(String(problema));
       }
@@ -100,20 +103,27 @@ function ContenitoriCasaDemo() {
     return <Caricamento errore={errore} />;
   }
 
-  // Quanto si è bevuto da ogni tipo di contenitore nel giorno della casa demo.
-  const mlPerTipo: Record<TipoContenitore, number> = { bicchiere: 0, bottiglia: 0, tazza: 0 };
-  const voltePerTipo: Record<TipoContenitore, number> = { bicchiere: 0, bottiglia: 0, tazza: 0 };
+  // Quanto si è bevuto da ogni contenitore nel giorno della casa demo (contenitore_id della bevuta).
+  const mlPerContenitore: Record<string, number> = {};
+  const voltePerContenitore: Record<string, number> = {};
+  for (const contenitore of personalizzazione.contenitori) {
+    mlPerContenitore[contenitore.id] = 0;
+    voltePerContenitore[contenitore.id] = 0;
+  }
   for (const evento of bevute) {
-    if (evento.tipo === "bevuta") {
-      mlPerTipo[evento.valori.contenitore] = mlPerTipo[evento.valori.contenitore] + evento.valori.ml;
-      voltePerTipo[evento.valori.contenitore] = voltePerTipo[evento.valori.contenitore] + 1;
+    if (evento.tipo === "bevuta" && evento.valori.contenitore_id !== null) {
+      const id = evento.valori.contenitore_id;
+      if (id in mlPerContenitore) {
+        mlPerContenitore[id] = mlPerContenitore[id] + evento.valori.ml;
+        voltePerContenitore[id] = voltePerContenitore[id] + 1;
+      }
     }
   }
 
   return (
     <div className="pila-larga entrata">
       <TitoloPagina titolo="Containers" sotto="What they drink from, and how much it holds." />
-      <Scheda titolo={"Drinks on " + giornoLungo(GIORNO_DEMO)} icona="goccia">
+      <Scheda titolo={"Drinks on " + giornoLungo(giorno)} icona="goccia">
         <ul className="lista-semplice">
           {personalizzazione.contenitori.map((contenitore) => (
             <li key={contenitore.id} className="riga-spaziata riga-lista">
@@ -124,8 +134,8 @@ function ContenitoriCasaDemo() {
                 </p>
               </div>
               <span className="stato stato-buono">
-                <Icona nome="goccia" dimensione={18} /> {millilitri(mlPerTipo[contenitore.tipo])} ·{" "}
-                {voltePerTipo[contenitore.tipo]}×
+                <Icona nome="goccia" dimensione={18} /> {millilitri(mlPerContenitore[contenitore.id])} ·{" "}
+                {voltePerContenitore[contenitore.id]}×
               </span>
             </li>
           ))}

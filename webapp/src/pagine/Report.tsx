@@ -2,11 +2,12 @@
 import { useEffect, useState } from "react";
 import type { Personalizzazione, ReportGiornaliero, ReportPeriodo } from "../contratti";
 import {
-  GIORNO_DEMO,
+  leggiPeriodoDemo,
   leggiPersonalizzazioneDemo,
   leggiReportGiornaliero,
   leggiReportMensile,
   leggiReportSettimanale,
+  type GiorniDemo,
 } from "../api";
 import {
   durata,
@@ -16,8 +17,8 @@ import {
   maiuscola,
   meseLungo,
   millilitri,
-  numero,
   oraDellaCasa,
+  percentuale,
   spostaGiorno,
 } from "../formato";
 import Caricamento from "../componenti/Caricamento";
@@ -37,11 +38,12 @@ type Proprieta = {
 type TipoReport = "giornaliero" | "settimanale" | "mensile";
 
 export default function Report({ demo, personalizzazione }: Proprieta) {
-  const [tipo, setTipo] = useState<TipoReport>("giornaliero");
-
-  let contenuto = null;
-  if (!demo && personalizzazione !== null) {
-    contenuto = (
+  if (demo || personalizzazione === null) {
+    return <ReportCasaDemo />;
+  }
+  return (
+    <div className="pila-larga entrata">
+      <TitoloPagina titolo="Reports" sotto="Calm summaries to read, keep, or bring to the doctor." />
       <InAttesaTelecamere
         testo={
           "Daily, weekly and monthly reports about " +
@@ -50,46 +52,85 @@ export default function Report({ demo, personalizzazione }: Proprieta) {
         }
         paginaDemo="/demo/reports"
       />
-    );
-  } else if (tipo === "giornaliero") {
-    contenuto = <ReportDelGiorno />;
-  } else {
-    contenuto = <ReportDelPeriodo tipo={tipo} key={tipo} />;
+    </div>
+  );
+}
+
+function ReportCasaDemo() {
+  const [tipo, setTipo] = useState<TipoReport>("giornaliero");
+  const [periodo, setPeriodo] = useState<GiorniDemo | null>(null);
+  const [personalizzazione, setPersonalizzazione] = useState<Personalizzazione | null>(null);
+  const [errore, setErrore] = useState("");
+
+  useEffect(() => {
+    async function carica() {
+      try {
+        setPeriodo(await leggiPeriodoDemo());
+        setPersonalizzazione(await leggiPersonalizzazioneDemo());
+      } catch (problema) {
+        setErrore(String(problema));
+      }
+    }
+    carica();
+  }, []);
+
+  let contenuto = <Caricamento errore={errore} />;
+  if (periodo !== null && personalizzazione !== null) {
+    if (tipo === "giornaliero") {
+      contenuto = <ReportDelGiorno periodo={periodo} personalizzazione={personalizzazione} />;
+    } else {
+      contenuto = <ReportDelPeriodo tipo={tipo} periodo={periodo} key={tipo} />;
+    }
   }
 
   return (
     <div className="pila-larga entrata">
       <TitoloPagina titolo="Reports" sotto="Calm summaries to read, keep, or bring to the doctor." />
-      {demo && (
-        <div className="segmenti" role="group" aria-label="Report period">
-          <button type="button" className="segmento" aria-pressed={tipo === "giornaliero"} onClick={() => setTipo("giornaliero")}>
-            Daily
-          </button>
-          <button type="button" className="segmento" aria-pressed={tipo === "settimanale"} onClick={() => setTipo("settimanale")}>
-            Weekly
-          </button>
-          <button type="button" className="segmento" aria-pressed={tipo === "mensile"} onClick={() => setTipo("mensile")}>
-            Monthly
-          </button>
-        </div>
-      )}
+      <div className="segmenti" role="group" aria-label="Report period">
+        <button
+          type="button"
+          className="segmento"
+          aria-pressed={tipo === "giornaliero"}
+          onClick={() => setTipo("giornaliero")}
+        >
+          Daily
+        </button>
+        <button
+          type="button"
+          className="segmento"
+          aria-pressed={tipo === "settimanale"}
+          onClick={() => setTipo("settimanale")}
+        >
+          Weekly
+        </button>
+        <button type="button" className="segmento" aria-pressed={tipo === "mensile"} onClick={() => setTipo("mensile")}>
+          Monthly
+        </button>
+      </div>
       {contenuto}
     </div>
   );
 }
 
-// Frecce "prima" e "dopo" intorno al nome del periodo.
+// Frecce "prima" e "dopo" intorno al nome del periodo: si ferma al primo e all'ultimo giorno della casa demo.
 type ProprietaScorri = {
   titolo: string;
   onPrima: () => void;
   onDopo: () => void;
+  primaDisattivato: boolean;
   dopoDisattivato: boolean;
 };
 
-function ScorriPeriodo({ titolo, onPrima, onDopo, dopoDisattivato }: ProprietaScorri) {
+function ScorriPeriodo({ titolo, onPrima, onDopo, primaDisattivato, dopoDisattivato }: ProprietaScorri) {
   return (
     <div className="scorri-periodo">
-      <button type="button" className="pulsante pulsante-secondario pulsante-icona" aria-label="Previous" onClick={onPrima}>
+      <button
+        type="button"
+        className="pulsante pulsante-secondario pulsante-icona"
+        aria-label="Previous"
+        disabled={primaDisattivato}
+        onClick={onPrima}
+      >
         <Icona nome="indietro" />
       </button>
       <h2>{titolo}</h2>
@@ -106,9 +147,13 @@ function ScorriPeriodo({ titolo, onPrima, onDopo, dopoDisattivato }: ProprietaSc
   );
 }
 
-function ReportDelGiorno() {
-  const [giorno, setGiorno] = useState(GIORNO_DEMO);
-  const [personalizzazione, setPersonalizzazione] = useState<Personalizzazione | null>(null);
+type ProprietaGiorno = {
+  periodo: GiorniDemo;
+  personalizzazione: Personalizzazione;
+};
+
+function ReportDelGiorno({ periodo, personalizzazione }: ProprietaGiorno) {
+  const [giorno, setGiorno] = useState(periodo.al);
   const [report, setReport] = useState<ReportGiornaliero | null>(null);
   const [errore, setErrore] = useState("");
 
@@ -117,7 +162,6 @@ function ReportDelGiorno() {
       setReport(null);
       setErrore("");
       try {
-        setPersonalizzazione(await leggiPersonalizzazioneDemo());
         setReport(await leggiReportGiornaliero(giorno));
       } catch (problema) {
         setErrore(String(problema));
@@ -131,11 +175,12 @@ function ReportDelGiorno() {
       titolo={giornoLungo(giorno)}
       onPrima={() => setGiorno(spostaGiorno(giorno, -1))}
       onDopo={() => setGiorno(spostaGiorno(giorno, 1))}
-      dopoDisattivato={giorno >= GIORNO_DEMO}
+      primaDisattivato={giorno <= periodo.dal}
+      dopoDisattivato={giorno >= periodo.al}
     />
   );
 
-  if (personalizzazione === null || report === null) {
+  if (report === null) {
     return (
       <>
         {scorri}
@@ -237,10 +282,10 @@ function ReportDelGiorno() {
   );
 }
 
-function ReportDelPeriodo({ tipo }: { tipo: "settimanale" | "mensile" }) {
+function ReportDelPeriodo({ tipo, periodo }: { tipo: "settimanale" | "mensile"; periodo: GiorniDemo }) {
   // Settimana: i 7 giorni che finiscono con l'ultimo giorno della casa demo. Mese: il mese di quel giorno.
-  const [dal, setDal] = useState(spostaGiorno(GIORNO_DEMO, -6));
-  const [mese, setMese] = useState(GIORNO_DEMO.slice(0, 7));
+  const [dal, setDal] = useState(spostaGiorno(periodo.al, -6));
+  const [mese, setMese] = useState(periodo.al.slice(0, 7));
   const [report, setReport] = useState<ReportPeriodo | null>(null);
   const [errore, setErrore] = useState("");
 
@@ -272,7 +317,8 @@ function ReportDelPeriodo({ tipo }: { tipo: "settimanale" | "mensile" }) {
       titolo={giornoEMese(dal) + " – " + giornoEMese(spostaGiorno(dal, 6))}
       onPrima={() => setDal(spostaGiorno(dal, -7))}
       onDopo={() => setDal(spostaGiorno(dal, 7))}
-      dopoDisattivato={spostaGiorno(dal, 6) >= GIORNO_DEMO}
+      primaDisattivato={dal <= periodo.dal}
+      dopoDisattivato={spostaGiorno(dal, 6) >= periodo.al}
     />
   );
   if (tipo === "mensile") {
@@ -281,7 +327,8 @@ function ReportDelPeriodo({ tipo }: { tipo: "settimanale" | "mensile" }) {
         titolo={meseLungo(mese)}
         onPrima={() => cambiaMese(-1)}
         onDopo={() => cambiaMese(1)}
-        dopoDisattivato={mese >= GIORNO_DEMO.slice(0, 7)}
+        primaDisattivato={mese <= periodo.dal.slice(0, 7)}
+        dopoDisattivato={mese >= periodo.al.slice(0, 7)}
       />
     );
   }
@@ -328,7 +375,7 @@ function ReportDelPeriodo({ tipo }: { tipo: "settimanale" | "mensile" }) {
             <span className="testo-secondario">water per day</span>
           </div>
           <div className="tessera">
-            <span className="numero-medio">{numero(report.aderenza_farmaci_percentuale)}%</span>
+            <span className="numero-medio">{percentuale(report.aderenza_farmaci_percentuale)}</span>
             <span className="testo-secondario">doses taken</span>
           </div>
           <div className="tessera">

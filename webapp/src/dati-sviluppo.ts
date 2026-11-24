@@ -10,6 +10,7 @@ import type {
   Evento,
   EventoBase,
   PastoDelGiorno,
+  PeriodoDemo,
   Personalizzazione,
   ReportGiornaliero,
   ReportPeriodo,
@@ -75,6 +76,7 @@ function base(
     confidenza: confidenza,
     fonti: [{ telecamera_id: telecameraId, analizzatore: analizzatore, confidenza: confidenza }],
     foto_prova: null,
+    ha_foto: false,
     simulato: simulato,
   };
 }
@@ -86,6 +88,7 @@ function bevuta(
   stanza: string,
   telecameraId: string,
   contenitore: TipoContenitore,
+  contenitoreId: string,
   capienza: number,
   altezzaPx: number,
   scesoPx: number,
@@ -98,6 +101,7 @@ function bevuta(
     tipo: "bevuta",
     valori: {
       contenitore: contenitore,
+      contenitore_id: contenitoreId,
       capienza_ml: capienza,
       altezza_contenitore_px: altezzaPx,
       livello_sceso_px: scesoPx,
@@ -123,7 +127,7 @@ function eventiGiornoVero(): Evento[] {
     tipo: "alzata_notturna",
     valori: { stanze: ["Bedroom"] },
   });
-  eventi.push(bevuta("ev-0750", ora(G, "07:50"), "Kitchen", "t-cucina", "tazza", 200, 90, 90, false));
+  eventi.push(bevuta("ev-0750", ora(G, "07:50"), "Kitchen", "t-cucina", "tazza", "c-tazza", 200, 90, 90, false));
   eventi.push({
     ...base("ev-0807", ora(G, "08:07"), null, "Kitchen", "t-cucina", "farmaco", 0.88, false),
     tipo: "farmaco",
@@ -139,17 +143,21 @@ function eventiGiornoVero(): Evento[] {
     tipo: "farmaco",
     valori: { farmaco_id: "f-ramipril", somiglianza: 0.87, portapillole_aperto: true, mano_alla_bocca: true },
   });
-  eventi.push(bevuta("ev-1030", ora(G, "10:30"), "Living room", "t-soggiorno", "bicchiere", 250, 120, 96, false));
+  eventi.push(bevuta("ev-1030", ora(G, "10:30"), "Living room", "t-soggiorno",
+    "bicchiere", "c-bicchiere", 250, 120, 96, false));
   eventi.push({
     ...base("ev-1240", ora(G, "12:40"), ora(G, "13:05"), "Kitchen", "t-cucina", "pasto", 0.82, false),
     tipo: "pasto",
     valori: { cibi: ["pasta with tomato sauce", "green salad"], percentuale_mangiata: 60 },
   });
-  eventi.push(bevuta("ev-1245", ora(G, "12:45"), "Kitchen", "t-cucina", "bicchiere", 250, 120, 72, false));
-  eventi.push(bevuta("ev-1500", ora(G, "15:00"), "Living room", "t-soggiorno", "bottiglia", 1000, 260, 78, false));
-  // La caduta l'hanno vista due telecamere: l'unione ha fuso i due eventi in uno (D3).
+  eventi.push(bevuta("ev-1245", ora(G, "12:45"), "Kitchen", "t-cucina",
+    "bicchiere", "c-bicchiere", 250, 120, 72, false));
+  eventi.push(bevuta("ev-1500", ora(G, "15:00"), "Living room", "t-soggiorno",
+    "bottiglia", "c-bottiglia", 1000, 260, 78, false));
+  // La caduta l'hanno vista due telecamere: il backend ha coordinato i due eventi grezzi in uno.
   eventi.push({
     ...base("ev-1520", ora(G, "15:20"), ora(G, "15:21"), "Living room", "t-soggiorno", "caduta", 0.94, false),
+    ha_foto: true,
     fonti: [
       { telecamera_id: "t-soggiorno", analizzatore: "caduta", confidenza: 0.94 },
       { telecamera_id: "t-ingresso", analizzatore: "caduta", confidenza: 0.71 },
@@ -157,13 +165,15 @@ function eventiGiornoVero(): Evento[] {
     tipo: "caduta",
     valori: { secondi_a_terra: 48 },
   });
-  eventi.push(bevuta("ev-1730", ora(G, "17:30"), "Living room", "t-soggiorno", "bicchiere", 250, 120, 96, false));
+  eventi.push(bevuta("ev-1730", ora(G, "17:30"), "Living room", "t-soggiorno",
+    "bicchiere", "c-bicchiere", 250, 120, 96, false));
   eventi.push({
     ...base("ev-1930", ora(G, "19:30"), ora(G, "19:52"), "Kitchen", "t-cucina", "pasto", 0.8, false),
     tipo: "pasto",
     valori: { cibi: ["vegetable soup", "cheese"], percentuale_mangiata: 45 },
   });
-  eventi.push(bevuta("ev-1940", ora(G, "19:40"), "Kitchen", "t-cucina", "bicchiere", 250, 120, 48, false));
+  eventi.push(bevuta("ev-1940", ora(G, "19:40"), "Kitchen", "t-cucina",
+    "bicchiere", "c-bicchiere", 250, 120, 48, false));
   eventi.push({
     ...base("ev-2012", ora(G, "20:12"), null, "Kitchen", "t-cucina", "farmaco", 0.86, false),
     tipo: "farmaco",
@@ -171,8 +181,9 @@ function eventiGiornoVero(): Evento[] {
   });
   eventi.push({
     ...base("ev-2110", ora(G, "21:10"), null, "Hallway", "t-ingresso", "uscita", 0.91, false),
+    ha_foto: true,
     tipo: "uscita",
-    valori: { zona_id: "porta-ingresso" },
+    valori: { zona_id: "porta-ingresso", in_orario_vietato: true },
   });
   return eventi;
 }
@@ -426,7 +437,7 @@ function eventiSimulati(report: ReportGiornaliero): Evento[] {
   for (let i = 0; i < oreBevute.length; i++) {
     const scesoPx = (mlPerBevuta / 250) * 120;
     eventi.push(bevuta("sim-" + giorno + "-bevuta-" + i, ora(giorno, oreBevute[i]), "Kitchen", "t-cucina",
-      "bicchiere", 250, 120, scesoPx, true));
+      "bicchiere", "c-bicchiere", 250, 120, scesoPx, true));
   }
   for (let i = 0; i < report.dosi.length; i++) {
     const dose = report.dosi[i];
@@ -451,6 +462,7 @@ function eventiSimulati(report: ReportGiornaliero): Evento[] {
     eventi.push({
       ...base("sim-" + giorno + "-caduta", ora(giorno, "16:40"), ora(giorno, "16:41"), "Living room", "t-soggiorno",
         "caduta", 0.9, true),
+      ha_foto: true,
       tipo: "caduta",
       valori: { secondi_a_terra: 35 },
     });
@@ -458,8 +470,9 @@ function eventiSimulati(report: ReportGiornaliero): Evento[] {
   if (report.uscite > 0) {
     eventi.push({
       ...base("sim-" + giorno + "-uscita", ora(giorno, "21:30"), null, "Hallway", "t-ingresso", "uscita", 0.9, true),
+      ha_foto: true,
       tipo: "uscita",
-      valori: { zona_id: "porta-ingresso" },
+      valori: { zona_id: "porta-ingresso", in_orario_vietato: true },
     });
   }
   // In ordine di inizio, come risponde il backend.
@@ -478,6 +491,10 @@ function confrontaInizio(a: Evento, b: Evento): number {
 }
 
 // ---------- Le risposte finte delle chiamate /demo/* ----------
+
+export function periodoSviluppo(): PeriodoDemo {
+  return { dal: PRIMO_GIORNO, al: G };
+}
 
 export function reportGiornalieroSviluppo(giorno: string): ReportGiornaliero | null {
   if (giorno === G) {
@@ -538,13 +555,18 @@ function reportPeriodo(tipo: "settimanale" | "mensile", dal: string, al: string)
     alzate = alzate + riga.alzate_notturne;
   }
   const numeroGiorni = Math.max(1, giorni.length);
+  // Senza dosi valutate l'aderenza è null (API.md): la web app scrive "No data".
+  let aderenza: number | null = null;
+  if (previste > 0) {
+    aderenza = (prese / previste) * 100;
+  }
   return {
     tipo: tipo,
     dal: dal,
     al: al,
     giorni: giorni,
     acqua_media_ml: acqua / numeroGiorni,
-    aderenza_farmaci_percentuale: (prese / Math.max(1, previste)) * 100,
+    aderenza_farmaci_percentuale: aderenza,
     cadute: cadute,
     uscite_in_orario_vietato: usciteVietate,
     alzate_notturne_medie: alzate / numeroGiorni,

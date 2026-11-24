@@ -2,8 +2,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import type { Farmaco, Personalizzazione, ReportGiornaliero, ReportPeriodo } from "../contratti";
-import { GIORNO_DEMO, leggiPersonalizzazioneDemo, leggiReportGiornaliero, leggiReportSettimanale } from "../api";
-import { giornoLungo, numero, spostaGiorno } from "../formato";
+import { leggiPeriodoDemo, leggiPersonalizzazioneDemo, leggiReportGiornaliero, leggiReportSettimanale } from "../api";
+import { giornoLungo, percentuale, spostaGiorno } from "../formato";
 import Caricamento from "../componenti/Caricamento";
 import { orariDose } from "../descrizioni";
 import EtichettaDose from "../componenti/EtichettaDose";
@@ -77,9 +77,10 @@ function FarmaciCasaDemo() {
   useEffect(() => {
     async function carica() {
       try {
+        const giorno = (await leggiPeriodoDemo()).al;
         setPersonalizzazione(await leggiPersonalizzazioneDemo());
-        setOggi(await leggiReportGiornaliero(GIORNO_DEMO));
-        setSettimana(await leggiReportSettimanale(spostaGiorno(GIORNO_DEMO, -6)));
+        setOggi(await leggiReportGiornaliero(giorno));
+        setSettimana(await leggiReportSettimanale(spostaGiorno(giorno, -6)));
       } catch (problema) {
         setErrore(String(problema));
       }
@@ -108,7 +109,7 @@ function FarmaciCasaDemo() {
         </Scheda>
         <Scheda titolo="Last 7 days" icona="andamento">
           <p>
-            <span className="numero-grande">{numero(settimana.aderenza_farmaci_percentuale)}%</span>
+            <span className="numero-grande">{percentuale(settimana.aderenza_farmaci_percentuale)}</span>
           </p>
           <p className="testo-secondario">of planned doses were taken (on time or late).</p>
         </Scheda>

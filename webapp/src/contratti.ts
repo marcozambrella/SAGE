@@ -27,6 +27,8 @@ export interface EventoBase {
   fonti: Fonte[];
   // JPEG piccolo in base64; nelle risposte /demo/eventi è sempre null (la foto si chiede a parte).
   foto_prova: string | null;
+  // Lo mette il backend: true se l'evento ha una foto di prova (/demo/eventi/{id}/foto).
+  ha_foto: boolean;
   // True solo per lo storico simulato della casa demo (D22): va segnalato nell'interfaccia.
   simulato: boolean;
 }
@@ -37,10 +39,14 @@ export interface ValoriCaduta {
 
 export interface ValoriUscita {
   zona_id: string;
+  // Lo mette il backend con le regole degli allarmi: null finché non l'ha valutato.
+  in_orario_vietato: boolean | null;
 }
 
 export interface ValoriBevuta {
   contenitore: TipoContenitore;
+  // Il contenitore della personalizzazione, se riconosciuto: il backend ricalcola i ml con la sua capienza.
+  contenitore_id: string | null;
   capienza_ml: number;
   altezza_contenitore_px: number;
   livello_sceso_px: number;
@@ -107,7 +113,8 @@ export type Evento =
 // ---------- configurazione.py (solo la parte che vede la web app) ----------
 
 export interface FasciaOraria {
-  // Ore locali "HH:MM". Se alle < dalle la fascia passa la mezzanotte (es. 22:00 → 07:00).
+  // Ore locali "HH:MM" (00:00 - 23:59, il backend rifiuta gli orari scritti male).
+  // Se alle < dalle la fascia passa la mezzanotte (es. 22:00 → 07:00).
   dalle: string;
   alle: string;
 }
@@ -217,9 +224,18 @@ export interface ReportPeriodo {
   al: string;
   giorni: RiassuntoGiorno[];
   acqua_media_ml: number;
-  // Dosi in orario + in ritardo sulle dosi previste, da 0 a 100.
-  aderenza_farmaci_percentuale: number;
+  // Dosi in orario + in ritardo sulle dosi già valutate (le "in_attesa" non contano), da 0 a 100.
+  // null se nel periodo non c'è ancora nessuna dose valutata: la web app scrive "No data".
+  aderenza_farmaci_percentuale: number | null;
   cadute: number;
   uscite_in_orario_vietato: number;
   alzate_notturne_medie: number;
+}
+
+// ---------- API.md: GET /demo/periodo ----------
+
+// Primo e ultimo giorno (AAAA-MM-GG) con eventi nella casa demo; null se non ce ne sono.
+export interface PeriodoDemo {
+  dal: string | null;
+  al: string | null;
 }

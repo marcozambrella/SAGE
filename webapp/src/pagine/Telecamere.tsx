@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import type { Evento, Personalizzazione } from "../contratti";
-import { GIORNO_DEMO, leggiEventiDemo, leggiPersonalizzazioneDemo } from "../api";
+import { leggiEventiDemo, leggiPeriodoDemo, leggiPersonalizzazioneDemo } from "../api";
 import { giornoLungo } from "../formato";
 import Caricamento from "../componenti/Caricamento";
 import Icona from "../componenti/Icona";
@@ -61,14 +61,17 @@ export default function Telecamere({ demo, personalizzazione }: Proprieta) {
 
 function TelecamereCasaDemo() {
   const [personalizzazione, setPersonalizzazione] = useState<Personalizzazione | null>(null);
+  const [giorno, setGiorno] = useState("");
   const [eventi, setEventi] = useState<Evento[] | null>(null);
   const [errore, setErrore] = useState("");
 
   useEffect(() => {
     async function carica() {
       try {
+        const ultimo = (await leggiPeriodoDemo()).al;
+        setGiorno(ultimo);
         setPersonalizzazione(await leggiPersonalizzazioneDemo());
-        setEventi(await leggiEventiDemo(GIORNO_DEMO, GIORNO_DEMO, null));
+        setEventi(await leggiEventiDemo(ultimo, ultimo, null));
       } catch (problema) {
         setErrore(String(problema));
       }
@@ -117,7 +120,7 @@ function TelecamereCasaDemo() {
               </span>
             </div>
             <p className="testo-secondario" style={{ marginTop: 12 }}>
-              {eventiPerTelecamera[telecamera.id]} events seen on {giornoLungo(GIORNO_DEMO)}
+              {eventiPerTelecamera[telecamera.id]} events seen on {giornoLungo(giorno)}
             </p>
           </Scheda>
         ))}

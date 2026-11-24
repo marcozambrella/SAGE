@@ -2,8 +2,8 @@
 // I grafici aspettano la scelta della libreria: per ora numeri riassuntivi e riquadri segnaposto.
 import { useEffect, useState } from "react";
 import type { Personalizzazione, ReportPeriodo } from "../contratti";
-import { GIORNO_DEMO, leggiReportMensile, leggiReportSettimanale } from "../api";
-import { millilitri, numero, spostaGiorno } from "../formato";
+import { leggiPeriodoDemo, leggiReportMensile, leggiReportSettimanale } from "../api";
+import { millilitri, percentuale, spostaGiorno } from "../formato";
 import Caricamento from "../componenti/Caricamento";
 import EtichettaSimulato from "../componenti/EtichettaSimulato";
 import InAttesaTelecamere from "../componenti/InAttesaTelecamere";
@@ -44,10 +44,11 @@ function AndamentiCasaDemo() {
       setReport(null);
       setErrore("");
       try {
+        const ultimo = (await leggiPeriodoDemo()).al;
         if (mensile) {
-          setReport(await leggiReportMensile(GIORNO_DEMO.slice(0, 7)));
+          setReport(await leggiReportMensile(ultimo.slice(0, 7)));
         } else {
-          setReport(await leggiReportSettimanale(spostaGiorno(GIORNO_DEMO, -6)));
+          setReport(await leggiReportSettimanale(spostaGiorno(ultimo, -6)));
         }
       } catch (problema) {
         setErrore(String(problema));
@@ -79,7 +80,7 @@ function AndamentiCasaDemo() {
         </Scheda>
         <Scheda titolo="Medications" icona="pillola" accanto={etichetta}>
           <p>
-            <span className="numero-medio">{numero(report.aderenza_farmaci_percentuale)}%</span>{" "}
+            <span className="numero-medio">{percentuale(report.aderenza_farmaci_percentuale)}</span>{" "}
             <span className="testo-secondario">of doses taken</span>
           </p>
           <div className="segnaposto-grafico">Stacked bars: on time, late and missed doses per day</div>

@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import type { Evento, Personalizzazione, ReportGiornaliero } from "../contratti";
-import { GIORNO_DEMO, leggiEventiDemo, leggiPersonalizzazioneDemo, leggiReportGiornaliero } from "../api";
+import { leggiEventiDemo, leggiPeriodoDemo, leggiPersonalizzazioneDemo, leggiReportGiornaliero } from "../api";
 import { descriviEvento, orariDose, type Descrizione } from "../descrizioni";
 import { durata, giornoLungo, maiuscola, millilitri, oraDellaCasa } from "../formato";
 import Caricamento from "../componenti/Caricamento";
@@ -81,10 +81,12 @@ function OggiCasaDemo() {
   useEffect(() => {
     async function carica() {
       try {
+        // "Oggi" nella casa demo è l'ultimo giorno con dati (quello dei video registrati).
+        const giorno = (await leggiPeriodoDemo()).al;
         setPersonalizzazione(await leggiPersonalizzazioneDemo());
-        setReport(await leggiReportGiornaliero(GIORNO_DEMO));
-        const cadute = await leggiEventiDemo(GIORNO_DEMO, GIORNO_DEMO, "caduta");
-        const uscite = await leggiEventiDemo(GIORNO_DEMO, GIORNO_DEMO, "uscita");
+        setReport(await leggiReportGiornaliero(giorno));
+        const cadute = await leggiEventiDemo(giorno, giorno, "caduta");
+        const uscite = await leggiEventiDemo(giorno, giorno, "uscita");
         setUrgenti(cadute.concat(uscite));
       } catch (problema) {
         setErrore(String(problema));

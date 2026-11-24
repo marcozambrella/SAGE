@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import type { Evento, Personalizzazione } from "../contratti";
-import { GIORNO_DEMO, leggiEventiDemo, leggiPersonalizzazioneDemo } from "../api";
+import { leggiEventiDemo, leggiPeriodoDemo, leggiPersonalizzazioneDemo } from "../api";
 import { giornoDellaCasa, giornoLungo, oraDellaCasa, spostaGiorno } from "../formato";
 import Caricamento from "../componenti/Caricamento";
 import Campo from "../componenti/Campo";
@@ -147,10 +147,11 @@ function AllarmiCasaDemo() {
   useEffect(() => {
     async function carica() {
       try {
-        const dal = spostaGiorno(GIORNO_DEMO, -(GIORNI_DI_ALLARMI - 1));
+        const ultimo = (await leggiPeriodoDemo()).al;
+        const dal = spostaGiorno(ultimo, -(GIORNI_DI_ALLARMI - 1));
         setPersonalizzazione(await leggiPersonalizzazioneDemo());
-        const cadute = await leggiEventiDemo(dal, GIORNO_DEMO, "caduta");
-        const uscite = await leggiEventiDemo(dal, GIORNO_DEMO, "uscita");
+        const cadute = await leggiEventiDemo(dal, ultimo, "caduta");
+        const uscite = await leggiEventiDemo(dal, ultimo, "uscita");
         setUrgenti(cadute.concat(uscite));
       } catch (problema) {
         setErrore(String(problema));
