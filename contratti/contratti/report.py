@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel
 
+from contratti.eventi import QuantoMangiato
+
 # in_attesa: la finestra della dose non è ancora finita e la presa non si è vista.
 StatoDose = Literal["in_orario", "in_ritardo", "saltata", "in_attesa"]
 
@@ -23,7 +25,7 @@ class DoseFarmaco(BaseModel):
 class PastoDelGiorno(BaseModel):
     ora: AwareDatetime
     cibi: list[str]
-    percentuale_mangiata: float
+    quanto_mangiato: QuantoMangiato | None
 
 
 class ReportGiornaliero(BaseModel):
@@ -50,8 +52,9 @@ class RiassuntoGiorno(BaseModel):
     dosi_in_orario: int
     dosi_in_ritardo: int
     dosi_saltate: int
-    # None se quel giorno non si è visto nessun pasto.
-    percentuale_mangiata_media: float | None
+    pasti: int
+    # Pasti con meno di metà del piatto mangiato: il segnale che conta per la famiglia (Marco, 25/11).
+    pasti_meno_di_meta: int
     alzate_notturne: int
     cadute: int
     uscite_in_orario_vietato: int
