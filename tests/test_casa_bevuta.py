@@ -1,17 +1,18 @@
-"""Test della bevuta: formula di Marco (D9), percentuale misurata fotogramma per fotogramma, controllo in pixel del
-livello e analizzatore provvisorio su una scena sintetica."""
+"""Test della bevuta: formula di Marco (D9), controllo sui pixel del livello (percentuale nello stesso fotogramma, da
+vicino e da lontano, bottiglia, bicchiere e tazza opaca) e analizzatore provvisorio su una scena sintetica."""
 
 import datetime
 from zoneinfo import ZoneInfo
 
+import cv2
 import numpy as np
 import pytest
 
 from contratti.configurazione import Personalizzazione, TelecameraLocale
 from contratti.eventi import LETTORE_EVENTO, leggi_evento
 
-from casa.bevuta import (AnalizzatoreBevuta, contenitore_della_personalizzazione, frazione_piena,
-                         frazione_piena_dai_bordi, percentuale_scesa, valori_bevuta)
+from casa.bevuta import (AnalizzatoreBevuta, contenitore_della_personalizzazione, frazione_piena_dai_pixel,
+                         percentuale_scesa, valori_bevuta)
 from casa.percezione import Oggetto, Osservazione, Persona
 
 ROMA = ZoneInfo("Europe/Rome")
@@ -27,13 +28,6 @@ PERSONALIZZAZIONE = Personalizzazione.model_validate({
 })
 
 
-def maschera_liquido(altezza: int, larghezza: int, riga_livello: int) -> np.ndarray:
-    """Ritaglio del contenitore con il liquido dalla riga del livello fino al fondo."""
-    maschera = np.zeros((altezza, larghezza), bool)
-    maschera[riga_livello:, 2:larghezza - 2] = True
-    return maschera
-
-
 def test_esempio_di_marco():
     # scende 10 px su una bottiglia alta 100 px da 2 L → 10% → 200 ml
     valori = valori_bevuta("bottiglia", None, 2000, 100, 10)
@@ -44,37 +38,100 @@ def test_esempio_di_marco():
     assert valori.altezza_contenitore_px == 100
 
 
+def contenitore_disegnato(classe: str, frazione_piena: float, altezza_px: float, tazza: str = "liscia"):
+    """Cucina con un contenitore alto 200 px, poi rimpicciolita perché sia alto altezza_px (più lontano), con un po'
+    di sfocatura e di rumore. Bottiglia (tappo blu) e bicchiere (bordo e fondo spesso) sono trasparenti: sopra il
+    livello si vede il muro, sotto il liquido; hanno un riflesso verticale. La tazza ("cup") è opaca: liscia,
+    sfumata dalla luce o con una striscia disegnata. Ritorna l'immagine e il box del rilevatore (un po' più largo)."""
+    immagine = np.zeros((400, 600, 3), np.float32)
+    for riga in range(400):
+        immagine[riga] = (150 + riga * 0.1, 160, 170 - riga * 0.05)  # muro con una sfumatura
+    immagine[300:] = (60, 90, 120)  # tavolo
+    larghezze = {"bottle": 64, "wine glass": 90, "cup": 150}
+    x1 = 250
+    y1 = 100
+    x2 = x1 + larghezze[classe]
+    y2 = y1 + 200
+    if classe == "cup":
+        for colonna in range(x1, x2):
+            ombra = 1 - 0.5 * abs(colonna - (x1 + x2) / 2) / ((x2 - x1) / 2)  # più scura ai lati
+            immagine[y1:y2, colonna] = np.array((40, 60, 200)) * ombra
+        if tazza == "sfumata":
+            for riga in range(y1, y2):
+                immagine[riga, x1:x2] = immagine[riga, x1:x2] * (1 - 0.6 * (riga - y1) / 200)
+        if tazza == "striscia":
+            immagine[160:180, x1:x2] = 220
+        cv2.ellipse(immagine, (x2 + 15, y1 + 90), (25, 45), 0, -90, 90, (40, 60, 180), 12)  # manico
+    else:
+        riga_liquido = y2 - int(200 * frazione_piena)
+        immagine[y1:riga_liquido, x1:x2] = immagine[y1:riga_liquido, x1:x2] * 1.08 + 5
+        immagine[riga_liquido:y2, x1:x2] = immagine[riga_liquido:y2, x1:x2] * 0.85 + np.array((15, 5, -5))
+        immagine[y1:y2, x1 + 8:x1 + 14] = immagine[y1:y2, x1 + 8:x1 + 14] + 50  # riflesso
+        if classe == "bottle":
+            immagine[y1:y1 + 16, x1:x2] = immagine[y1:y1 + 16, x1 - 64:x2 - 64]  # collo: si vede il muro
+            immagine[y1:y1 + 16, x1 + 16:x2 - 16] = (200, 90, 30)              # tappo
+        else:
+            immagine[y1:y1 + 3, x1:x2] = 230                                        # bordo
+            immagine[y2 - 14:y2, x1:x2] = immagine[y2 - 14:y2, x1:x2] * 1.15 + 10  # fondo spesso
+    immagine = cv2.GaussianBlur(np.clip(immagine, 0, 255).astype(np.uint8), (5, 5), 1.2)
+    scala = altezza_px / 200
+    lontana = cv2.resize(immagine, None, fx=scala, fy=scala, interpolation=cv2.INTER_AREA)
+    rumore = np.random.default_rng(0).normal(0, 4, lontana.shape)
+    lontana = np.clip(lontana + rumore, 0, 255).astype(np.uint8)
+    box = np.array([x1 - 4, y1 - 3, x2 + 4, y2 + 3], np.float32)
+    if classe == "cup":
+        box[2] = x2 + 45  # il manico è nel box
+    return lontana, box * scala
+
+
+@pytest.mark.parametrize("classe", ["bottle", "wine glass"])
+@pytest.mark.parametrize("piena", [0.8, 0.5, 0.3])
+@pytest.mark.parametrize("altezza_px", [200, 60, 24])
+def test_livello_di_bottiglia_e_bicchiere_vicini_e_lontani(classe, piena, altezza_px):
+    immagine, box = contenitore_disegnato(classe, piena, altezza_px)
+    assert frazione_piena_dai_pixel(immagine, box, classe) == pytest.approx(piena, abs=0.03)
+
+
 def test_percentuale_in_ogni_fotogramma_anche_se_cambia_la_distanza():
-    # prima: bottiglia alta 100 px piena per l'80%; dopo è più vicina (200 px) e piena per il 70%
-    prima = frazione_piena(maschera_liquido(100, 30, 20))
-    dopo = frazione_piena(maschera_liquido(200, 60, 60))
-    assert prima == pytest.approx(0.8)
-    assert dopo == pytest.approx(0.7)
-    assert percentuale_scesa(prima, dopo) == pytest.approx(10)
-    # contenitore vuoto: livello sul fondo
-    assert frazione_piena(np.zeros((100, 30), bool)) == 0
+    # prima la bottiglia è lontana (alta 30 px) e piena all'80%; dopo è vicina (150 px) e piena al 60%
+    lontana, box_lontano = contenitore_disegnato("bottle", 0.8, 30)
+    vicina, box_vicino = contenitore_disegnato("bottle", 0.6, 150)
+    prima = frazione_piena_dai_pixel(lontana, box_lontano, "bottle")
+    dopo = frazione_piena_dai_pixel(vicina, box_vicino, "bottle")
+    assert percentuale_scesa(prima, dopo) == pytest.approx(20, abs=3)
     # livello salito (riempito): non è sceso niente
     assert percentuale_scesa(0.5, 0.9) == 0
 
 
-def immagine_con_bottiglia(riga_liquido: int) -> np.ndarray:
-    """Cucina grigia 200×200 con una bottiglia sul tavolo nel box (150, 100)-(170, 160): aria sopra, liquido sotto."""
+@pytest.mark.parametrize("tazza", ["liscia", "sfumata", "striscia"])
+@pytest.mark.parametrize("altezza_px", [200, 40])
+def test_tazza_opaca_livello_non_visibile(tazza, altezza_px):
+    immagine, box = contenitore_disegnato("cup", 0.5, altezza_px, tazza)
+    assert frazione_piena_dai_pixel(immagine, box, "cup") is None
+
+
+def test_contenitore_troppo_lontano_non_si_misura():
+    immagine, box = contenitore_disegnato("bottle", 0.5, 12)
+    assert frazione_piena_dai_pixel(immagine, box, "bottle") is None
+
+
+def immagine_con_bottiglia(riga_liquido: int, x1: int = 150) -> np.ndarray:
+    """Cucina grigia 200×200 con una bottiglia alta 60 px (righe 100-160) larga 20 px: aria sopra, liquido sotto."""
     immagine = np.full((200, 200, 3), 60, np.uint8)
-    immagine[100:160, 150:170] = 90
-    immagine[riga_liquido:160, 150:170] = 180
+    immagine[100:160, x1:x1 + 20] = 90
+    immagine[riga_liquido:160, x1:x1 + 20] = 180
     return immagine
 
 
 BOX_SUL_TAVOLO = np.array([150, 100, 170, 160], np.float32)
 
 
-def test_livello_dai_bordi():
+def test_livello_nella_scena_semplice():
     # liquido dalla riga 112: 12 righe vuote su 60 → piena per l'80%
-    assert frazione_piena_dai_bordi(immagine_con_bottiglia(112), BOX_SUL_TAVOLO) == pytest.approx(0.8)
-    assert frazione_piena_dai_bordi(immagine_con_bottiglia(124), BOX_SUL_TAVOLO) == pytest.approx(0.6)
-    # nessun bordo (es. tazza non trasparente) o contenitore troppo piccolo: non si misura
-    assert frazione_piena_dai_bordi(np.full((200, 200, 3), 60, np.uint8), BOX_SUL_TAVOLO) is None
-    assert frazione_piena_dai_bordi(immagine_con_bottiglia(112), np.array([150, 100, 155, 110])) is None
+    assert frazione_piena_dai_pixel(immagine_con_bottiglia(112), BOX_SUL_TAVOLO, "bottle") == pytest.approx(0.8)
+    assert frazione_piena_dai_pixel(immagine_con_bottiglia(124), BOX_SUL_TAVOLO, "bottle") == pytest.approx(0.6)
+    # tutta uguale: nessuna riga del liquido
+    assert frazione_piena_dai_pixel(immagine_con_bottiglia(100), BOX_SUL_TAVOLO, "bottle") is None
 
 
 def test_contenitore_della_personalizzazione():
@@ -98,27 +155,35 @@ def persona_al_tavolo(beve: bool) -> Persona:
     return Persona(1, np.array([80, 20, 160, 190], np.float32), 0.9, keypoint)
 
 
-def passo(ora: datetime.datetime, beve: bool, riga_liquido: int, classe: str = "bottle") -> Osservazione:
-    if beve:
+def passo(ora: datetime.datetime, dove: str, riga_liquido: int, classe: str = "bottle") -> Osservazione:
+    """La bottiglia è "tavolo", "bocca" o "mano" (tenuta vicino al polso sinistro, inclinata: livello sbagliato)."""
+    immagine = immagine_con_bottiglia(riga_liquido)
+    if dove == "bocca":
         bottiglia = Oggetto(classe, np.array([105, 30, 120, 90], np.float32), 0.7)
+    elif dove == "mano":
+        immagine = immagine_con_bottiglia(riga_liquido, 80)
+        bottiglia = Oggetto(classe, np.array([80, 100, 100, 160], np.float32), 0.7)
     else:
         bottiglia = Oggetto(classe, BOX_SUL_TAVOLO, 0.7)
-    persona = persona_al_tavolo(beve)
-    return Osservazione("cucina", "kitchen", ora, immagine_con_bottiglia(riga_liquido), [persona], [bottiglia])
+    persona = persona_al_tavolo(dove == "bocca")
+    return Osservazione("cucina", "kitchen", ora, immagine, [persona], [bottiglia])
 
 
 def scena_bevuta(secondi_alla_bocca: int, riga_dopo: int, classe: str = "bottle",
-                 personalizzazione: Personalizzazione = PERSONALIZZAZIONE) -> list:
-    """6 s con la bottiglia sul tavolo (piena all'80%), il sorso, poi 15 s con la bottiglia di nuovo sul tavolo."""
+                 personalizzazione: Personalizzazione = PERSONALIZZAZIONE, secondi_in_mano: int = 0) -> list:
+    """6 s con la bottiglia sul tavolo (piena all'80%), il sorso, qualche secondo in mano, poi 15 s con la bottiglia
+    di nuovo sul tavolo."""
     analizzatore = AnalizzatoreBevuta(CUCINA, personalizzazione)
     inizio = datetime.datetime(2026, 12, 1, 10, 0, tzinfo=ROMA)
     sequenza = []
     for secondo in range(6):
-        sequenza.append((False, 112))
+        sequenza.append(("tavolo", 112))
     for secondo in range(secondi_alla_bocca):
-        sequenza.append((True, 112))
+        sequenza.append(("bocca", 112))
+    for secondo in range(secondi_in_mano):
+        sequenza.append(("mano", 145))
     for secondo in range(15):
-        sequenza.append((False, riga_dopo))
+        sequenza.append(("tavolo", riga_dopo))
     eventi = []
     for indice in range(len(sequenza)):
         ora = inizio + datetime.timedelta(seconds=indice)
@@ -150,12 +215,19 @@ def test_bevuta_dalla_bottiglia():
     assert leggi_evento(LETTORE_EVENTO.dump_python(evento, mode="json")) == evento
 
 
+def test_in_mano_il_livello_non_si_misura():
+    # in mano la bottiglia sembra quasi vuota (inclinata): conta solo il livello quando è di nuovo appoggiata
+    eventi = scena_bevuta(3, 124, secondi_in_mano=8)
+    assert len(eventi) == 1
+    assert eventi[0].valori.percentuale == pytest.approx(20)
+
+
 def test_un_attimo_alla_bocca_non_e_un_sorso():
     assert scena_bevuta(1, 124) == []
 
 
-def test_livello_non_misurabile_zero_ml_e_confidenza_dimezzata():
-    # la bottiglia rimessa giù è tutta uguale (nessun bordo): bevuta vista, quantità non misurata
+def test_livello_non_visibile_zero_ml_e_confidenza_dimezzata():
+    # la bottiglia rimessa giù è tutta uguale (nessuna riga del liquido): bevuta vista, quantità non misurata
     eventi = scena_bevuta(3, 100)
     assert len(eventi) == 1
     assert eventi[0].valori.ml == 0

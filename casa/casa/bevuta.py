@@ -8,11 +8,14 @@ STESSO fotogramma; "prima" e "dopo" si confrontano in percentuale, così non con
 più vicino (Marco, 24/11). Se il contenitore è uno della personalizzazione si manda il suo contenitore_id e il
 backend ricalcola i ml con la sua capienza.
 
-Analizzatore con regole PROVVISORIE finché non arrivano i modelli allenati (contenitori e livello del liquido):
-- sorso: un contenitore del rilevatore pre-allenato (bottiglia, bicchiere, tazza) tenuto in mano vicino alla bocca
-  per almeno 1 s; sorsi vicini della stessa persona (id del tracker) sono la stessa bevuta;
-- livello: il bordo orizzontale più netto nel ritaglio del contenitore (dove finisce il liquido), mediana di
-  qualche misura prima e dopo, solo quando il contenitore non è alla bocca.
+Il contenitore viene dal rilevatore pre-allenato (COCO). Il livello si trova SOLO con un controllo sui pixel: non
+arriverà nessun modello del liquido (Marco, 24/11). Regola PROVVISORIA finché non arriva il modello del gesto:
+- sorso: un contenitore (bottiglia, bicchiere, tazza) tenuto in mano vicino alla bocca per almeno 1 s; sorsi vicini
+  della stessa persona (id del tracker) sono la stessa bevuta;
+- livello: la riga orizzontale che divide il contenitore in aria sopra e liquido sotto, mediana di qualche misura
+  prima e dopo, solo quando il contenitore è appoggiato (in mano può essere inclinato o coperto dalle dita);
+- se il livello non si vede (tazza non trasparente, contenitore troppo lontano o sempre in mano) la bevuta si manda
+  lo stesso, con 0 ml e confidenza dimezzata.
 """
 
 from dataclasses import dataclass
@@ -38,11 +41,26 @@ CAPIENZA_PREDEFINITA = {"bottiglia": 1500, "bicchiere": 250, "tazza": 300}
 FRAZIONE_SPALLE_CONTENITORE = 0.3  # bocca e mano a meno di così (× larghezza spalle) dal contenitore
 SECONDI_MINIMI_ALLA_BOCCA = 1.0
 SECONDI_FINE_SORSO = 2.0           # contenitore lontano dalla bocca da tanto: sorso finito
-SECONDI_ATTESA_DOPO = 30.0         # tempo massimo per misurare il livello dopo il sorso
+SECONDI_ATTESA_DOPO = 60.0         # tempo massimo per misurare il livello dopo il sorso (si aspetta che lo appoggi)
 MISURE_PER_LIVELLO = 5             # mediana di tante misure, prima e dopo
-SOGLIA_BORDO = 8.0                 # salto medio di grigio tra due righe per dire che il bordo del liquido si vede
-MARGINE_ALTO = 0.15                # il tappo e il bordo del contenitore non sono il liquido
+
+# Controllo sui pixel del livello. Il ritaglio si porta sempre a 100 righe (una riga = 1% dell'altezza): soglie e
+# margini valgono uguali da vicino e da lontano.
+RIGHE_NORMALIZZATE = 100
+STRISCE = 3                        # la riga del liquido deve attraversare tutta la larghezza del contenitore
+ALTEZZA_MINIMA_PX = 16             # più piccolo di così, da lontano, una riga di pixel vale più del 6%
+LARGHEZZA_MINIMA_PX = 6
+# il tappo della bottiglia e il bordo di bicchiere e tazza non sono il liquido; in basso il fondo fa un bordo suo
+MARGINE_ALTO = {"bottle": 0.12, "wine glass": 0.05, "cup": 0.05}
 MARGINE_BASSO = 0.05
+RIGHE_MINIME_PER_PARTE = 4         # aria e liquido alti almeno il 4%
+SALTO_MINIMO_COLORE = 8.0          # differenza di colore (Lab) tra aria e liquido per dire che la riga si vede
+QUOTA_SPIEGATA_MINIMA = 0.5        # "aria sopra, liquido sotto" deve spiegare almeno metà delle differenze tra righe
+RIGHE_SALTO_VICINO = 8             # righe sopra e sotto la riga del liquido per misurare il salto vicino
+RIGHE_SFOCATE = 2                  # righe vicinissime alla riga, sfocate (soprattutto da lontano): non si usano
+SALTO_VICINO_MINIMO = 0.5          # salto vicino / salto tra le due parti: poco = sfumatura, tanto = una striscia
+SALTO_VICINO_MASSIMO = 1.5
+FRAZIONE_SALTO_STRISCIA = 0.5      # in ogni striscia il salto è almeno metà di quello su tutta la larghezza
 
 
 def valori_bevuta(contenitore: str, contenitore_id: str | None, capienza_ml: float, altezza_contenitore_px: float,
@@ -62,52 +80,90 @@ def valori_bevuta(contenitore: str, contenitore_id: str | None, capienza_ml: flo
     )
 
 
-def riga_del_livello(maschera_liquido: np.ndarray) -> int:
-    """Prima riga dall'alto che contiene liquido; se non c'è liquido il livello è sul fondo del ritaglio."""
-    righe_con_liquido = np.flatnonzero(maschera_liquido.any(axis=1))
-    if len(righe_con_liquido) == 0:
-        return maschera_liquido.shape[0]
-    return int(righe_con_liquido[0])
-
-
-def frazione_piena(maschera_liquido: np.ndarray) -> float:
-    """Parte dell'altezza del contenitore piena di liquido in questo fotogramma (0-1). La maschera è il ritaglio del
-    box del contenitore (riga 0 = bordo alto, vero = liquido): servirà quando il modello darà la maschera."""
-    altezza = maschera_liquido.shape[0]
-    return (altezza - riga_del_livello(maschera_liquido)) / altezza
-
-
 def percentuale_scesa(frazione_prima: float, frazione_dopo: float) -> float:
     """Percentuale dell'altezza del contenitore di cui è sceso il liquido (0 se non è sceso)."""
     return max(0.0, (frazione_prima - frazione_dopo) * 100)
 
 
-def frazione_piena_dai_bordi(immagine: np.ndarray, box: np.ndarray) -> float | None:
-    """Controllo in pixel provvisorio: la riga del liquido è il bordo orizzontale più netto nella parte centrale del
-    contenitore. None se il contenitore è troppo piccolo o il bordo non si vede (es. tazza non trasparente)."""
+def colori_delle_righe(immagine: np.ndarray, box: np.ndarray) -> np.ndarray | None:
+    """Colore medio (Lab) di ogni riga del contenitore, in STRISCE strisce verticali della metà centrale (i lati sono
+    sfondo o bordi del vetro), portato a RIGHE_NORMALIZZATE righe. None se il contenitore è troppo piccolo."""
     altezza_immagine = immagine.shape[0]
     larghezza_immagine = immagine.shape[1]
-    x1 = max(int(box[0]), 0)
-    y1 = max(int(box[1]), 0)
-    x2 = min(int(box[2]), larghezza_immagine)
-    y2 = min(int(box[3]), altezza_immagine)
+    x1 = max(int(round(float(box[0]))), 0)
+    y1 = max(int(round(float(box[1]))), 0)
+    x2 = min(int(round(float(box[2]))), larghezza_immagine)
+    y2 = min(int(round(float(box[3]))), altezza_immagine)
     altezza = y2 - y1
     larghezza = x2 - x1
-    if altezza < 20 or larghezza < 8:
+    if altezza < ALTEZZA_MINIMA_PX or larghezza < LARGHEZZA_MINIMA_PX:
         return None
-    grigio = cv2.cvtColor(immagine[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY).astype(np.float32)
-    centrale = grigio[:, larghezza // 4:larghezza - larghezza // 4]
-    # salto di grigio tra ogni riga e quella sotto, in media sulla parte centrale
-    salti = np.abs(np.diff(centrale, axis=0)).mean(axis=1)
-    prima_riga = int(altezza * MARGINE_ALTO)
-    ultima_riga = int(altezza * (1 - MARGINE_BASSO))
-    if ultima_riga <= prima_riga:
+    centrale = immagine[y1:y2, x1 + larghezza // 4:x2 - larghezza // 4]
+    lab = cv2.cvtColor(centrale, cv2.COLOR_BGR2LAB).astype(np.float32)
+    colori = []
+    for striscia in np.array_split(lab, STRISCE, axis=1):
+        colori.append(striscia.mean(axis=1))  # (altezza, 3): colore medio di ogni riga della striscia
+    tutte = np.concatenate(colori, axis=1)
+    # da vicino si rimpicciolisce facendo la media delle righe (meno rumore), da lontano si ingrandisce
+    if altezza > RIGHE_NORMALIZZATE:
+        metodo = cv2.INTER_AREA
+    else:
+        metodo = cv2.INTER_LINEAR
+    normalizzate = cv2.resize(tutte, (tutte.shape[1], RIGHE_NORMALIZZATE), interpolation=metodo)
+    return normalizzate.reshape(RIGHE_NORMALIZZATE, STRISCE, 3)
+
+
+def differenza_di_colore(sopra: np.ndarray, sotto: np.ndarray) -> float:
+    """Distanza tra il colore medio di due gruppi di righe."""
+    return float(np.linalg.norm(sopra.mean(axis=0) - sotto.mean(axis=0)))
+
+
+def frazione_piena_dai_pixel(immagine: np.ndarray, box: np.ndarray, classe: str) -> float | None:
+    """Parte dell'altezza del contenitore piena di liquido in questo fotogramma (0-1), dai soli pixel: la riga del
+    liquido divide il contenitore in due parti di colore uniforme, aria sopra e liquido sotto. Si prova ogni riga e
+    si tiene quella che separa meglio le due parti (come la soglia di Otsu, ma sulle righe).
+    None se la riga non si vede: tazza non trasparente, contenitore troppo lontano, disegni o etichette."""
+    righe_colori = colori_delle_righe(immagine, box)
+    if righe_colori is None:
         return None
-    riga = prima_riga + int(np.argmax(salti[prima_riga:ultima_riga]))
-    if salti[riga] < SOGLIA_BORDO:
+    prima_riga = int(RIGHE_NORMALIZZATE * MARGINE_ALTO[classe])
+    ultima_riga = int(RIGHE_NORMALIZZATE * (1 - MARGINE_BASSO))
+    zona = righe_colori[prima_riga:ultima_riga]
+    centro = zona.mean(axis=1)  # colore medio di ogni riga su tutta la larghezza
+    righe = len(centro)
+    media = centro.mean(axis=0)
+    variazione_totale = float(((centro - media) ** 2).sum())
+    riga_migliore = None
+    spiegata_migliore = 0.0
+    for riga in range(RIGHE_MINIME_PER_PARTE, righe - RIGHE_MINIME_PER_PARTE + 1):
+        media_sopra = centro[:riga].mean(axis=0)
+        media_sotto = centro[riga:].mean(axis=0)
+        # quanto delle differenze tra le righe si spiega con "due parti uniformi" divise qui
+        spiegata_sopra = riga * float(((media_sopra - media) ** 2).sum())
+        spiegata_sotto = (righe - riga) * float(((media_sotto - media) ** 2).sum())
+        if spiegata_sopra + spiegata_sotto > spiegata_migliore:
+            spiegata_migliore = spiegata_sopra + spiegata_sotto
+            riga_migliore = riga
+    if riga_migliore is None:
         return None
-    # il salto è tra la riga e quella sotto: il liquido comincia alla riga dopo
-    return (altezza - (riga + 1)) / altezza
+    salto = differenza_di_colore(centro[:riga_migliore], centro[riga_migliore:])
+    if salto < SALTO_MINIMO_COLORE:
+        return None  # nessuna riga si vede (es. tazza non trasparente tutta di un colore)
+    if spiegata_migliore / variazione_totale < QUOTA_SPIEGATA_MINIMA:
+        return None  # non sono due parti uniformi (disegni, etichette, mano davanti)
+    # il salto vicino alla riga deve essere quello tra le due parti: se è molto più piccolo è una sfumatura (luce
+    # sulla tazza), se è molto più grande è una striscia
+    vicino_sopra = centro[max(riga_migliore - RIGHE_SALTO_VICINO, 0):riga_migliore - RIGHE_SFOCATE]
+    vicino_sotto = centro[riga_migliore + RIGHE_SFOCATE:riga_migliore + RIGHE_SALTO_VICINO]
+    salto_vicino = differenza_di_colore(vicino_sopra, vicino_sotto) / salto
+    if salto_vicino < SALTO_VICINO_MINIMO or salto_vicino > SALTO_VICINO_MASSIMO:
+        return None
+    for striscia in range(STRISCE):
+        salto_striscia = differenza_di_colore(zona[:riga_migliore, striscia], zona[riga_migliore:, striscia])
+        if salto_striscia < FRAZIONE_SALTO_STRISCIA * salto:
+            return None  # la riga non attraversa tutto il contenitore (riflesso, disegno)
+    riga_del_liquido = prima_riga + riga_migliore
+    return (RIGHE_NORMALIZZATE - riga_del_liquido) / RIGHE_NORMALIZZATE
 
 
 def contenitore_della_personalizzazione(personalizzazione: Personalizzazione, classe: str) -> Contenitore | None:
@@ -137,6 +193,14 @@ class Sorso:
     immagine: np.ndarray
 
 
+def in_mano(persona: Persona, contenitore: Oggetto) -> bool:
+    vicino = FRAZIONE_SPALLE_CONTENITORE * misura(persona)
+    for polso in polsi(persona):
+        if distanza_dal_box(polso, contenitore.box) <= vicino:
+            return True
+    return False
+
+
 def alla_bocca(persona: Persona, contenitore: Oggetto) -> bool:
     """Il contenitore tocca la bocca (naso) ed è tenuto in mano."""
     naso = punto(persona, NASO)
@@ -145,10 +209,7 @@ def alla_bocca(persona: Persona, contenitore: Oggetto) -> bool:
     vicino = FRAZIONE_SPALLE_CONTENITORE * misura(persona)
     if distanza_dal_box(naso, contenitore.box) > vicino:
         return False
-    for polso in polsi(persona):
-        if distanza_dal_box(polso, contenitore.box) <= vicino:
-            return True
-    return False
+    return in_mano(persona, contenitore)
 
 
 class AnalizzatoreBevuta:
@@ -164,20 +225,24 @@ class AnalizzatoreBevuta:
     def elabora(self, osservazione: Osservazione) -> list[EventoBevuta]:
         ora = osservazione.ora
         contenitori_alla_bocca = {}  # id traccia → contenitore
-        lontani = []
+        appoggiati = []
         for oggetto in osservazione.oggetti:
             if oggetto.classe not in TIPI_DA_CLASSE:
                 continue
             bevitore = None
+            tenuto = False
             for persona in osservazione.persone:
                 if alla_bocca(persona, oggetto):
                     bevitore = persona
-            if bevitore is None:
-                lontani.append(oggetto)
-            else:
+                if in_mano(persona, oggetto):
+                    tenuto = True
+            if bevitore is not None:
                 contenitori_alla_bocca[bevitore.id_traccia] = oggetto
+            elif not tenuto:
+                appoggiati.append(oggetto)
 
-        for oggetto in lontani:
+        # il livello si misura solo sui contenitori appoggiati: in mano possono essere inclinati o coperti dalle dita
+        for oggetto in appoggiati:
             self.misura_livello(osservazione.immagine, oggetto)
 
         for persona in osservazione.persone:
@@ -215,7 +280,7 @@ class AnalizzatoreBevuta:
         return eventi
 
     def misura_livello(self, immagine: np.ndarray, oggetto: Oggetto) -> None:
-        frazione = frazione_piena_dai_bordi(immagine, oggetto.box)
+        frazione = frazione_piena_dai_pixel(immagine, oggetto.box, oggetto.classe)
         if frazione is None:
             return
         nuova = MisuraLivello(frazione, float(oggetto.box[3] - oggetto.box[1]))
@@ -238,7 +303,8 @@ class AnalizzatoreBevuta:
         confidenza = sorso.confidenza
         altezza = sorso.altezza_px
         percentuale = 0.0
-        if len(sorso.prima) > 0 and len(sorso.dopo) > 0:
+        livello_visibile = len(sorso.prima) > 0 and len(sorso.dopo) > 0
+        if livello_visibile:
             frazioni_prima = []
             altezze_prima = []
             for misura_prima in sorso.prima:
@@ -250,9 +316,11 @@ class AnalizzatoreBevuta:
             percentuale = percentuale_scesa(statistics.median(frazioni_prima), statistics.median(frazioni_dopo))
             altezza = statistics.median(altezze_prima)
         else:
-            # bevuta vista ma livello non misurato (es. tazza non trasparente): 0 ml e confidenza dimezzata
+            # bevuta vista ma livello non visibile: 0 ml e confidenza dimezzata. Proposta per il contratto: un campo
+            # livello_visibile in ValoriBevuta, così la web app non lo confonde con "non ha bevuto niente"
             confidenza = confidenza / 2
-            print("telecamera " + self.telecamera_id + ": bevuta vista, livello non misurato")
+            print("telecamera " + self.telecamera_id + ": bevuta vista, livello del liquido non visibile "
+                  "(contenitore non trasparente, troppo lontano o sempre in mano)")
         contenitore = contenitore_della_personalizzazione(self.personalizzazione, sorso.classe)
         if contenitore is None:
             tipo = TIPI_DA_CLASSE[sorso.classe][0]
