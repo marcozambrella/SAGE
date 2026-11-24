@@ -187,6 +187,20 @@ def test_lotto_rifiutato_si_scartano_solo_gli_eventi_sbagliati(tmp_path, indiriz
     assert len(BackendFinto.richieste) == 4
 
 
+@pytest.mark.parametrize("codice", [401, 403, 404, 429])
+def test_altri_4xx_si_ritentano(tmp_path, indirizzo_backend, codice):
+    # token o indirizzo sbagliati non sono colpa dell'evento: resta in coda, non diventa rifiutato
+    backend = Backend(indirizzo_backend, TOKEN)
+    registro = RegistroLocale(str(tmp_path / "registro.sqlite3"))
+    registro.salva(evento("uscita", 0))
+    BackendFinto.codice_errore = codice
+    assert invia_in_sospeso(registro, backend, False) == 0
+    assert len(registro.da_inviare(False)) == 1
+    assert registro.rifiutati() == []
+    BackendFinto.codice_errore = None
+    assert invia_in_sospeso(registro, backend, False) == 1
+
+
 def test_evento_singolo_rifiutato_senza_ritentare(tmp_path, indirizzo_backend):
     backend = Backend(indirizzo_backend, TOKEN)
     registro = RegistroLocale(str(tmp_path / "registro.sqlite3"))

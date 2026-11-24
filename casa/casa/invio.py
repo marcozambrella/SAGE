@@ -2,8 +2,10 @@
 - PUT /programma-casa/personalizzazione: la Personalizzazione del file locale (senza sorgenti né zone, D21);
 - POST /programma-casa/eventi: lista di eventi → {ricevuti, nuovi}.
 Gli urgenti partono subito, gli altri a lotti ogni SECONDI_TRA_LOTTI. Se il backend non risponde (rete, tempo
-scaduto, errore 5xx) gli eventi restano nel registro locale e si rimandano al giro dopo. Se li rifiuta (errore 4xx)
-rimandarli uguali non serve: diventano "rifiutati" nel registro, con il messaggio, ed escono dalla coda.
+scaduto, errore 5xx) gli eventi restano nel registro locale e si rimandano al giro dopo. Se li rifiuta perché
+l'evento è sbagliato (400, 422) rimandarli uguali non serve: diventano "rifiutati" nel registro, con il messaggio,
+ed escono dalla coda. Gli altri 4xx (token sbagliato, indirizzo sbagliato, troppe richieste) non sono colpa
+dell'evento: si ritentano, scrivendolo nel log (Marco, 24/11).
 Il token sta nel file .env, mai nel repo.
 """
 
@@ -26,11 +28,13 @@ EVENTI_PER_RICHIESTA = 50
 SECONDI_ATTESA_RISPOSTA = 15
 # il messaggio d'errore del backend si tiene nel registro, accorciato
 LUNGHEZZA_MASSIMA_ERRORE = 1000
+# errori per cui l'evento stesso è sbagliato: inutile rimandarlo
+CODICI_EVENTO_SBAGLIATO = (400, 422)
 
 
 @dataclass
 class Risposta:
-    esito: str                      # "ok", "rifiutata" (errore 4xx) o "da_ritentare" (rete, tempo scaduto, 5xx)
+    esito: str                      # "ok", "rifiutata" (400, 422) o "da_ritentare" (rete, altri errori)
     dati: dict | list | None = None
     errore: str = ""
 
@@ -53,8 +57,10 @@ class Backend:
             messaggio = str(errore.code) + " " + testo
             messaggio = messaggio[:LUNGHEZZA_MASSIMA_ERRORE]
             print("backend: " + metodo + " " + percorso + " → " + messaggio)
-            if 400 <= errore.code < 500:
+            if errore.code in CODICI_EVENTO_SBAGLIATO:
                 return Risposta("rifiutata", None, messaggio)
+            if 400 <= errore.code < 500:
+                print("backend: errore " + str(errore.code) + " non dovuto agli eventi (token? indirizzo?): si ritenta")
             return Risposta("da_ritentare", None, messaggio)
         except (OSError, ValueError) as errore:
             # OSError: rete assente o tempo scaduto; ValueError: risposta che non è JSON
