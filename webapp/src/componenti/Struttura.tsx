@@ -36,8 +36,11 @@ type Proprieta = {
 };
 
 export default function Struttura({ demo, nomeAnziano }: Proprieta) {
-  const [foglioAperto, setFoglioAperto] = useState(false);
   const posizione = useLocation();
+  // Il foglio "More" resta aperto solo sulla pagina dove è stato aperto: se si cambia pagina (anche con il tasto
+  // "indietro" del telefono) si chiude da solo.
+  const [foglioApertoSu, setFoglioApertoSu] = useState("");
+  const foglioAperto = foglioApertoSu === posizione.pathname;
 
   let prefisso = "";
   let titoloCasa = nomeAnziano + "'s home";
@@ -122,7 +125,7 @@ export default function Struttura({ demo, nomeAnziano }: Proprieta) {
           type="button"
           className={paginaInAltre ? "voce-barra active" : "voce-barra"}
           aria-expanded={foglioAperto}
-          onClick={() => setFoglioAperto(true)}
+          onClick={() => setFoglioApertoSu(posizione.pathname)}
         >
           <Icona nome="altro" />
           More
@@ -131,7 +134,7 @@ export default function Struttura({ demo, nomeAnziano }: Proprieta) {
 
       {foglioAperto && (
         <>
-          <div className="foglio-sfondo" onClick={() => setFoglioAperto(false)} />
+          <div className="foglio-sfondo" onClick={() => setFoglioApertoSu("")} />
           <div className="foglio" role="dialog" aria-label="More pages">
             <div className="riga-spaziata">
               <h2>More</h2>
@@ -139,7 +142,7 @@ export default function Struttura({ demo, nomeAnziano }: Proprieta) {
                 type="button"
                 className="pulsante pulsante-secondario pulsante-icona"
                 aria-label="Close"
-                onClick={() => setFoglioAperto(false)}
+                onClick={() => setFoglioApertoSu("")}
               >
                 <Icona nome="chiudi" />
               </button>
@@ -150,7 +153,7 @@ export default function Struttura({ demo, nomeAnziano }: Proprieta) {
                   key={voce.percorso}
                   to={prefisso + "/" + voce.percorso}
                   className="pulsante pulsante-secondario"
-                  onClick={() => setFoglioAperto(false)}
+                  onClick={() => setFoglioApertoSu("")}
                 >
                   <Icona nome={voce.icona} />
                   {voce.titolo}
@@ -159,7 +162,7 @@ export default function Struttura({ demo, nomeAnziano }: Proprieta) {
               <NavLink
                 to="/coming-soon"
                 className="pulsante pulsante-secondario"
-                onClick={() => setFoglioAperto(false)}
+                onClick={() => setFoglioApertoSu("")}
               >
                 <Icona nome="scintilla" />
                 What's coming
