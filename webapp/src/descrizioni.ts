@@ -1,7 +1,7 @@
 // Come si racconta un evento a una famiglia: icona, titolo, dettaglio e gravità (per il colore e l'etichetta).
 import type { NomeIcona } from "./componenti/Icona";
 import type { DoseFarmaco, Evento, Personalizzazione, TipoContenitore } from "./contratti";
-import { durata, maiuscola, oraDellaCasa } from "./formato";
+import { durata, maiuscola, millilitri, oraDellaCasa } from "./formato";
 
 export type Gravita = "critico" | "attenzione" | "buono" | "neutro";
 
@@ -61,13 +61,8 @@ export function descriviEvento(evento: Evento, personalizzazione: Personalizzazi
   if (evento.tipo === "bevuta") {
     const valori = evento.valori;
     const contenitore = NOMI_CONTENITORI[valori.contenitore];
-    const dettaglio =
-      "Level dropped " +
-      Math.round(valori.percentuale) +
-      "% in a " +
-      Math.round(valori.capienza_ml) +
-      " ml " +
-      contenitore;
+    const capienza = millilitri(valori.capienza_ml);
+    const dettaglio = "Level dropped " + Math.round(valori.percentuale) + "% in a " + capienza + " " + contenitore;
     return {
       icona: "goccia",
       titolo: "Drank " + Math.round(valori.ml) + " ml",
