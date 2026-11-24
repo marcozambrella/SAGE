@@ -27,6 +27,7 @@ from contratti.eventi import TIPI_URGENTI
 
 from casa.alzata_notturna import AnalizzatoreAlzataNotturna, AnalizzatorePresenzaNotturna
 from casa.bevuta import AnalizzatoreBevuta
+from casa.caduta import AnalizzatoreCaduta
 from casa.configurazione import leggi_configurazione
 from casa.invio import SECONDI_TRA_LOTTI, Backend, invia_in_sospeso
 from casa.percezione import POSA_PREDEFINITA, RILEVATORE_PREDEFINITO, Percezione
@@ -56,6 +57,8 @@ def crea_analizzatori(telecamera: TelecameraLocale, personalizzazione: Personali
     for nome in telecamera.analizzatori:
         if nome == "uscita":
             analizzatori.append(AnalizzatoreUscita(telecamera))
+        elif nome == "caduta":
+            analizzatori.append(AnalizzatoreCaduta(telecamera))
         elif nome == "bevuta":
             analizzatori.append(AnalizzatoreBevuta(telecamera, personalizzazione))
         elif nome == "alzata_notturna":

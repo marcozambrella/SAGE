@@ -83,8 +83,8 @@ def configurazione(cartella) -> ConfigurazioneCasa:
 
 def test_dal_video_al_backend(tmp_path, indirizzo_backend):  # noqa: F811
     telecamere = prepara_telecamere(configurazione(tmp_path), 5)
-    # "caduta" non è ancora disponibile: la camera da letto ha solo l'alzata notturna
-    assert len(telecamere[0].analizzatori) == 1
+    # camera da letto: alzata notturna e caduta (le persone finte sono sempre in piedi: nessuna caduta)
+    assert len(telecamere[0].analizzatori) == 2
     assert not telecamere[0].usa_oggetti
     registro = RegistroLocale(str(tmp_path / "registro.sqlite3"))
     backend = Backend(indirizzo_backend, "token-finto")
