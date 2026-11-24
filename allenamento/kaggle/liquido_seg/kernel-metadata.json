@@ -10,7 +10,8 @@
   "machine_shape": "NvidiaTeslaT4",
   "dataset_sources": [
     "sagieppel/labpics-chemistry-labpics-medical",
-    "goktani/liquid-level-detection-dataset-yolov11"
+    "goktani/liquid-level-detection-dataset-yolov11",
+    "KAGGLE_UTENTE/sage-roboflow-liquidi"
   ],
   "kernel_sources": [],
   "competition_sources": [],

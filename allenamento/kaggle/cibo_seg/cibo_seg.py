@@ -165,11 +165,13 @@ def importa_yolo(radice: Path, prefisso: str, mappa_classi, segmentazione: bool,
                 if parte.lower() in ["valid", "val", "test", "validation"]:
                     divisione = "val"
             righe = []
+            etichette_lette = 0
             if percorso_etichetta.exists():
                 for riga in percorso_etichetta.read_text().splitlines():
                     valori = riga.split()
                     if len(valori) < 5:
                         continue
+                    etichette_lette = etichette_lette + 1
                     classe_originale = int(float(valori[0]))
                     if classe_originale >= len(nuove_classi) or nuove_classi[classe_originale] is None:
                         continue
@@ -188,6 +190,10 @@ def importa_yolo(radice: Path, prefisso: str, mappa_classi, segmentazione: bool,
                         ys = numeri[1::2]
                         box = [(min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2, max(xs) - min(xs), max(ys) - min(ys)]
                         righe.append(riga_da_box(nuove_classi[classe_originale], box, False))
+            # un'immagine con oggetti segnati ma nessuno tenuto (classe scartata o box nella segmentazione) si salta:
+            # non è un esempio negativo, es. le foto di cibo con solo box sarebbero diventate "niente cibo" (24/11)
+            if etichette_lette > 0 and not righe:
+                continue
             # anche le immagini senza oggetti delle nostre classi servono (esempi negativi)
             aggiungi_esempio(divisione, f"{prefisso}_{indice:06d}", percorso_immagine, righe, conteggio)
 
@@ -280,7 +286,8 @@ def riassumi(percorso_yaml: Path, nome: str, nomi_classi: list, segmentazione: b
 
 
 CLASSI = ["cibo"]
-PAROLE_NON_CIBO = ["plate", "tray", "bowl", "dish", "cup", "glass", "piatto", "vassoio", "ciotola", "background"]
+PAROLE_NON_CIBO = ["plate", "tray", "bowl", "dish", "cup", "glass", "compartment", "piatto", "vassoio", "ciotola",
+                   "background"]
 
 
 def classe_cibo(nome: str):

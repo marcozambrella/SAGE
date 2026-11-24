@@ -11,7 +11,8 @@
   "dataset_sources": [
     "ggrill/foodseg103",
     "dangvanthuc0209/unimib2016",
-    "awsaf49/food-recognition-2022-dataset"
+    "awsaf49/food-recognition-2022-dataset",
+    "KAGGLE_UTENTE/sage-roboflow-cibo"
   ],
   "kernel_sources": [],
   "competition_sources": [],
