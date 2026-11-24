@@ -31,6 +31,7 @@ from casa.caduta import AnalizzatoreCaduta
 from casa.configurazione import leggi_configurazione
 from casa.farmaco import AnalizzatoreFarmaco
 from casa.invio import SECONDI_TRA_LOTTI, Backend, invia_in_sospeso
+from casa.pasto import AnalizzatorePasto
 from casa.percezione import POSA_PREDEFINITA, RILEVATORE_PREDEFINITO, Percezione
 from casa.registro import RegistroLocale
 from casa.riconoscimento_farmaci import RiconoscitoreFarmaci, crea_riconoscitore
@@ -66,6 +67,8 @@ def crea_analizzatori(telecamera: TelecameraLocale, personalizzazione: Personali
             analizzatori.append(AnalizzatoreBevuta(telecamera, personalizzazione))
         elif nome == "farmaco":
             analizzatori.append(AnalizzatoreFarmaco(telecamera, riconoscitore))
+        elif nome == "pasto":
+            analizzatori.append(AnalizzatorePasto(telecamera))
         elif nome == "alzata_notturna":
             notte = personalizzazione.regole.orari_notte
             # senza zona letto la telecamera dice solo che di notte qualcuno è passato di qui
