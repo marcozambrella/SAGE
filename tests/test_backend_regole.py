@@ -115,11 +115,6 @@ def test_alzata_conta_solo_di_notte():
 
 def test_personalizzazione_controllata():
     assert errore_nella_personalizzazione(crea_personalizzazione(farmaci=[DONEPEZIL])) is None
-    farmaco_sbagliato = dict(DONEPEZIL)
-    farmaco_sbagliato["orari"] = ["8.00"]
-    assert "8.00" in errore_nella_personalizzazione(crea_personalizzazione(farmaci=[farmaco_sbagliato]))
-    notte_sbagliata = {"orari_notte": {"dalle": "25:00", "alle": "07:00"}}
-    assert "25:00" in errore_nella_personalizzazione(crea_personalizzazione(regole=notte_sbagliata))
     fuso_sbagliato = crea_personalizzazione()
     fuso_sbagliato.fuso_orario = "Europe/Atlantide"
     assert "time zone" in errore_nella_personalizzazione(fuso_sbagliato)

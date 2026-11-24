@@ -68,26 +68,12 @@ def alzata_di_notte(evento: EventoAlzataNotturna, personalizzazione: Personalizz
 
 
 def errore_nella_personalizzazione(personalizzazione: Personalizzazione) -> str | None:
-    """Nei contratti orari e fuso orario sono testo libero: qui si controlla che il backend li sappia leggere,
-    così l'errore arriva subito al programma di casa invece di rompere i report. None se va tutto bene."""
+    """Gli orari "HH:MM" li controllano già i contratti; il fuso orario è testo libero: qui si controlla che il
+    backend lo sappia leggere, così l'errore arriva subito al programma di casa invece di rompere i report."""
     try:
         ZoneInfo(personalizzazione.fuso_orario)
     except (ZoneInfoNotFoundError, ValueError):
         return "Unknown time zone: " + personalizzazione.fuso_orario
-    orari = []
-    for farmaco in personalizzazione.farmaci:
-        for orario in farmaco.orari:
-            orari.append(orario)
-    for fascia in personalizzazione.regole.orari_uscita_vietati:
-        orari.append(fascia.dalle)
-        orari.append(fascia.alle)
-    orari.append(personalizzazione.regole.orari_notte.dalle)
-    orari.append(personalizzazione.regole.orari_notte.alle)
-    for orario in orari:
-        try:
-            leggi_ora(orario)
-        except ValueError:
-            return "Invalid time, expected HH:MM: " + orario
     return None
 
 
