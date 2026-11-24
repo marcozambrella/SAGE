@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import type { Evento, Personalizzazione } from "../contratti";
-import { leggiEventiDemo, leggiPeriodoDemo, leggiPersonalizzazioneDemo } from "../api";
+import { leggiEventiDemo, leggiPeriodoDemo, leggiPersonalizzazioneDemo, messaggioErrore } from "../api";
 import { giornoLungo } from "../formato";
 import Caricamento from "../componenti/Caricamento";
 import Icona from "../componenti/Icona";
@@ -73,7 +73,7 @@ function TelecamereCasaDemo() {
         setPersonalizzazione(await leggiPersonalizzazioneDemo());
         setEventi(await leggiEventiDemo(ultimo, ultimo, null));
       } catch (problema) {
-        setErrore(String(problema));
+        setErrore(messaggioErrore(problema));
       }
     }
     carica();

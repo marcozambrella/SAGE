@@ -130,6 +130,8 @@ svg {
   display: grid;
   gap: var(--spazio-5);
   grid-template-columns: 1fr;
+  /* Ogni scheda alta quanto il suo contenuto: niente schede mezze vuote accanto a una lunga */
+  align-items: start;
 }
 
 @media (min-width: 760px) {

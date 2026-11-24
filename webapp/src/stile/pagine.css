@@ -355,8 +355,8 @@
   box-shadow: var(--ombra-incavata);
 }
 
-/* Dose: nome e stato sulla stessa riga, gli orari sotto */
-.riga-dose {
+/* Riga con un'etichetta di stato: nome e stato sulla stessa riga, i dettagli sotto (dosi, contenitori) */
+.riga-con-stato {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -364,7 +364,7 @@
   row-gap: 2px;
 }
 
-.riga-dose-testo {
+.riga-con-stato-testo {
   grid-column: 1 / -1;
 }
 

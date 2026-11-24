@@ -2,7 +2,13 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import type { Farmaco, Personalizzazione, ReportGiornaliero, ReportPeriodo } from "../contratti";
-import { leggiPeriodoDemo, leggiPersonalizzazioneDemo, leggiReportGiornaliero, leggiReportSettimanale } from "../api";
+import {
+  leggiPeriodoDemo,
+  leggiPersonalizzazioneDemo,
+  leggiReportGiornaliero,
+  leggiReportSettimanale,
+  messaggioErrore,
+} from "../api";
 import { giornoLungo, percentuale, spostaGiorno } from "../formato";
 import Caricamento from "../componenti/Caricamento";
 import { orariDose } from "../descrizioni";
@@ -105,7 +111,7 @@ function FarmaciCasaDemo() {
         setOggi(await leggiReportGiornaliero(giorno));
         setSettimana(await leggiReportSettimanale(spostaGiorno(giorno, -6)));
       } catch (problema) {
-        setErrore(String(problema));
+        setErrore(messaggioErrore(problema));
       }
     }
     carica();
@@ -122,10 +128,10 @@ function FarmaciCasaDemo() {
         <Scheda titolo={"Doses on " + giornoLungo(oggi.data)} icona="sole">
           <ul className="lista-semplice">
             {oggi.dosi.map((dose) => (
-              <li key={dose.farmaco_id + dose.orario_previsto} className="riga-dose riga-lista">
+              <li key={dose.farmaco_id + dose.orario_previsto} className="riga-con-stato riga-lista">
                 <strong>{dose.nome}</strong>
                 <EtichettaDose dose={dose} />
-                <p className="testo-secondario testo-piccolo riga-dose-testo">{orariDose(dose, personalizzazione.fuso_orario)}</p>
+                <p className="testo-secondario testo-piccolo riga-con-stato-testo">{orariDose(dose, personalizzazione.fuso_orario)}</p>
               </li>
             ))}
           </ul>

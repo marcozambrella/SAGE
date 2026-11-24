@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import type { Evento, Personalizzazione } from "../contratti";
-import { leggiEventiDemo, leggiPeriodoDemo, leggiPersonalizzazioneDemo } from "../api";
+import { leggiEventiDemo, leggiPeriodoDemo, leggiPersonalizzazioneDemo, messaggioErrore } from "../api";
 import { giornoDellaCasa, giornoLungo, oraDellaCasa, spostaGiorno } from "../formato";
 import Caricamento from "../componenti/Caricamento";
 import Campo from "../componenti/Campo";
@@ -154,7 +154,7 @@ function AllarmiCasaDemo() {
         const uscite = await leggiEventiDemo(dal, ultimo, "uscita");
         setUrgenti(cadute.concat(uscite));
       } catch (problema) {
-        setErrore(String(problema));
+        setErrore(messaggioErrore(problema));
       }
     }
     carica();

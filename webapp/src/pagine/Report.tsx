@@ -7,6 +7,7 @@ import {
   leggiReportGiornaliero,
   leggiReportMensile,
   leggiReportSettimanale,
+  messaggioErrore,
   type GiorniDemo,
 } from "../api";
 import {
@@ -69,7 +70,7 @@ function ReportCasaDemo() {
         setPeriodo(await leggiPeriodoDemo());
         setPersonalizzazione(await leggiPersonalizzazioneDemo());
       } catch (problema) {
-        setErrore(String(problema));
+        setErrore(messaggioErrore(problema));
       }
     }
     carica();
@@ -167,7 +168,7 @@ function ReportDelGiorno({ periodo, personalizzazione }: ProprietaGiorno) {
       try {
         setReport(await leggiReportGiornaliero(giorno));
       } catch (problema) {
-        setErrore(String(problema));
+        setErrore(messaggioErrore(problema));
       }
     }
     carica();
@@ -232,10 +233,10 @@ function ReportDelGiorno({ periodo, personalizzazione }: ProprietaGiorno) {
           </h3>
           <ul className="lista-semplice">
             {report.dosi.map((dose) => (
-              <li key={dose.farmaco_id + dose.orario_previsto} className="riga-dose riga-lista">
+              <li key={dose.farmaco_id + dose.orario_previsto} className="riga-con-stato riga-lista">
                 <strong>{dose.nome}</strong>
                 <EtichettaDose dose={dose} />
-                <p className="testo-secondario testo-piccolo riga-dose-testo">{orariDose(dose, fuso)}</p>
+                <p className="testo-secondario testo-piccolo riga-con-stato-testo">{orariDose(dose, fuso)}</p>
               </li>
             ))}
           </ul>
@@ -309,7 +310,7 @@ function ReportDelPeriodo({ tipo, periodo, personalizzazione }: ProprietaPeriodo
           setReport(await leggiReportMensile(mese));
         }
       } catch (problema) {
-        setErrore(String(problema));
+        setErrore(messaggioErrore(problema));
       }
     }
     carica();

@@ -18,11 +18,25 @@ export const INDIRIZZO_API = indirizzo;
 export const USA_DATI_SVILUPPO = INDIRIZZO_API === "";
 
 async function leggiJson<T>(percorso: string): Promise<T> {
-  const risposta = await fetch(INDIRIZZO_API + percorso);
+  let risposta: Response;
+  try {
+    risposta = await fetch(INDIRIZZO_API + percorso);
+  } catch {
+    // Niente rete, oppure il server gratuito si sta ancora svegliando.
+    throw new Error("The demo server can't be reached right now. Please try again in a minute.");
+  }
   if (!risposta.ok) {
-    throw new Error("The demo server answered " + risposta.status + " for " + percorso);
+    throw new Error("The demo server answered " + risposta.status + " for " + percorso + ".");
   }
   return (await risposta.json()) as T;
+}
+
+// Il testo da mostrare per un errore preso con catch (senza "Error:" davanti).
+export function messaggioErrore(problema: unknown): string {
+  if (problema instanceof Error) {
+    return problema.message;
+  }
+  return String(problema);
 }
 
 // Primo e ultimo giorno con dati nella casa demo. Today mostra l'ultimo, gli altri giorni si scorrono fino al primo.

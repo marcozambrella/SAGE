@@ -1,7 +1,13 @@
 // History: giorno per giorno, la linea del tempo degli eventi con le foto di prova.
 import { useEffect, useState } from "react";
 import type { Evento, Personalizzazione } from "../contratti";
-import { leggiEventiDemo, leggiPeriodoDemo, leggiPersonalizzazioneDemo, type GiorniDemo } from "../api";
+import {
+  leggiEventiDemo,
+  leggiPeriodoDemo,
+  leggiPersonalizzazioneDemo,
+  messaggioErrore,
+  type GiorniDemo,
+} from "../api";
 import { giornoLungo, giornoSettimana, spostaGiorno } from "../formato";
 import Caricamento from "../componenti/Caricamento";
 import InAttesaTelecamere from "../componenti/InAttesaTelecamere";
@@ -51,7 +57,7 @@ function StoricoCasaDemo() {
         setPeriodo(giorniDemo);
         setGiorno(giorniDemo.al);
       } catch (problema) {
-        setErrore(String(problema));
+        setErrore(messaggioErrore(problema));
       }
     }
     carica();
@@ -68,7 +74,7 @@ function StoricoCasaDemo() {
       try {
         setEventi(await leggiEventiDemo(giorno, giorno, null));
       } catch (problema) {
-        setErrore(String(problema));
+        setErrore(messaggioErrore(problema));
       }
     }
     carica();

@@ -2,7 +2,13 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import type { Evento, Personalizzazione, ReportGiornaliero } from "../contratti";
-import { leggiEventiDemo, leggiPeriodoDemo, leggiPersonalizzazioneDemo, leggiReportGiornaliero } from "../api";
+import {
+  leggiEventiDemo,
+  leggiPeriodoDemo,
+  leggiPersonalizzazioneDemo,
+  leggiReportGiornaliero,
+  messaggioErrore,
+} from "../api";
 import { descriviEvento, orariDose, type Descrizione } from "../descrizioni";
 import { durata, giornoLungo, maiuscola, millilitri, oraDellaCasa } from "../formato";
 import Caricamento from "../componenti/Caricamento";
@@ -89,7 +95,7 @@ function OggiCasaDemo() {
         const uscite = await leggiEventiDemo(giorno, giorno, "uscita");
         setUrgenti(cadute.concat(uscite));
       } catch (problema) {
-        setErrore(String(problema));
+        setErrore(messaggioErrore(problema));
       }
     }
     carica();
@@ -178,10 +184,10 @@ function OggiCasaDemo() {
         <Scheda titolo="Medications" icona="pillola">
           <ul className="lista-semplice">
             {report.dosi.map((dose) => (
-              <li key={dose.farmaco_id + dose.orario_previsto} className="riga-dose riga-lista">
+              <li key={dose.farmaco_id + dose.orario_previsto} className="riga-con-stato riga-lista">
                 <strong>{dose.nome}</strong>
                 <EtichettaDose dose={dose} />
-                <p className="testo-secondario testo-piccolo riga-dose-testo">{orariDose(dose, personalizzazione.fuso_orario)}</p>
+                <p className="testo-secondario testo-piccolo riga-con-stato-testo">{orariDose(dose, personalizzazione.fuso_orario)}</p>
               </li>
             ))}
           </ul>

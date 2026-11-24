@@ -1,7 +1,13 @@
 // Trends: idratazione, aderenza ai farmaci, pasti, notte, cadute nel tempo (da ReportPeriodo.giorni, API.md).
 import { useEffect, useState } from "react";
 import type { Personalizzazione, ReportPeriodo, RiassuntoGiorno } from "../contratti";
-import { leggiPeriodoDemo, leggiPersonalizzazioneDemo, leggiReportMensile, leggiReportSettimanale } from "../api";
+import {
+  leggiPeriodoDemo,
+  leggiPersonalizzazioneDemo,
+  leggiReportMensile,
+  leggiReportSettimanale,
+  messaggioErrore,
+} from "../api";
 import { giornoBreve, giornoEMese, millilitri, percentuale, quanti, spostaGiorno } from "../formato";
 import Caricamento from "../componenti/Caricamento";
 import { GraficoAcqua, GraficoDosi, GraficoNotti, GraficoPasti } from "../componenti/Grafici";
@@ -70,7 +76,7 @@ function AndamentiCasaDemo() {
           setReport(await leggiReportSettimanale(spostaGiorno(ultimo, -6)));
         }
       } catch (problema) {
-        setErrore(String(problema));
+        setErrore(messaggioErrore(problema));
       }
     }
     carica();

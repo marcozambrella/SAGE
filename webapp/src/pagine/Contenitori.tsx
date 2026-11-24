@@ -2,9 +2,9 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import type { Contenitore, Evento, Personalizzazione } from "../contratti";
-import { leggiEventiDemo, leggiPeriodoDemo, leggiPersonalizzazioneDemo } from "../api";
+import { leggiEventiDemo, leggiPeriodoDemo, leggiPersonalizzazioneDemo, messaggioErrore } from "../api";
 import { NOMI_CONTENITORI } from "../descrizioni";
-import { giornoLungo, maiuscola, millilitri } from "../formato";
+import { giornoLungo, maiuscola, millilitri, quanti } from "../formato";
 import Caricamento from "../componenti/Caricamento";
 import Icona from "../componenti/Icona";
 import InAttesaTelecamere from "../componenti/InAttesaTelecamere";
@@ -48,12 +48,12 @@ function ElencoContenitori({ contenitori }: { contenitori: Contenitore[] }) {
   return (
     <ul className="lista-semplice">
       {contenitori.map((contenitore) => (
-        <li key={contenitore.id} className="riga-spaziata riga-lista">
-          <div>
-            <strong>{contenitore.nome}</strong>
-            <p className="testo-secondario testo-piccolo">{maiuscola(NOMI_CONTENITORI[contenitore.tipo])}</p>
-          </div>
+        <li key={contenitore.id} className="riga-con-stato riga-lista">
+          <strong>{contenitore.nome}</strong>
           <span className="stato stato-neutro">{millilitri(contenitore.capienza_ml)}</span>
+          <p className="testo-secondario testo-piccolo riga-con-stato-testo">
+            {maiuscola(NOMI_CONTENITORI[contenitore.tipo])}
+          </p>
         </li>
       ))}
     </ul>
@@ -93,7 +93,7 @@ function ContenitoriCasaDemo() {
         setPersonalizzazione(await leggiPersonalizzazioneDemo());
         setBevute(await leggiEventiDemo(ultimo, ultimo, "bevuta"));
       } catch (problema) {
-        setErrore(String(problema));
+        setErrore(messaggioErrore(problema));
       }
     }
     carica();
@@ -126,17 +126,15 @@ function ContenitoriCasaDemo() {
       <Scheda titolo={"Drinks on " + giornoLungo(giorno)} icona="goccia">
         <ul className="lista-semplice">
           {personalizzazione.contenitori.map((contenitore) => (
-            <li key={contenitore.id} className="riga-spaziata riga-lista">
-              <div>
-                <strong>{contenitore.nome}</strong>
-                <p className="testo-secondario testo-piccolo">
-                  {maiuscola(NOMI_CONTENITORI[contenitore.tipo])} · holds {millilitri(contenitore.capienza_ml)}
-                </p>
-              </div>
+            <li key={contenitore.id} className="riga-con-stato riga-lista">
+              <strong>{contenitore.nome}</strong>
               <span className="stato stato-buono">
-                <Icona nome="goccia" dimensione={18} /> {millilitri(mlPerContenitore[contenitore.id])} ·{" "}
-                {voltePerContenitore[contenitore.id]}×
+                <Icona nome="goccia" dimensione={18} /> {millilitri(mlPerContenitore[contenitore.id])}
               </span>
+              <p className="testo-secondario testo-piccolo riga-con-stato-testo">
+                {maiuscola(NOMI_CONTENITORI[contenitore.tipo])} · holds {millilitri(contenitore.capienza_ml)} ·{" "}
+                {quanti(voltePerContenitore[contenitore.id], "drink", "drinks")}
+              </p>
             </li>
           ))}
         </ul>
