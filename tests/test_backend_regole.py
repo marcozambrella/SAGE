@@ -227,14 +227,16 @@ def test_dose_di_sera_presa_dopo_mezzanotte():
 
 def eventi_di_una_giornata() -> tuple[list, Personalizzazione]:
     regole = {"orari_uscita_vietati": [{"dalle": "21:00", "alle": "07:00"}]}
-    pasto = {"cibi": ["pasta", "salad"], "percentuale_mangiata": 80}
+    pasto = {"cibi": ["pasta", "salad"], "quanto_mangiato": "tutto"}
     eventi = [
         bevuta("2026-12-01T09:00:00+01:00", 200),
         bevuta("2026-12-01T13:00:00+01:00", 250.5),
         # 23:30 UTC = 00:30 del 2 dicembre a Roma: è del giorno dopo
         bevuta("2026-12-01T23:30:00+00:00", 300),
         crea_evento("pasto", "2026-12-01T12:30:00+01:00", pasto),
-        crea_evento("pasto", "2026-12-01T19:30:00+01:00", {"cibi": ["soup"], "percentuale_mangiata": 40}),
+        crea_evento("pasto", "2026-12-01T19:30:00+01:00", {"cibi": ["soup"], "quanto_mangiato": "meno_di_meta"}),
+        # piatto coperto: il pasto c'è, ma quanto ha mangiato non si sa
+        crea_evento("pasto", "2026-12-01T08:00:00+01:00", {"cibi": ["coffee"], "quanto_mangiato": None}),
         crea_evento("alzata_notturna", "2026-12-01T02:00:00+01:00", {"stanze": ["bathroom"]},
                     fine="2026-12-01T02:12:00+01:00"),
         crea_evento("alzata_notturna", "2026-12-01T04:00:00+01:00", {"stanze": ["kitchen"]},
@@ -259,8 +261,12 @@ def test_report_giornaliero():
     assert report.acqua_ml == 450.5
     assert report.bevute == 2
     assert report.obiettivo_acqua_ml == 1500
-    assert len(report.pasti) == 2
-    assert report.pasti[0].cibi == ["pasta", "salad"]
+    # in ordine di ora: colazione non misurata, pranzo tutto, cena meno di metà
+    assert len(report.pasti) == 3
+    assert report.pasti[0].quanto_mangiato is None
+    assert report.pasti[1].cibi == ["pasta", "salad"]
+    assert report.pasti[1].quanto_mangiato == "tutto"
+    assert report.pasti[2].quanto_mangiato == "meno_di_meta"
     assert report.alzate_notturne == 3
     assert report.minuti_fuori_letto_notte == 18.5
     assert report.cadute == 1
@@ -301,9 +307,11 @@ def test_report_settimanale():
     assert len(report.giorni) == 7
     assert report.giorni[0].acqua_ml == 450.5
     assert report.giorni[0].dosi_in_ritardo == 1
-    assert report.giorni[0].percentuale_mangiata_media == 60
+    assert report.giorni[0].pasti == 3
+    assert report.giorni[0].pasti_meno_di_meta == 1
     assert report.giorni[1].acqua_ml == 300
-    assert report.giorni[1].percentuale_mangiata_media is None
+    assert report.giorni[1].pasti == 0
+    assert report.giorni[1].pasti_meno_di_meta == 0
     assert report.acqua_media_ml == round(750.5 / 7, 1)
     # 1 dose presa su 7 previste
     assert report.aderenza_farmaci_percentuale == round(1 / 7 * 100, 1)

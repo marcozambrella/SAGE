@@ -60,7 +60,7 @@ def calcola_report_giornaliero(
             pasto = PastoDelGiorno(
                 ora=evento.inizio,
                 cibi=evento.valori.cibi,
-                percentuale_mangiata=evento.valori.percentuale_mangiata,
+                quanto_mangiato=evento.valori.quanto_mangiato,
             )
             pasti.append(pasto)
         elif evento.tipo == "alzata_notturna":
@@ -107,12 +107,11 @@ def riassunto_del_giorno(report: ReportGiornaliero) -> RiassuntoGiorno:
         elif dose.stato == "saltata":
             saltate = saltate + 1
 
-    percentuale_mangiata_media = None
-    if len(report.pasti) > 0:
-        totale = 0.0
-        for pasto in report.pasti:
-            totale = totale + pasto.percentuale_mangiata
-        percentuale_mangiata_media = round(totale / len(report.pasti), 1)
+    # il segnale che conta per la famiglia: i pasti lasciati quasi interi (API.md, "Quanto ha mangiato")
+    pasti_meno_di_meta = 0
+    for pasto in report.pasti:
+        if pasto.quanto_mangiato == "meno_di_meta":
+            pasti_meno_di_meta = pasti_meno_di_meta + 1
 
     return RiassuntoGiorno(
         data=report.data,
@@ -121,7 +120,8 @@ def riassunto_del_giorno(report: ReportGiornaliero) -> RiassuntoGiorno:
         dosi_in_orario=in_orario,
         dosi_in_ritardo=in_ritardo,
         dosi_saltate=saltate,
-        percentuale_mangiata_media=percentuale_mangiata_media,
+        pasti=len(report.pasti),
+        pasti_meno_di_meta=pasti_meno_di_meta,
         alzate_notturne=report.alzate_notturne,
         cadute=report.cadute,
         uscite_in_orario_vietato=report.uscite_in_orario_vietato,

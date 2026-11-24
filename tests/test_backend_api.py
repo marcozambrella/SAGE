@@ -215,7 +215,7 @@ def manda_una_giornata(client: TestClient) -> None:
         bevuta("b1", "2025-12-01T09:00:00+01:00", 200),
         bevuta("b2", "2025-12-01T15:00:00+01:00", 300),
         evento("f1", "farmaco", "2025-12-01T08:45:00+01:00", presa),
-        evento("p1", "pasto", "2025-12-01T12:30:00+01:00", {"cibi": ["pasta"], "percentuale_mangiata": 90}),
+        evento("p1", "pasto", "2025-12-01T12:30:00+01:00", {"cibi": ["pasta"], "quanto_mangiato": "meta"}),
         evento("u1", "uscita", "2025-12-01T22:00:00+01:00", {"zona_id": "porta"}),
     ]
     client.post("/programma-casa/eventi", json=eventi, headers=CON_TOKEN)
@@ -229,6 +229,7 @@ def test_report_giornaliero(client):
     assert report["dosi"][0]["stato"] == "in_ritardo"
     assert report["dosi"][0]["minuti_ritardo"] == 45
     assert report["pasti"][0]["cibi"] == ["pasta"]
+    assert report["pasti"][0]["quanto_mangiato"] == "meta"
     assert report["uscite_in_orario_vietato"] == 1
 
 
