@@ -15,7 +15,12 @@ import Contenitori from "./pagine/Contenitori";
 import Telecamere from "./pagine/Telecamere";
 import Allarmi from "./pagine/Allarmi";
 import Impostazioni from "./pagine/Impostazioni";
-import { cancellaPersonalizzazione, leggiPersonalizzazione, salvaPersonalizzazione } from "./salvataggio";
+import {
+  cancellaFotoNonUsate,
+  cancellaPersonalizzazione,
+  leggiPersonalizzazione,
+  salvaPersonalizzazione,
+} from "./salvataggio";
 
 // Le due pagine con i grafici si scaricano solo quando servono: la libreria dei grafici pesa più di tutto il resto,
 // e così la prima apertura dal telefono resta veloce. Mentre arrivano, Struttura mostra la scheda di caricamento.
@@ -28,6 +33,7 @@ export default function App() {
 
   function salva(nuova: Personalizzazione) {
     salvaPersonalizzazione(nuova);
+    cancellaFotoNonUsate(nuova);
     setPersonalizzazione(nuova);
   }
 

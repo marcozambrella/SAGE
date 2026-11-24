@@ -11,6 +11,7 @@ import Icona from "../componenti/Icona";
 import InAttesaTelecamere from "../componenti/InAttesaTelecamere";
 import Scheda from "../componenti/Scheda";
 import TitoloPagina from "../componenti/TitoloPagina";
+import { leggiFoto } from "../salvataggio";
 
 type Proprieta = {
   demo: boolean;
@@ -62,9 +63,31 @@ function PianoFarmaci({ farmaci }: { farmaci: Farmaco[] }) {
               </span>
             ))}
           </div>
+          <MiniatureFoto fotoIds={farmaco.foto_ids} nomeFarmaco={farmaco.nome} />
         </li>
       ))}
     </ul>
+  );
+}
+
+// Le foto di scatola e blister salvate nel browser (la casa demo non ne ha: lì non si vede niente).
+function MiniatureFoto({ fotoIds, nomeFarmaco }: { fotoIds: string[]; nomeFarmaco: string }) {
+  const immagini: string[] = [];
+  for (const id of fotoIds) {
+    const immagine = leggiFoto(id);
+    if (immagine !== null) {
+      immagini.push(immagine);
+    }
+  }
+  if (immagini.length === 0) {
+    return null;
+  }
+  return (
+    <div className="riga miniature" style={{ gap: 8, flexBasis: "100%" }}>
+      {immagini.map((immagine, indice) => (
+        <img key={indice} src={immagine} alt={nomeFarmaco + ", photo " + (indice + 1)} />
+      ))}
+    </div>
   );
 }
 

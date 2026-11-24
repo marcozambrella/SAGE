@@ -1,8 +1,10 @@
 // Personalizzazione della famiglia salvata solo nel browser (D29): nessun dato dell'utente va al server.
-// Qui sta solo il testo JSON della personalizzazione; per le foto dei farmaci il modo di salvarle è ancora da decidere.
+// Il testo JSON della personalizzazione sta in una chiave; ogni foto di un farmaco in una chiave sua
+// ("sage.foto.<id>"), e nella personalizzazione restano solo gli id delle foto (Farmaco.foto_ids).
 import type { Personalizzazione } from "./contratti";
 
 const CHIAVE = "sage.personalizzazione";
+const PREFISSO_FOTO = "sage.foto.";
 
 export function personalizzazioneVuota(): Personalizzazione {
   // Stessi valori predefiniti di contratti/contratti/configurazione.py.
@@ -55,6 +57,54 @@ export function cancellaPersonalizzazione() {
     localStorage.removeItem(CHIAVE);
   } catch {
     // Niente da cancellare se lo spazio locale non è disponibile.
+  }
+  cancellaFotoNonUsate(null);
+}
+
+// false se il browser non ha più spazio (o non permette di salvare).
+export function salvaFoto(id: string, immagine: string): boolean {
+  try {
+    localStorage.setItem(PREFISSO_FOTO + id, immagine);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// La foto come testo "data:image/jpeg;...", oppure null se non c'è.
+export function leggiFoto(id: string): string | null {
+  try {
+    return localStorage.getItem(PREFISSO_FOTO + id);
+  } catch {
+    return null;
+  }
+}
+
+// Le foto vengono salvate appena scelte, anche se poi la famiglia non salva la personalizzazione: qui si tolgono
+// quelle che nessun farmaco usa più. Con null si tolgono tutte.
+export function cancellaFotoNonUsate(personalizzazione: Personalizzazione | null) {
+  const usate: string[] = [];
+  if (personalizzazione !== null) {
+    for (const farmaco of personalizzazione.farmaci) {
+      for (const id of farmaco.foto_ids) {
+        usate.push(PREFISSO_FOTO + id);
+      }
+    }
+  }
+  try {
+    // Prima si raccolgono le chiavi, poi si cancellano: cancellare mentre si scorre sposterebbe gli indici.
+    const daTogliere: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const chiave = localStorage.key(i);
+      if (chiave !== null && chiave.startsWith(PREFISSO_FOTO) && !usate.includes(chiave)) {
+        daTogliere.push(chiave);
+      }
+    }
+    for (const chiave of daTogliere) {
+      localStorage.removeItem(chiave);
+    }
+  } catch {
+    // Spazio locale non disponibile: non c'è niente da pulire.
   }
 }
 

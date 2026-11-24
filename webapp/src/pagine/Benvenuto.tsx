@@ -43,6 +43,10 @@ export default function Benvenuto() {
         <Link to="/setup" className="pulsante pulsante-principale pulsante-largo">
           Set up your home <Icona nome="freccia" />
         </Link>
+        {/* Scorciatoia per chi vuole prima vedere i dati (per esempio i giudici), senza la personalizzazione */}
+        <Link to="/demo/today" className="pulsante pulsante-secondario pulsante-largo">
+          <Icona nome="casa" /> Explore the demo home
+        </Link>
         <p className="testo-secondario testo-piccolo benvenuto-nota">
           No account needed: your setup stays in this browser. This is a demo, so cameras can't be connected yet,
           but you can explore a demo home with real results.

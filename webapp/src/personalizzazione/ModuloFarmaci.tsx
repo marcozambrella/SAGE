@@ -3,6 +3,7 @@ import type { Farmaco } from "../contratti";
 import Campo from "../componenti/Campo";
 import Icona from "../componenti/Icona";
 import Pulsante from "../componenti/Pulsante";
+import FotoFarmaco from "./FotoFarmaco";
 import { nuovoId } from "../salvataggio";
 
 type Proprieta = {
@@ -131,14 +132,11 @@ export default function ModuloFarmaci({ valore, onCambia }: Proprieta) {
             aiuto="A dose taken within this window counts as on time; later it counts as late."
           />
 
-          {/* Il modo di salvare le foto (localStorage o IndexedDB) è ancora da decidere: per ora solo il riquadro. */}
-          <div className="foto-farmaco">
-            <Icona nome="foto" dimensione={28} />
-            <div>
-              <strong>Box and blister photos</strong>
-              <p className="campo-aiuto">They help SAGE recognise this medication. Photo upload arrives in the next build.</p>
-            </div>
-          </div>
+          <FotoFarmaco
+            fotoIds={farmaco.foto_ids}
+            nomeFarmaco={farmaco.nome}
+            onCambia={(fotoIds) => cambiaFarmaco(indice, { ...farmaco, foto_ids: fotoIds })}
+          />
         </div>
       ))}
 
