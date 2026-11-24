@@ -10,6 +10,10 @@ from pydantic import AwareDatetime, BaseModel, Field, TypeAdapter
 
 TipoContenitore = Literal["bicchiere", "bottiglia", "tazza"]
 
+# Quanto del piatto è stato mangiato, in tre categorie: la percentuale dal modello del piatto non è abbastanza precisa
+# per un numero (Marco, 25/11). La arrotonda il programma di casa.
+QuantoMangiato = Literal["meno_di_meta", "meta", "tutto"]
+
 # Questi tipi fanno partire subito l'allarme Telegram (D10, D16); gli altri vanno solo nel registro e nei report.
 TIPI_URGENTI = ["caduta", "uscita"]
 
@@ -88,8 +92,8 @@ class ValoriFarmaco(BaseModel):
 class ValoriPasto(BaseModel):
     # Cosa c'era nel piatto (dal modello visione+linguaggio, una foto a pasto, D14).
     cibi: list[str]
-    # Quanta parte del piatto è stata mangiata (0-100), confrontando il piatto prima e dopo.
-    percentuale_mangiata: float
+    # Confrontando il piatto prima e dopo. None se non si è potuto misurare (piatto coperto, poco cibo all'inizio).
+    quanto_mangiato: QuantoMangiato | None
 
 
 class ValoriAlzataNotturna(BaseModel):
