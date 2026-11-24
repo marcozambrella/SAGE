@@ -65,19 +65,24 @@ def carica_scheletro(percorso: Path) -> dict:
     """Per ogni fotogramma la persona più sicura (i dataset hanno una persona sola): punti (N, 17, 3), altezza del
     box (N,), presente (N,), fps."""
     dati = np.load(percorso)
+    # ogni dati["..."] rilegge l'array dal file npz: si leggono una volta sola (prima era lentissimo su Charades)
     numero_frame = int(dati["numero_frame"])
+    fps = float(dati["fps"])
+    fotogrammi = dati["frame"]
+    confidenze = dati["conf"]
+    punti_righe = dati["punti"]
+    box = dati["box"]
     punti = np.zeros((numero_frame, NUMERO_PUNTI, 3), dtype=np.float32)
     altezze = np.zeros(numero_frame, dtype=np.float32)
     migliore = np.full(numero_frame, -1.0, dtype=np.float32)
-    for riga in range(len(dati["frame"])):
-        fotogramma = int(dati["frame"][riga])
-        if fotogramma >= numero_frame or dati["conf"][riga] <= migliore[fotogramma]:
+    for riga in range(len(fotogrammi)):
+        fotogramma = int(fotogrammi[riga])
+        if fotogramma >= numero_frame or confidenze[riga] <= migliore[fotogramma]:
             continue
-        migliore[fotogramma] = dati["conf"][riga]
-        punti[fotogramma] = dati["punti"][riga]
-        altezze[fotogramma] = dati["box"][riga][3] - dati["box"][riga][1]
-    return {"punti": punti, "altezze": altezze, "presente": migliore >= 0, "fps": float(dati["fps"]),
-            "numero_frame": numero_frame}
+        migliore[fotogramma] = confidenze[riga]
+        punti[fotogramma] = punti_righe[riga]
+        altezze[fotogramma] = box[riga][3] - box[riga][1]
+    return {"punti": punti, "altezze": altezze, "presente": migliore >= 0, "fps": fps, "numero_frame": numero_frame}
 
 
 def normalizza_finestra(punti: np.ndarray, altezze: np.ndarray, presente: np.ndarray) -> np.ndarray:
