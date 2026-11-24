@@ -406,5 +406,5 @@ print("esempi per divisione e dataset:", conteggio, flush=True)
 print(f"preparazione: {time.perf_counter() - inizio_preparazione:.0f} s", flush=True)
 percorso_yaml = scrivi_yaml(CLASSI)
 # piatti visti dall'alto: qualsiasi rotazione e il capovolgimento verticale sono plausibili
-addestra_n_e_s(percorso_yaml, "-seg", "cibo", 9.0, ["flipud=0.5", "degrees=90", "scale=0.6"])
+addestra_n_e_s(percorso_yaml, "-seg", "cibo", 8.0, ["flipud=0.5", "degrees=90", "scale=0.6"])
 riassumi(percorso_yaml, "cibo", CLASSI, True)
