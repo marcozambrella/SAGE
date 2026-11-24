@@ -41,7 +41,8 @@ ESEMPI = [
     }),
     evento_esempio("farmaco", {"farmaco_id": "donepezil", "somiglianza": 0.91, "portapillole_aperto": True,
                                "mano_alla_bocca": True}),
-    evento_esempio("pasto", {"cibi": ["pasta", "salad"], "percentuale_mangiata": 70}),
+    evento_esempio("pasto", {"cibi": ["pasta", "salad"], "quanto_mangiato": "meta"}),
+    evento_esempio("pasto", {"cibi": ["soup"], "quanto_mangiato": None}),
     evento_esempio("alzata_notturna", {"stanze": ["bedroom", "bathroom"]}),
 ]
 
@@ -135,7 +136,7 @@ def test_report_si_leggono():
         "bevute": 6,
         "dosi": [{"farmaco_id": "donepezil", "nome": "Donepezil", "orario_previsto": "08:00", "stato": "in_ritardo",
                   "ora_presa": "2026-12-01T08:47:00+01:00", "minuti_ritardo": 47, "farmaco_riconosciuto": True}],
-        "pasti": [{"ora": "2026-12-01T12:30:00+01:00", "cibi": ["pasta"], "percentuale_mangiata": 80}],
+        "pasti": [{"ora": "2026-12-01T12:30:00+01:00", "cibi": ["pasta"], "quanto_mangiato": "tutto"}],
         "alzate_notturne": 2,
         "minuti_fuori_letto_notte": 18,
         "cadute": 0,
@@ -148,7 +149,7 @@ def test_report_si_leggono():
         "dal": "2026-11-30",
         "al": "2026-12-06",
         "giorni": [{"data": "2026-12-01", "acqua_ml": 1200, "dosi_previste": 2, "dosi_in_orario": 1,
-                    "dosi_in_ritardo": 1, "dosi_saltate": 0, "percentuale_mangiata_media": 80,
+                    "dosi_in_ritardo": 1, "dosi_saltate": 0, "pasti": 3, "pasti_meno_di_meta": 1,
                     "alzate_notturne": 2, "cadute": 0, "uscite_in_orario_vietato": 0}],
         "acqua_media_ml": 1200,
         "aderenza_farmaci_percentuale": 100,
@@ -157,3 +158,18 @@ def test_report_si_leggono():
         "alzate_notturne_medie": 2,
     })
     assert len(periodo.giorni) == 1
+
+
+@pytest.mark.parametrize("ora", ["25:00", "7:00", "08:60", "8"])
+def test_orario_scritto_male_rifiutato(ora):
+    with pytest.raises(ValidationError):
+        Personalizzazione.model_validate({"anziano": {"nome": "Anna"},
+                                          "farmaci": [{"id": "f", "nome": "F", "dose": "1", "orari": [ora]}]})
+
+
+def test_aderenza_senza_dosi_valutate_e_none():
+    periodo = ReportPeriodo.model_validate({
+        "tipo": "mensile", "dal": "2026-12-01", "al": "2026-12-31", "giorni": [], "acqua_media_ml": 0,
+        "aderenza_farmaci_percentuale": None, "cadute": 0, "uscite_in_orario_vietato": 0, "alzate_notturne_medie": 0,
+    })
+    assert periodo.aderenza_farmaci_percentuale is None

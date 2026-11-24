@@ -10,6 +10,10 @@ from pydantic import AwareDatetime, BaseModel, Field, TypeAdapter
 
 TipoContenitore = Literal["bicchiere", "bottiglia", "tazza"]
 
+# Quanto del piatto è stato mangiato, in tre categorie: la percentuale dal modello del piatto non è abbastanza precisa
+# per un numero (Marco, 25/11). La arrotonda il programma di casa.
+QuantoMangiato = Literal["meno_di_meta", "meta", "tutto"]
+
 # Questi tipi fanno partire subito l'allarme Telegram (D10, D16); gli altri vanno solo nel registro e nei report.
 TIPI_URGENTI = ["caduta", "uscita"]
 
@@ -37,6 +41,8 @@ class EventoBase(BaseModel):
     fonti: list[Fonte]
     # Fotogramma di prova, JPEG piccolo in base64 (allarmi Telegram e storico).
     foto_prova: str | None = None
+    # Lo mette il backend: True se l'evento ha una foto di prova (nelle liste foto_prova è sempre None).
+    ha_foto: bool = False
     # True solo per lo storico simulato della casa demo (D22): la web app lo segnala come simulato.
     simulato: bool = False
 
@@ -47,14 +53,19 @@ class ValoriCaduta(BaseModel):
 
 
 class ValoriUscita(BaseModel):
-    # La zona "porta" attraversata verso fuori. Se l'uscita è in un orario vietato lo decide il backend (D16).
+    # La zona "porta" dove la persona apre il portone ed esce (Marco, 24/11).
     zona_id: str
+    # Lo mette il backend con le regole degli allarmi (D16): None finché non l'ha valutato.
+    in_orario_vietato: bool | None = None
 
 
 class ValoriBevuta(BaseModel):
     """Calcolo dei ml dalla percentuale di altezza (D9): ml = livello_sceso_px / altezza_contenitore_px × capienza."""
 
     contenitore: TipoContenitore
+    # Il contenitore della personalizzazione, se il programma di casa l'ha riconosciuto: il backend ricalcola i ml
+    # con la sua capienza (Marco, 24/11).
+    contenitore_id: str | None = None
     capienza_ml: float
     altezza_contenitore_px: float
     livello_sceso_px: float
@@ -62,6 +73,9 @@ class ValoriBevuta(BaseModel):
     percentuale: float
     # percentuale / 100 × capienza_ml
     ml: float
+    # False se il livello non si vedeva (tazza opaca, poco contrasto): ml = 0 vuol dire "non misurato", non
+    # "non ha bevuto" (24/11).
+    livello_visibile: bool = True
 
 
 class ValoriFarmaco(BaseModel):
@@ -78,8 +92,8 @@ class ValoriFarmaco(BaseModel):
 class ValoriPasto(BaseModel):
     # Cosa c'era nel piatto (dal modello visione+linguaggio, una foto a pasto, D14).
     cibi: list[str]
-    # Quanta parte del piatto è stata mangiata (0-100), confrontando il piatto prima e dopo.
-    percentuale_mangiata: float
+    # Confrontando il piatto prima e dopo. None se non si è potuto misurare (piatto coperto, poco cibo all'inizio).
+    quanto_mangiato: QuantoMangiato | None
 
 
 class ValoriAlzataNotturna(BaseModel):
