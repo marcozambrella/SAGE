@@ -18,8 +18,10 @@ POSA_PREDEFINITA = "pesi/yolo26n-pose.pt"
 RILEVATORE_PREDEFINITO = "pesi/yolo26n.pt"
 TRACKER_PREDEFINITO = "tracktrack.yaml"  # il default di `.track` in Ultralytics 8.4, come in ARGO
 
+# cibi che il rilevatore pre-allenato (COCO) conosce: i nomi sono già in inglese come vuole la web app (D13)
+CIBI_COCO = ("banana", "apple", "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake")
 # Oggetti del rilevatore pre-allenato (COCO) che servono a bevuta, farmaco e pasto; gli altri si scartano.
-CLASSI_OGGETTI = ("bottle", "wine glass", "cup", "bowl", "dining table")
+CLASSI_OGGETTI = ("bottle", "wine glass", "cup", "bowl", "dining table") + CIBI_COCO
 
 # 0,1 come il default di `.track` (ARGO, D3): il tracker usa anche le persone poco sicure nel secondo passaggio.
 CONFIDENZA_MINIMA_PERSONE = 0.1

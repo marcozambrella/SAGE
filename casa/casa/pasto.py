@@ -20,11 +20,9 @@ from contratti.configurazione import TelecameraLocale
 from contratti.eventi import EventoPasto, Fonte, ValoriPasto
 
 from casa.aspetto_zona import AreaZona
-from casa.percezione import Osservazione, foto_prova
+from casa.percezione import CIBI_COCO, Osservazione, foto_prova
 from casa.zone import dentro_zona, zone_del_tipo
 
-# cibi che il rilevatore pre-allenato (COCO) conosce: i nomi sono già in inglese come vuole la web app (D13)
-CIBI_COCO = ("banana", "apple", "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake")
 CLASSI_PIATTO = ("bowl",) + CIBI_COCO
 SATURAZIONE_CIBO = 60              # pixel con almeno tanta saturazione (0-255) contano come cibo
 LUMINOSITA_MINIMA_CIBO = 40        # le ombre scure non sono cibo
