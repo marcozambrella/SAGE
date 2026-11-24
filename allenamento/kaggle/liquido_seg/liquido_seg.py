@@ -33,7 +33,7 @@ USCITA = Path("/kaggle/working")
 DATI = Path("/tmp/dati")
 
 
-# ===== blocco comune YOLO: uguale in liquido_seg, cibo_seg e farmaci_det =====
+# ===== blocco comune YOLO: uguale in liquido_seg, cibo_seg, farmaci_det e porta_det =====
 # Kaggle carica un solo file per kernel, quindi questo blocco è copiato in ognuno (come l'avvio comune di ARGO).
 # Le grandezze n e s si allenano insieme, n sulla GPU 0 e s sulla GPU 1: la scelta della grandezza la fa Marco con
 # i numeri (precisione sulla validazione e millisecondi su CPU, 24/11).
