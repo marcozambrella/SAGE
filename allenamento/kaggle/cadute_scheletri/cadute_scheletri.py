@@ -38,20 +38,11 @@ DATASET = {
     "ur-fall-detection-dataset": "urfall",
     "falldataset-imvia": "le2i",
 }
-# modello di posa → GPU che lo usa; si contano le GPU con nvidia-smi per non inizializzare CUDA prima del fork
-MODELLI = {"yolo26n-pose.pt": 0, "yolo26s-pose.pt": 1}
-PROCESSI_PER_GPU = 2
-elenco_gpu = subprocess.run("nvidia-smi -L", shell=True, capture_output=True, text=True).stdout
-if elenco_gpu.count("GPU ") < 2:
-    MODELLI = {"yolo26n-pose.pt": "cpu"}
-    PROCESSI_PER_GPU = 1
 ESTENSIONI_VIDEO = [".avi", ".mp4", ".mov", ".mkv"]
 ESTENSIONI_IMMAGINE = [".png", ".jpg", ".jpeg"]
 IMMAGINI_MINIME_SEQUENZA = 20
 # UR Fall è distribuito a fotogrammi png: la pagina ufficiale dice 30 fps
 FPS_SEQUENZE = 30.0
-# 0,1 come il default di Ultralytics per .track (ARGO D3): il tracker usa anche le persone poco sicure
-CONFIDENZA_MINIMA = 0.1
 
 
 def trova_dataset() -> dict:
@@ -63,23 +54,6 @@ def trova_dataset() -> dict:
         if len(percorso.relative_to(INGRESSO).parts) >= 3:
             sottocartelle.clear()
     return trovati
-
-
-def info_video(percorso: Path) -> dict:
-    comando = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
-               "stream=width,height,avg_frame_rate:format=duration", "-of", "json", str(percorso)]
-    risultato = subprocess.run(comando, capture_output=True, text=True)
-    if risultato.returncode != 0:
-        return {}
-    dati = json.loads(risultato.stdout)
-    if not dati.get("streams"):
-        return {}
-    flusso = dati["streams"][0]
-    numeratore, denominatore = flusso.get("avg_frame_rate", "0/0").split("/")
-    fps = 0.0
-    if float(denominatore) > 0:
-        fps = float(numeratore) / float(denominatore)
-    return {"larghezza": int(flusso["width"]), "altezza": int(flusso["height"]), "fps": fps}
 
 
 def elenca_sorgenti(dataset: dict) -> list:
@@ -112,6 +86,36 @@ def elenca_sorgenti(dataset: dict) -> list:
                 sorgenti.append({"dataset": nome, "relativo": relativo, "percorso": cartella, "tipo": "sequenza",
                                  "fps": FPS_SEQUENZE, "immagini": [str(immagine) for immagine in immagini]})
     return sorgenti
+
+
+# ===== blocco comune scheletri: uguale in cadute_scheletri e gesti_scheletri =====
+# Kaggle carica un solo file per kernel, quindi questo blocco è copiato in ognuno (come l'avvio comune di ARGO).
+# modello di posa → GPU che lo usa; si contano le GPU con nvidia-smi per non inizializzare CUDA prima del fork
+MODELLI = {"yolo26n-pose.pt": 0, "yolo26s-pose.pt": 1}
+PROCESSI_PER_GPU = 2
+elenco_gpu = subprocess.run("nvidia-smi -L", shell=True, capture_output=True, text=True).stdout
+if elenco_gpu.count("GPU ") < 2:
+    MODELLI = {"yolo26n-pose.pt": "cpu"}
+    PROCESSI_PER_GPU = 1
+# 0,1 come il default di Ultralytics per .track (ARGO D3): il tracker usa anche le persone poco sicure
+CONFIDENZA_MINIMA = 0.1
+
+
+def info_video(percorso: Path) -> dict:
+    comando = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+               "stream=width,height,avg_frame_rate:format=duration", "-of", "json", str(percorso)]
+    risultato = subprocess.run(comando, capture_output=True, text=True)
+    if risultato.returncode != 0:
+        return {}
+    dati = json.loads(risultato.stdout)
+    if not dati.get("streams"):
+        return {}
+    flusso = dati["streams"][0]
+    numeratore, denominatore = flusso.get("avg_frame_rate", "0/0").split("/")
+    fps = 0.0
+    if float(denominatore) > 0:
+        fps = float(numeratore) / float(denominatore)
+    return {"larghezza": int(flusso["width"]), "altezza": int(flusso["height"]), "fps": fps}
 
 
 def nuovo_tracker(modello) -> None:
@@ -152,7 +156,10 @@ def estrai_sorgente(modello, sorgente: dict, dispositivo: int, percorso_tracker:
         larghezza = sorgente["larghezza"]
         altezza = sorgente["altezza"]
         byte_per_frame = larghezza * altezza * 3
-        comando = ["ffmpeg", "-v", "error", "-i", sorgente["percorso"], "-f", "rawvideo", "-pix_fmt", "bgr24", "-"]
+        comando = ["ffmpeg", "-v", "error", "-i", sorgente["percorso"]]
+        if "fps_estrazione" in sorgente:
+            comando = comando + ["-vf", f"fps={sorgente['fps_estrazione']}"]
+        comando = comando + ["-f", "rawvideo", "-pix_fmt", "bgr24", "-"]
         processo = subprocess.Popen(comando, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         while True:
             dati = processo.stdout.read(byte_per_frame)
@@ -186,10 +193,13 @@ def salva(righe: dict, numero_frame: int, sorgente: dict, nome_modello: str) -> 
     if numero > 0:
         box = np.array(righe["box"], dtype=np.float32)
         punti = np.array(righe["punti"], dtype=np.float32)
+    fps = sorgente["fps"]
+    if "fps_estrazione" in sorgente:
+        fps = sorgente["fps_estrazione"]
     np.savez_compressed(percorso, frame=np.array(righe["frame"], dtype=np.int32),
                         traccia=np.array(righe["traccia"], dtype=np.int32), box=box,
                         conf=np.array(righe["conf"], dtype=np.float32), punti=punti,
-                        numero_frame=numero_frame, fps=sorgente["fps"], larghezza=sorgente.get("larghezza", 0),
+                        numero_frame=numero_frame, fps=fps, larghezza=sorgente.get("larghezza", 0),
                         altezza=sorgente.get("altezza", 0))
 
 
@@ -227,40 +237,43 @@ def tracker_telecamera_ferma() -> str:
     return str(percorso)
 
 
+def estrai_in_parallelo(sorgenti: list) -> None:
+    """Scrive l'elenco delle sorgenti e le divide tra i processi (per ogni modello PROCESSI_PER_GPU processi)."""
+    conteggio = {}
+    elenco = []
+    for sorgente in sorgenti:
+        chiave = sorgente["dataset"] + " " + sorgente["tipo"]
+        if chiave not in conteggio:
+            conteggio[chiave] = 0
+        conteggio[chiave] += 1
+        voce = {}
+        for campo in sorgente:
+            if campo != "immagini":
+                voce[campo] = sorgente[campo]
+        elenco.append(voce)
+    print("sorgenti:", conteggio, flush=True)
+    (USCITA / "elenco_sorgenti.json").write_text(json.dumps(elenco, indent=1))
+    percorso_tracker = tracker_telecamera_ferma()
+    # fork: il processo principale non ha toccato la GPU, ogni figlio inizializza la sua
+    contesto = multiprocessing.get_context("fork")
+    processi = []
+    for nome_modello in MODELLI:
+        for parte in range(PROCESSI_PER_GPU):
+            etichetta = f"{Path(nome_modello).stem}_parte{parte}"
+            mie_sorgenti = sorgenti[parte::PROCESSI_PER_GPU]
+            processo = contesto.Process(target=lavora, args=(nome_modello, MODELLI[nome_modello], mie_sorgenti,
+                                                             percorso_tracker, etichetta))
+            processo.start()
+            processi.append(processo)
+    for processo in processi:
+        processo.join()
+        print("processo finito con codice", processo.exitcode, flush=True)
+    fatti = len(list((USCITA / "scheletri").rglob("*.npz")))
+    print("file npz:", fatti, "attesi:", len(sorgenti) * len(MODELLI), flush=True)
+# =====
+
+
 dataset = trova_dataset()
 for nome in sorted(dataset):
     print("dataset trovato:", nome, dataset[nome], flush=True)
-sorgenti = elenca_sorgenti(dataset)
-conteggio = {}
-for sorgente in sorgenti:
-    chiave = sorgente["dataset"] + " " + sorgente["tipo"]
-    if chiave not in conteggio:
-        conteggio[chiave] = 0
-    conteggio[chiave] += 1
-print("sorgenti:", conteggio, flush=True)
-elenco = []
-for sorgente in sorgenti:
-    voce = {}
-    for chiave in sorgente:
-        if chiave != "immagini":
-            voce[chiave] = sorgente[chiave]
-    elenco.append(voce)
-(USCITA / "elenco_sorgenti.json").write_text(json.dumps(elenco, indent=1))
-percorso_tracker = tracker_telecamera_ferma()
-
-# fork: il processo principale non ha toccato la GPU, ogni figlio inizializza la sua
-contesto = multiprocessing.get_context("fork")
-processi = []
-for nome_modello in MODELLI:
-    for parte in range(PROCESSI_PER_GPU):
-        etichetta = f"{Path(nome_modello).stem}_parte{parte}"
-        mie_sorgenti = sorgenti[parte::PROCESSI_PER_GPU]
-        processo = contesto.Process(target=lavora, args=(nome_modello, MODELLI[nome_modello], mie_sorgenti,
-                                                         percorso_tracker, etichetta))
-        processo.start()
-        processi.append(processo)
-for processo in processi:
-    processo.join()
-    print("processo finito con codice", processo.exitcode, flush=True)
-fatti = len(list((USCITA / "scheletri").rglob("*.npz")))
-print("file npz:", fatti, "attesi:", len(sorgenti) * len(MODELLI), flush=True)
+estrai_in_parallelo(elenca_sorgenti(dataset))
