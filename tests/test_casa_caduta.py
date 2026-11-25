@@ -39,6 +39,8 @@ A_TERRA = persona([[40, 70], [40, 85]], [[90, 72], [90, 87]], [20, 60, 160, 95])
 CHINATA = persona([[130, 70], [130, 85]], [[95, 72], [95, 87]], [90, 40, 140, 98])
 A_META = persona([[100, 50], [120, 50]], [[80, 80], [100, 80]], [70, 30, 130, 90])
 NEL_LETTO = persona([[40, 150], [40, 165]], [[90, 152], [90, 167]], [20, 140, 160, 175])
+# a terra ma con il busto a 65° (sopra i 60° di "a terra", sotto i 70° per l'allarme confermato)
+SEMI_SDRAIATA = persona([[60, 60], [60, 75]], [[102.9, 80], [102.9, 95]], [40, 50, 160, 100])
 
 
 def scena(telecamera: TelecameraLocale, sequenza: list) -> list:
@@ -188,3 +190,20 @@ def test_conferma_solo_con_k_finestre_di_fila():
     assert scena_ibrida(tre, [IN_PIEDI] * 3 + [A_TERRA] * 3) == []
     tre = ClassificatoreFinto(True, 5, 3, finestre_di_fila=3, da_finestra=4)
     assert len(scena_ibrida(tre, [IN_PIEDI] * 3 + [A_TERRA] * 4)) == 1
+
+
+def test_con_la_conferma_serve_il_busto_a_70_gradi():
+    # il classificatore conferma ma il busto è a 65°: niente allarme finché non arriva a 70° o passano 30 s
+    assert scena_ibrida(ClassificatoreFinto(True, 5, 3), [IN_PIEDI] * 3 + [SEMI_SDRAIATA] * 10) == []
+    eventi = scena_ibrida(ClassificatoreFinto(True, 5, 3), [IN_PIEDI] * 3 + [SEMI_SDRAIATA] * 4 + [A_TERRA] * 2)
+    assert len(eventi) == 1
+    assert eventi[0].inizio == INIZIO + datetime.timedelta(seconds=3)
+    assert len(scena_ibrida(ClassificatoreFinto(True, 5, 3), [IN_PIEDI] * 3 + [SEMI_SDRAIATA] * 31)) == 1
+    # senza classificatore il busto a 65° basta, come prima
+    assert len(scena(SOGGIORNO, ripeti(IN_PIEDI, 3) + ripeti(SEMI_SDRAIATA, 5))) == 1
+
+
+def test_busto_non_visto_non_blocca_la_conferma():
+    in_piedi = persona([[0, 0], [0, 0]], [[0, 0], [0, 0]], [90, 20, 130, 180], visibile=0)
+    a_terra = persona([[0, 0], [0, 0]], [[0, 0], [0, 0]], [20, 60, 160, 95], visibile=0)
+    assert len(scena_ibrida(ClassificatoreFinto(True, 5, 3), [in_piedi] * 3 + [a_terra] * 3)) == 1

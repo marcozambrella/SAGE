@@ -6,8 +6,10 @@ tracker):
 - caduta: era in piedi meno di 3 s prima di finire a terra (chi si sdraia piano non è caduto) e resta a terra
   almeno 2 s;
 - conferma: il classificatore (un passo solo, scheletri a 5 al secondo, una finestra ogni 0,5 s per persona) ha
-  visto una caduta, per k finestre di fila, da poco prima di finire a terra in poi. Le cadute non fanno passare a 10
-  fotogrammi al secondo: una volta caduta la persona resta a terra e si vede lo stesso (Marco, 25/11).
+  visto una caduta, per k finestre di fila, da poco prima di finire a terra in poi; e, per far partire l'allarme, il
+  busto è quasi orizzontale (70°, se la posa lo vede). Le due cose contro i falsi allarmi le ha scelte l'agente di
+  allenamento sui dati pubblici (25/11). Le cadute non fanno passare a 10 fotogrammi al secondo: una volta caduta la
+  persona resta a terra e si vede lo stesso (Marco, 25/11).
 - senza conferma l'allarme parte lo stesso se resta a terra 30 s; il classificatore da solo non fa partire niente
   (Marco, 25/11). Senza pesi del classificatore basta la geometria.
 L'evento parte subito (urgente, Telegram) con secondi_a_terra None. Quando la persona si rialza si manda un secondo
@@ -39,6 +41,10 @@ SECONDI_A_TERRA = 2.0
 SECONDI_RIALZATO = 3.0             # non più a terra da tanto: si è rialzato
 SECONDI_TRACCIA_DIMENTICATA = 60.0
 SECONDI_A_TERRA_SENZA_CONFERMA = 30.0
+# con la conferma del classificatore l'allarme parte solo con il busto ad almeno 70° ("a terra" resta 60°): sul test
+# pubblico i falsi allarmi scendono da 16 a 8 all'ora con la posa n e da 20 a 8 con la s, perdendo una caduta su 39
+# con la s (agente di allenamento, 25/11, insieme alle 3 finestre di fila in principale.py)
+ANGOLO_A_TERRA_CONFERMATA = 70.0
 
 
 def rapporto_del_box(persona: Persona) -> float:
@@ -119,13 +125,17 @@ class AnalizzatoreCaduta:
         if min(stato.probabilita_recenti) >= self.classificatore.soglia:
             stato.confermata = ora
 
-    def confermata(self, stato: StatoPersona, secondi_a_terra: float) -> bool:
+    def confermata(self, stato: StatoPersona, persona: Persona, secondi_a_terra: float) -> bool:
         if self.classificatore is None or secondi_a_terra >= SECONDI_A_TERRA_SENZA_CONFERMA:
             return True
         if stato.confermata is None:
             return False
         # la caduta si vede nelle finestre da poco prima di finire a terra
-        return stato.confermata >= stato.a_terra_da - datetime.timedelta(seconds=SECONDI_CADUTA_RAPIDA)
+        if stato.confermata < stato.a_terra_da - datetime.timedelta(seconds=SECONDI_CADUTA_RAPIDA):
+            return False
+        # se la posa non vede spalle o anche il busto non blocca
+        angolo = angolo_del_busto(persona)
+        return angolo is None or angolo >= ANGOLO_A_TERRA_CONFERMATA
 
     def elabora(self, osservazione: Osservazione) -> list[EventoCaduta]:
         ora = osservazione.ora
@@ -155,7 +165,7 @@ class AnalizzatoreCaduta:
                     stato.confidenza = 0.0
                 stato.confidenza = max(stato.confidenza, persona.confidenza)
                 secondi_a_terra = (ora - stato.a_terra_da).total_seconds()
-                pronta = secondi_a_terra >= SECONDI_A_TERRA and self.confermata(stato, secondi_a_terra)
+                pronta = secondi_a_terra >= SECONDI_A_TERRA and self.confermata(stato, persona, secondi_a_terra)
                 if not stato.segnalata and pronta:
                     stato.segnalata = True
                     stato.immagine = osservazione.immagine

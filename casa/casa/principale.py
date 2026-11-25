@@ -74,11 +74,11 @@ class PesiCadute:
 
 
 # si usa quello allenato sugli scheletri della posa in uso (la posa la sceglie Marco): finestre di 2 s a 5 al secondo,
-# soglia 0,94 con una finestra sola per n e per s (agente di allenamento, 25/11: per la n meno falsi allarmi della
-# scelta scritta nel file, 2 finestre di fila a 0,6, con la F1 quasi uguale)
+# soglia 0,94 per n e per s, 3 finestre di fila (1,5 s): scelte dall'agente di allenamento facendo girare
+# AnalizzatoreCaduta sugli scheletri pubblici (25/11), insieme al busto a 70° in caduta.py
 PESI_CADUTE = {
-    "pesi/yolo26n-pose.pt": PesiCadute("pesi/cadute_n_5fps_2s.pt", 0.94, 1),
-    "pesi/yolo26s-pose.pt": PesiCadute("pesi/cadute_s_5fps_2s.pt", 0.94, 1),
+    "pesi/yolo26n-pose.pt": PesiCadute("pesi/cadute_n_5fps_2s.pt", 0.94, 3),
+    "pesi/yolo26s-pose.pt": PesiCadute("pesi/cadute_s_5fps_2s.pt", 0.94, 3),
 }
 
 
