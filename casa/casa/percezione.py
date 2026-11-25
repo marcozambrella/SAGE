@@ -14,7 +14,9 @@ import datetime
 import cv2
 import numpy as np
 
-POSA_PREDEFINITA = "pesi/yolo26n-pose.pt"
+# posa media (s), scelta di Marco (25/11): con le regole delle cadute ne prende di più (sul test pubblico 21 su 39
+# contro 15 della n, stessi falsi allarmi). La n resta per il tempo reale: --posa pesi/yolo26n-pose.pt
+POSA_PREDEFINITA = "pesi/yolo26s-pose.pt"
 RILEVATORE_PREDEFINITO = "pesi/yolo26n.pt"
 TRACKER_PREDEFINITO = "tracktrack.yaml"  # il default di `.track` in Ultralytics 8.4, come in ARGO
 

@@ -73,7 +73,7 @@ class PesiCadute:
     finestre_di_fila: int
 
 
-# si usa quello allenato sugli scheletri della posa in uso (la posa la sceglie Marco): finestre di 2 s a 5 al secondo,
+# si usa quello allenato sugli scheletri della posa in uso (di base la s, scelta di Marco): finestre di 2 s a 5 fps,
 # soglia 0,94 per n e per s, 3 finestre di fila (1,5 s): scelte dall'agente di allenamento facendo girare
 # AnalizzatoreCaduta sugli scheletri pubblici (25/11), insieme al busto a 70° in caduta.py
 PESI_CADUTE = {
@@ -93,8 +93,9 @@ class Specialisti:
     farmaci: ModelloFarmaci | None = None
 
 
-def carica_specialisti(configurazione: ConfigurazioneCasa) -> Specialisti:
-    """Carica una volta sola i modelli che servono alle telecamere della configurazione."""
+def carica_specialisti(configurazione: ConfigurazioneCasa, posa: str) -> Specialisti:
+    """Carica una volta sola i modelli che servono alle telecamere della configurazione; il classificatore delle
+    cadute è quello allenato sugli scheletri della posa usata."""
     nomi = []
     for telecamera_locale in configurazione.telecamere:
         for nome in telecamera_locale.analizzatori:
@@ -118,10 +119,12 @@ def carica_specialisti(configurazione: ConfigurazioneCasa) -> Specialisti:
         else:
             print("pesi del cibo mancanti (" + PESI_CIBO + "): quanto ha mangiato non si misura")
     if "caduta" in nomi:
-        pesi = PESI_CADUTE[POSA_PREDEFINITA]
-        if Path(pesi.percorso).exists():
+        pesi = PESI_CADUTE.get(posa)
+        if pesi is None:
+            print("nessun classificatore delle cadute per la posa " + posa + ": solo la regola geometrica")
+        elif Path(pesi.percorso).exists():
             classificatore = ClassificatoreCadute(pesi.percorso, pesi.soglia, pesi.finestre_di_fila)
-            if classificatore.posa == Path(POSA_PREDEFINITA).stem:
+            if classificatore.posa == Path(posa).stem:
                 specialisti.cadute = classificatore
             else:
                 print("classificatore delle cadute allenato su un'altra posa: solo la regola geometrica")
@@ -368,6 +371,8 @@ def main(argomenti: list | None = None) -> None:
                          help="fotogrammi letti al secondo per telecamera (se ne analizzano 5, 10 durante gli eventi)")
     lettore.add_argument("--registro", default="data/registro_casa.sqlite3", help="registro locale degli eventi")
     lettore.add_argument("--env", default=".env", help="file con INDIRIZZO_BACKEND e TOKEN_CASA")
+    lettore.add_argument("--posa", default=POSA_PREDEFINITA,
+                         help="pesi della posa: la media (s) di base, pesi/yolo26n-pose.pt per il tempo reale")
     scelte = lettore.parse_args(argomenti)
 
     configurazione = leggi_configurazione(scelte.configurazione)
@@ -381,7 +386,7 @@ def main(argomenti: list | None = None) -> None:
         backend.invia_personalizzazione(configurazione.personalizzazione)
         invia_in_sospeso(registro, backend, False)  # quelli rimasti indietro dall'ultima volta
 
-    telecamere = prepara_telecamere(configurazione, scelte.fps, carica_specialisti(configurazione))
+    telecamere = prepara_telecamere(configurazione, scelte.fps, carica_specialisti(configurazione, scelte.posa))
     serve_rilevatore = False
     for telecamera in telecamere:
         if telecamera.usa_oggetti:
@@ -389,6 +394,6 @@ def main(argomenti: list | None = None) -> None:
     percorso_rilevatore = None
     if serve_rilevatore:
         percorso_rilevatore = RILEVATORE_PREDEFINITO
-    percezione = Percezione(POSA_PREDEFINITA, percorso_rilevatore)
+    percezione = Percezione(scelte.posa, percorso_rilevatore)
     elabora(telecamere, percezione, registro, backend, ora_inizio)
     registro.chiudi()

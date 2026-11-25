@@ -1,4 +1,5 @@
-"""Classificatore delle cadute: ST-GCN allenato sugli scheletri della posa n (kernel cadute_stgcn, 25/11).
+"""Classificatore delle cadute: ST-GCN allenato sugli scheletri di una posa (kernel cadute_stgcn per la n e
+cadute_stgcn_s per la s, quella di base; 25/11).
 
 Modello, normalizzazione e costruzione delle finestre sono IDENTICI all'allenamento
 (allenamento/kaggle/cadute_stgcn/cadute_stgcn.py: StGcn, normalizza_finestra, finestre_di_un_video), perché il

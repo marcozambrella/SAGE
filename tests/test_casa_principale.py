@@ -3,6 +3,7 @@ backend finto. La percezione è finta (persone scritte a mano) così il test non
 
 import datetime
 import json
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import cv2
@@ -13,8 +14,9 @@ from contratti.configurazione import ConfigurazioneCasa
 from contratti.eventi import leggi_evento
 
 from casa.invio import Backend
-from casa.percezione import Osservazione, Persona
-from casa.principale import Specialisti, elabora, leggi_backend, ora_di_inizio, prepara_telecamere
+from casa.percezione import POSA_PREDEFINITA, Osservazione, Persona
+from casa.principale import (PESI_CADUTE, Specialisti, carica_specialisti, elabora, leggi_backend, ora_di_inizio,
+                             prepara_telecamere)
 from casa.registro import RegistroLocale
 from test_casa_invio import BackendFinto, indirizzo_backend  # noqa: F401 (fixture del backend finto)
 from test_casa_sorgenti import scrivi_video
@@ -162,3 +164,23 @@ def test_ore_dei_fotogrammi_seguono_il_video(tmp_path, fps):
         assert len(secondi) == 80
     else:
         assert len(secondi) == 200
+
+
+POSA_N = "pesi/yolo26n-pose.pt"
+
+
+@pytest.mark.skipif(not Path(PESI_CADUTE[POSA_PREDEFINITA].percorso).exists()
+                    or not Path(PESI_CADUTE[POSA_N].percorso).exists(),
+                    reason="pesi delle cadute non presenti (fuori dal repo)")
+def test_classificatore_delle_cadute_della_posa_scelta():
+    solo_cadute = ConfigurazioneCasa.model_validate({
+        "telecamere": [{"id": "soggiorno", "nome": "Living room", "stanza": "living room", "sorgente": "x.mp4",
+                        "analizzatori": ["caduta"]}],
+        "personalizzazione": {"anziano": {"nome": "Anna"}},
+        "cartella_foto_farmaci": "data/foto_farmaci",
+    })
+    # di base la posa media (s), scelta di Marco; la n si sceglie con --posa
+    assert POSA_PREDEFINITA == "pesi/yolo26s-pose.pt"
+    assert carica_specialisti(solo_cadute, POSA_PREDEFINITA).cadute.posa == "yolo26s-pose"
+    assert carica_specialisti(solo_cadute, POSA_N).cadute.posa == "yolo26n-pose"
+    assert carica_specialisti(solo_cadute, "pesi/altra-posa.pt").cadute is None
