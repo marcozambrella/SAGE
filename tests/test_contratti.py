@@ -45,6 +45,9 @@ ESEMPI = [
     evento_esempio("pasto", {"cibi": ["soup"], "quanto_mangiato": None}),
     evento_esempio("alzata_notturna", {"stanze": ["bedroom", "bathroom"]}),
     evento_esempio("sonno", {"zona_id": "letto-camera"}),
+    evento_esempio("agitazione", {"inversioni": 14}),
+    evento_esempio("inattivita", {"ultima_telecamera_id": "cucina"}),
+    evento_esempio("visita_bagno", {"zona_id": "porta-bagno"}),
 ]
 
 
@@ -59,7 +62,7 @@ def test_ogni_tipo_si_legge_e_si_riscrive_uguale(dati):
 
 
 def test_tipi_urgenti():
-    assert TIPI_URGENTI == ["caduta", "uscita"]
+    assert TIPI_URGENTI == ["caduta", "uscita", "inattivita"]
 
 
 def test_valori_del_tipo_sbagliato_rifiutati():
