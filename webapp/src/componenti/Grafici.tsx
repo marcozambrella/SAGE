@@ -192,58 +192,6 @@ export function GraficoDosi({ giorni }: { giorni: RiassuntoGiorno[] }) {
   );
 }
 
-// Pasti di ogni giorno, uno sopra l'altro: quelli con almeno metà del piatto mangiato (grigio, il caso normale) e
-// quelli con meno di metà (il segnale che conta). Niente percentuali: il modello del piatto non è così preciso.
-function pastiAlmenoMeta(riga: RiassuntoGiorno): number {
-  return riga.pasti - riga.pasti_meno_di_meta;
-}
-
-export function GraficoPasti({ giorni }: { giorni: RiassuntoGiorno[] }) {
-  return (
-    <figure className="grafico" aria-label="Meals each day: half or more eaten, and less than half eaten">
-      <ResponsiveContainer width="100%" height={ALTEZZA}>
-        <BarChart data={giorni} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
-          <CartesianGrid vertical={false} stroke={GRIGLIA} />
-          <XAxis
-            dataKey="data"
-            tickFormatter={formatoAsse(giorni)}
-            tick={TESTO_ASSI}
-            tickLine={false}
-            axisLine={false}
-            interval="preserveStartEnd"
-            minTickGap={10}
-          />
-          <YAxis allowDecimals={false} tick={TESTO_ASSI} tickLine={false} axisLine={false} width={48} />
-          <Tooltip cursor={CURSORE_BARRE} contentStyle={STILE_SUGGERIMENTO} labelFormatter={titoloSuggerimento} />
-          <Legend iconType="circle" formatter={testoLegenda} />
-          <Bar
-            dataKey={pastiAlmenoMeta}
-            name="Half or more"
-            stackId="pasti"
-            fill={DOSE_IN_ORARIO}
-            stroke={SUPERFICIE}
-            strokeWidth={2}
-            radius={[4, 4, 0, 0]}
-            maxBarSize={24}
-            isAnimationActive={false}
-          />
-          <Bar
-            dataKey="pasti_meno_di_meta"
-            name="Less than half"
-            stackId="pasti"
-            fill={ACCENTO}
-            stroke={SUPERFICIE}
-            strokeWidth={2}
-            radius={[4, 4, 0, 0]}
-            maxBarSize={24}
-            isAnimationActive={false}
-          />
-        </BarChart>
-      </ResponsiveContainer>
-    </figure>
-  );
-}
-
 // Quante volte si è alzato dal letto ogni notte.
 export function GraficoNotti({ giorni }: { giorni: RiassuntoGiorno[] }) {
   return (

@@ -4,6 +4,7 @@ import type { Evento, Personalizzazione } from "../contratti";
 import { descriviEvento } from "../descrizioni";
 import { oraDellaCasa } from "../formato";
 import { indirizzoFotoEvento } from "../api";
+import EtichettaPasto from "./EtichettaPasto";
 import EtichettaSimulato from "./EtichettaSimulato";
 import Icona from "./Icona";
 
@@ -31,7 +32,8 @@ export default function RigaEvento({ evento, personalizzazione }: Proprieta) {
           {evento.simulato && <EtichettaSimulato />}
         </div>
         <strong>{descrizione.titolo}</strong>
-        <p className="testo-secondario testo-piccolo">{descrizione.dettaglio}</p>
+        {evento.tipo === "pasto" && <EtichettaPasto quanto={evento.valori.quanto_mangiato} />}
+        {evento.tipo !== "pasto" && <p className="testo-secondario testo-piccolo">{descrizione.dettaglio}</p>}
         <p className="testo-secondario testo-piccolo">
           {evento.stanza} · {Math.round(evento.confidenza * 100)}% confidence
         </p>

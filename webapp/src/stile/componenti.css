@@ -425,3 +425,130 @@
 .tabella tbody tr + tr td {
   border-top: 1px solid var(--latte-scuro);
 }
+
+/* ---------- Barra del pasto (Marco, 25/11): completamento e colore secondo la categoria ---------- */
+/* Arancione meno di metà, giallo metà, verde tutto. Il giallo sul binario chiaro non arriva a 3:1: per questo
+   la categoria si legge anche dal riempimento (un terzo, metà, pieno) e dalle parole accanto. */
+.pasto-poco {
+  background: linear-gradient(180deg, #ec8c52, #d9621f);
+}
+
+.pasto-meta {
+  background: linear-gradient(180deg, #f3c85c, #e3a91f);
+  box-shadow: inset 0 0 0 1px rgba(122, 79, 0, 0.25);
+}
+
+.pasto-tutto {
+  background: linear-gradient(180deg, #6fb27b, #3f8a4e);
+}
+
+.barra-pasto {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 96px;
+  height: 16px;
+  padding: 3px;
+  border-radius: var(--raggio-pillola);
+  background: var(--neutro-fondo);
+  box-shadow:
+    inset 2px 3px 6px rgba(var(--ombra), 0.16),
+    inset -2px -2px 6px rgba(255, 255, 255, 0.8);
+}
+
+.barra-pasto-pieno {
+  display: block;
+  height: 100%;
+  border-radius: var(--raggio-pillola);
+}
+
+/* Non misurato: binario vuoto e tratteggiato, come l'etichetta "Simulated" */
+.barra-pasto-non-misurato {
+  background: transparent;
+  border: 2px dashed #a3978d;
+  box-shadow: none;
+}
+
+/* 10 px: tre barre e i loro spazi stanno in un settimo della scheda anche sul telefono */
+.barra-pasto-verticale {
+  flex-direction: column;
+  justify-content: flex-end;
+  width: 10px;
+  height: 100%;
+  padding: 2px;
+}
+
+.barra-pasto-verticale .barra-pasto-pieno {
+  width: 100%;
+  height: auto;
+}
+
+/* Se lo spazio non basta, le parole vanno sotto la barra tutte intere invece di spezzarsi */
+.pasto-quanto {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spazio-1) var(--spazio-3);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* Grafico dei pasti: un riquadro per giorno con una barra in piedi per pasto, 7 giorni per riga */
+.grafico-pasti {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--spazio-4) var(--spazio-2);
+}
+
+.pasti-giorno {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.pasti-barre {
+  display: flex;
+  justify-content: center;
+  gap: 3px;
+  height: 120px;
+}
+
+.grafico-pasti-mese .pasti-barre {
+  height: 56px;
+}
+
+.pasti-data {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 13px;
+  line-height: 1.2;
+  color: var(--testo-secondario);
+}
+
+.pasti-data strong {
+  color: var(--testo);
+}
+
+.legenda-pasti {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 16px;
+  margin-top: var(--spazio-4);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.legenda-segno {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 4px;
+  border-radius: 50%;
+  vertical-align: -1px;
+}
+
+.legenda-non-misurato {
+  border: 2px dashed #a3978d;
+}

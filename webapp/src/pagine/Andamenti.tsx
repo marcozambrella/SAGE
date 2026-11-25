@@ -1,16 +1,18 @@
 // Trends: idratazione, aderenza ai farmaci, pasti, notte, cadute nel tempo (da ReportPeriodo.giorni, API.md).
 import { useEffect, useState } from "react";
-import type { Personalizzazione, ReportPeriodo, RiassuntoGiorno } from "../contratti";
+import type { Evento, Personalizzazione, ReportPeriodo, RiassuntoGiorno } from "../contratti";
 import {
+  leggiEventiDemo,
   leggiPeriodoDemo,
   leggiPersonalizzazioneDemo,
   leggiReportMensile,
   leggiReportSettimanale,
   messaggioErrore,
 } from "../api";
-import { giornoBreve, giornoEMese, millilitri, percentuale, quanti, spostaGiorno } from "../formato";
+import { giornoBreve, giornoDellaCasa, giornoEMese, millilitri, percentuale, quanti, spostaGiorno } from "../formato";
 import Caricamento from "../componenti/Caricamento";
-import { GraficoAcqua, GraficoDosi, GraficoNotti, GraficoPasti } from "../componenti/Grafici";
+import { GraficoAcqua, GraficoDosi, GraficoNotti } from "../componenti/Grafici";
+import GraficoPasti, { type PastiDelGiorno } from "../componenti/GraficoPasti";
 import Icona from "../componenti/Icona";
 import InAttesaTelecamere from "../componenti/InAttesaTelecamere";
 import Scheda from "../componenti/Scheda";
@@ -52,24 +54,45 @@ function contaPasti(giorni: RiassuntoGiorno[]): { pasti: number; menoDiMeta: num
   return { pasti: pasti, menoDiMeta: menoDiMeta };
 }
 
+// Per il grafico dei pasti serve quanto ha mangiato a ogni pasto: il riassunto del giorno ha solo i conti,
+// perciò si prendono gli eventi "pasto" del periodo e si mettono sotto il loro giorno (nel fuso della casa).
+function pastiPerGiorno(giorni: RiassuntoGiorno[], eventiPasti: Evento[], fusoOrario: string): PastiDelGiorno[] {
+  const risultato: PastiDelGiorno[] = [];
+  for (const riga of giorni) {
+    const pastiDelGiorno: PastiDelGiorno = { data: riga.data, pasti: [] };
+    for (const evento of eventiPasti) {
+      if (evento.tipo === "pasto" && giornoDellaCasa(evento.inizio, fusoOrario) === riga.data) {
+        pastiDelGiorno.pasti.push(evento.valori.quanto_mangiato);
+      }
+    }
+    risultato.push(pastiDelGiorno);
+  }
+  return risultato;
+}
+
 function AndamentiCasaDemo() {
   const [mensile, setMensile] = useState(false);
   const [personalizzazione, setPersonalizzazione] = useState<Personalizzazione | null>(null);
   const [report, setReport] = useState<ReportPeriodo | null>(null);
+  const [eventiPasti, setEventiPasti] = useState<Evento[] | null>(null);
   const [errore, setErrore] = useState("");
 
   useEffect(() => {
     async function carica() {
       setReport(null);
+      setEventiPasti(null);
       setErrore("");
       try {
         const ultimo = (await leggiPeriodoDemo()).al;
         setPersonalizzazione(await leggiPersonalizzazioneDemo());
+        let nuovoReport: ReportPeriodo;
         if (mensile) {
-          setReport(await leggiReportMensile(ultimo.slice(0, 7)));
+          nuovoReport = await leggiReportMensile(ultimo.slice(0, 7));
         } else {
-          setReport(await leggiReportSettimanale(spostaGiorno(ultimo, -6)));
+          nuovoReport = await leggiReportSettimanale(spostaGiorno(ultimo, -6));
         }
+        setEventiPasti(await leggiEventiDemo(nuovoReport.dal, nuovoReport.al, "pasto"));
+        setReport(nuovoReport);
       } catch (problema) {
         setErrore(messaggioErrore(problema));
       }
@@ -78,8 +101,8 @@ function AndamentiCasaDemo() {
   }, [mensile]);
 
   let corpo = <Caricamento errore={errore} />;
-  if (personalizzazione !== null && report !== null) {
-    corpo = <GraficiDelPeriodo report={report} personalizzazione={personalizzazione} />;
+  if (personalizzazione !== null && report !== null && eventiPasti !== null) {
+    corpo = <GraficiDelPeriodo report={report} eventiPasti={eventiPasti} personalizzazione={personalizzazione} />;
   }
 
   return (
@@ -100,10 +123,11 @@ function AndamentiCasaDemo() {
 
 type ProprietaGrafici = {
   report: ReportPeriodo;
+  eventiPasti: Evento[];
   personalizzazione: Personalizzazione;
 };
 
-function GraficiDelPeriodo({ report, personalizzazione }: ProprietaGrafici) {
+function GraficiDelPeriodo({ report, eventiPasti, personalizzazione }: ProprietaGrafici) {
   // Quali giorni vengono dai video registrati: tutti gli altri sono simulati (va sempre detto).
   const giorniVeri: string[] = [];
   let giorniSimulati = 0;
@@ -116,6 +140,7 @@ function GraficiDelPeriodo({ report, personalizzazione }: ProprietaGrafici) {
   }
 
   const pastiDelPeriodo = contaPasti(report.giorni);
+  const pastiDeiGiorni = pastiPerGiorno(report.giorni, eventiPasti, personalizzazione.fuso_orario);
 
   // Cadute e uscite sono poche: invece di un grafico quasi vuoto, l'elenco dei giorni in cui sono successe.
   const giorniDaRicordare: { data: string; testo: string }[] = [];
@@ -163,7 +188,7 @@ function GraficiDelPeriodo({ report, personalizzazione }: ProprietaGrafici) {
               of {quanti(pastiDelPeriodo.pasti, "meal", "meals")} with less than half eaten
             </span>
           </p>
-          <GraficoPasti giorni={report.giorni} />
+          <GraficoPasti giorni={pastiDeiGiorni} />
         </Scheda>
         <Scheda titolo="Nights" icona="luna">
           <p>

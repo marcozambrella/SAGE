@@ -49,17 +49,6 @@ export function testoQuantoMangiato(quanto: QuantoMangiato | null): string {
   return "Amount not measured";
 }
 
-// Meno di metà è il segnale che conta per la famiglia; tutto è una buona notizia; il resto è neutro.
-export function gravitaQuantoMangiato(quanto: QuantoMangiato | null): Gravita {
-  if (quanto === "meno_di_meta") {
-    return "attenzione";
-  }
-  if (quanto === "tutto") {
-    return "buono";
-  }
-  return "neutro";
-}
-
 export function descriviEvento(evento: Evento, personalizzazione: Personalizzazione): Descrizione {
   if (evento.tipo === "caduta") {
     let dettaglio = "Still on the floor when the video ended";
@@ -123,7 +112,8 @@ export function descriviEvento(evento: Evento, personalizzazione: Personalizzazi
       icona: "pasto",
       titolo: cibi,
       dettaglio: testoQuantoMangiato(quanto),
-      gravita: gravitaQuantoMangiato(quanto),
+      // Neutro: il colore (arancione, giallo, verde) lo porta la barra del pasto.
+      gravita: "neutro",
     };
   }
   // alzata_notturna
