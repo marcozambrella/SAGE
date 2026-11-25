@@ -1,8 +1,8 @@
 """Oggetti vicino alla testa (regola dei gesti), CPU: rilevatore COCO sui video di Charades a 5 fotogrammi al secondo.
 
 Serve a tarare FRAZIONE_ALTEZZA_OGGETTO_TESTA del programma di casa (casa/casa/casa/scheletro.py): distanza tra il
-naso e il box dell'oggetto, in altezze del box della persona. Rilevatore, classi, confidenza e lato dell'immagine sono
-quelli di casa (casa/casa/casa/percezione.py); gli scheletri sono già in `sage-gesti-scheletri-n`.
+naso e il box dell'oggetto, in altezze del box della persona. Rilevatore, classi e lato dell'immagine sono quelli
+di casa (casa/casa/casa/percezione.py); gli scheletri sono già in `sage-gesti-scheletri-n`.
 - Solo i video di validazione e test della divisione di gesti_stgcn (1.065, circa 8,6 ore di video): la regola non si
   allena, quindi i video di train non servono.
 - Due kernel CPU in parallelo (coordinatore, 25/11): oggetti_charades_1 e oggetti_charades_2 prendono un video sì e
@@ -44,10 +44,12 @@ PARTE = int(CARTELLA_DEL_KERNEL.split("_")[-1])
 NUMERO_PARTI = 2
 FPS_CASA = 5
 QUOTA_VALIDAZIONE = 0.15
-# come casa/casa/casa/percezione.py
+# come casa/casa/casa/percezione.py, tranne la confidenza: casa tiene gli oggetti sopra 0,25, qui si salvano anche
+# quelli meno sicuri e la confidenza si sceglie in tara_gesti. Con 0,25 le tazze alla bocca di Charades quasi non si
+# vedono (prova del 25/11 su tre bevute: confidenza tra 0,05 e 0,16 dove si vedevano)
 RILEVATORE = "yolo26n.pt"
 LATO_IMMAGINE = 640
-CONFIDENZA_MINIMA_OGGETTI = 0.25
+CONFIDENZA_SALVATA = 0.05
 CIBI_COCO = ("banana", "apple", "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake")
 CLASSI_OGGETTI = ("bottle", "wine glass", "cup", "bowl", "dining table") + CIBI_COCO
 
@@ -102,7 +104,7 @@ def rileva_oggetti(rilevatore, percorso: Path) -> dict:
         if len(dati) < byte_per_frame:
             break
         frame = np.frombuffer(dati, dtype=np.uint8).reshape(altezza, larghezza, 3)
-        risultato = rilevatore.predict(frame, conf=CONFIDENZA_MINIMA_OGGETTI, imgsz=LATO_IMMAGINE, device="cpu",
+        risultato = rilevatore.predict(frame, conf=CONFIDENZA_SALVATA, imgsz=LATO_IMMAGINE, device="cpu",
                                        verbose=False)[0]
         box = risultato.boxes.xyxy.cpu().numpy()
         classi = risultato.boxes.cls.int().cpu().numpy()
