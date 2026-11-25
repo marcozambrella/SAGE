@@ -5,7 +5,8 @@ name = "sage"
 version = "0.1.0"
 description = "SAGE - Safety Alert Guardian Engine"
 requires-python = ">=3.12"
-dependencies = ["contratti"]
+# backend: così i suoi test girano con "uv run pytest" dalla radice
+dependencies = ["contratti", "backend"]
 
 [dependency-groups]
 dev = ["pytest"]
@@ -19,6 +20,7 @@ members = ["contratti", "backend", "casa"]
 
 [tool.uv.sources]
 contratti = { workspace = true }
+backend = { workspace = true }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

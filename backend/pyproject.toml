@@ -2,7 +2,20 @@
 name = "backend"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["contratti"]
+# Solo librerie leggere: il server gratuito installa contratti + backend, niente PyTorch (D25).
+dependencies = [
+    "contratti",
+    "fastapi>=0.165.0",
+    # client HTTP: script dello storico simulato e client di test di FastAPI (Starlette vuole httpx2)
+    "httpx2>=2.16.2",
+    # legge i segreti da backend/.env in sviluppo
+    "psycopg[binary]>=3.3.9",
+    "python-dotenv>=1.2.4",
+    # fusi orari anche sui server senza il database dei fusi del sistema (zoneinfo)
+    "python-telegram-bot>=22.8",
+    "tzdata>=2026.6",
+    "uvicorn>=0.54.0",
+]
 
 [tool.uv.sources]
 contratti = { workspace = true }
