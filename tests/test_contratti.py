@@ -110,13 +110,15 @@ def test_configurazione_casa_completa():
             "farmaci": [{"id": "donepezil", "nome": "Donepezil", "dose": "1 tablet", "orari": ["08:00", "20:00"]}],
             "contenitori": [{"id": "bottiglia", "nome": "Water bottle", "tipo": "bottiglia", "capienza_ml": 1500}],
             "telecamere": [{"id": "ingresso", "nome": "Front door", "stanza": "hall"}],
-            "regole": {"orari_uscita_vietati": [{"dalle": "21:00", "alle": "07:00"}]},
+            "regole": {"orari_uscita_vietati": [{"dalle": "21:00", "alle": "07:00"}],
+                       "portone_zona_id": "porta-ingresso"},
         },
         "cartella_foto_farmaci": "data/foto_farmaci",
     }
     configurazione = ConfigurazioneCasa.model_validate(dati)
     assert configurazione.telecamere[0].zone[0].tipo == "porta"
     assert configurazione.personalizzazione.farmaci[0].tolleranza_minuti == 30
+    assert configurazione.personalizzazione.regole.portone_zona_id == "porta-ingresso"
 
 
 def test_analizzatore_sconosciuto_rifiutato():
