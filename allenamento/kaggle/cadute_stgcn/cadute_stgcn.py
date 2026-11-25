@@ -13,12 +13,10 @@ Divisione per soggetto e scena (lezione di ARGO), mai per finestra:
 - CAUCAFall: test soggetti 8 (infrarosso) e 10, validazione 9, il resto allenamento (anche il 6 in infrarosso);
 - GMDCSA: test soggetto 4, validazione 3; Le2i: test Home_02, validazione Coffee_room_02 (Office e Lecture_room non
   hanno etichette); UR Fall: i soggetti non sono scritti, quindi per numero di sequenza.
-Varianti: fotogrammi al secondo 5 e 10 × finestre di 2 e 3 secondi, una finestra ogni 0,5 s, per ogni grandezza di
-posa trovata (25 fps tolto il 25/11: a casa non si analizza mai così veloce). Prima le varianti più leggere: se il
-tempo finisce (ORE_MASSIME, la sessione Kaggle chiude a 12 h) mancano solo le ultime.
-Due passi (Marco, 25/11): il programma di casa analizza a 5 fps e, al primo segno di caduta, passa a 10 fps
-ripartendo da 1 s prima. Si prova ogni coppia (variante a 5 fps per il segno, variante a 10 fps per l'allarme) con
-le due soglie scelte sulla validazione (vedi probabilita_combinata).
+Varianti: 5 fotogrammi al secondo × finestre di 2 e 3 secondi, una finestra ogni 0,5 s, per ogni grandezza di posa
+trovata. Un solo passo a 5 fps (Marco, 25/11: niente 10 fps né ripasso, la caduta si vede comunque quando la persona
+è a terra). Allarme solo se la probabilità resta sopra la soglia per k finestre di fila (k in FINESTRE_CONSECUTIVE):
+soglia e k si scelgono insieme sulla validazione.
 Metriche sul test (come PIANO.md, sez. 1): classi per finestra; allarme = p(caduta) + p(a_terra) ≥ soglia scelta
 sulla validazione; F1 su pezzi di 5 secondi, cadute prese (allarme entro 3 s dalla fine) e falsi allarmi all'ora.
 Uscita in /kaggle/working: un .pt e un .onnx per variante, risultati.json, confronto.md.
@@ -411,15 +409,14 @@ def cartelle_scheletri() -> dict:
 
 CLASSI = ["normale", "caduta", "a_terra"]
 SECONDI_CADUTA = 1.5
-FPS_VARIANTI = [5, 10]
+FPS_VARIANTI = [5]
 SECONDI_VARIANTI = [2, 3]
 SECONDI_PEZZO = 5.0
 SECONDI_TOLLERANZA = 3.0
 # soglie provate sulla validazione; fitte in alto perché il 24/11 la migliore era quasi sempre l'ultima (0,95)
-SOGLIE = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.92, 0.94, 0.96, 0.98, 0.99]
-SOGLIE_SEGNO = [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
-# dopo un segno il programma di casa resta a 10 fps per questi secondi
-SECONDI_DIECI_FPS = 5.0
+SOGLIE = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.92, 0.94, 0.95, 0.96, 0.97, 0.98, 0.99, 0.995]
+# finestre di fila sopra la soglia per dare l'allarme (una ogni 0,5 s: 1 = subito, 6 = 3 s)
+FINESTRE_CONSECUTIVE = [1, 2, 3, 4, 6]
 
 
 def dividi_caduta(cade: np.ndarray, fps: float) -> np.ndarray:
@@ -723,49 +720,40 @@ def metriche_allarme(probabilita_caduta: np.ndarray, parte: dict, video_per_id: 
             "ore_video": round(ore, 3), "falsi_allarmi_ora": round(falsi_allarmi / max(ore, 1e-9), 2)}
 
 
-def scegli_soglia(probabilita_caduta: np.ndarray, parte: dict, video_per_id: dict) -> dict:
+def probabilita_persistente(probabilita_caduta: np.ndarray, parte: dict, finestre_consecutive: int) -> np.ndarray:
+    """Per ogni finestra il minimo delle ultime `finestre_consecutive` finestre dello stesso video (le finestre di un
+    video sono in fila nel tempo): supera la soglia solo se la probabilità è rimasta alta per tutto quel tempo."""
+    uscita = np.zeros_like(probabilita_caduta)
+    for indice in range(len(probabilita_caduta)):
+        minimo = probabilita_caduta[indice]
+        for passo in range(1, finestre_consecutive):
+            precedente = indice - passo
+            if precedente < 0 or parte["video"][precedente] != parte["video"][indice]:
+                minimo = 0.0
+                break
+            minimo = min(minimo, probabilita_caduta[precedente])
+        uscita[indice] = minimo
+    return uscita
+
+
+def scegli_soglia(probabilita_caduta: np.ndarray, parte: dict, video_per_id: dict, finestre_consecutive: int) -> dict:
     """La soglia di SOGLIE con la F1 dei pezzi migliore; a pari F1 quella con meno falsi allarmi."""
+    persistente = probabilita_persistente(probabilita_caduta, parte, finestre_consecutive)
     migliore = None
     for soglia in SOGLIE:
-        prova = metriche_allarme(probabilita_caduta, parte, video_per_id, soglia)
+        prova = metriche_allarme(persistente, parte, video_per_id, soglia)
         if migliore is None or prova["f1_pezzi"] > migliore["f1_pezzi"]:
             migliore = prova
         elif prova["f1_pezzi"] == migliore["f1_pezzi"] and prova["falsi_allarmi"] < migliore["falsi_allarmi"]:
             migliore = prova
+    migliore["finestre_consecutive"] = finestre_consecutive
     return migliore
-
-
-def probabilita_combinata(segno: dict, conferma: dict, soglia_segno: float) -> np.ndarray:
-    """Due passi: dove la variante a 5 fps (segno) supera soglia_segno, il programma di casa passa a 10 fps per
-    SECONDI_DIECI_FPS secondi. Ritorna, per ogni finestra della variante a 10 fps (conferma), la sua probabilità di
-    caduta dove i 10 fps sono attivi e 0 altrove. Approssimazione: a casa le prime finestre a 10 fps hanno solo 1 s
-    di fotogrammi a 10 fps (il resto a 5)."""
-    segni = {}
-    for indice in range(len(segno["video"])):
-        if segno["caduta"][indice] >= soglia_segno:
-            identificativo = segno["video"][indice]
-            if identificativo not in segni:
-                segni[identificativo] = []
-            segni[identificativo].append(segno["fini"][indice])
-    combinata = np.zeros(len(conferma["video"]), dtype=np.float32)
-    for indice in range(len(conferma["video"])):
-        identificativo = conferma["video"][indice]
-        if identificativo not in segni:
-            continue
-        tempo = conferma["fini"][indice]
-        for inizio in segni[identificativo]:
-            if inizio <= tempo <= inizio + SECONDI_DIECI_FPS:
-                combinata[indice] = conferma["caduta"][indice]
-                break
-    return combinata
 
 
 torch.set_num_threads(4)
 risultati = {}
-righe_due_passi = ["| posa | segno (5 fps) | allarme (10 fps) | soglie segno / allarme | F1 pezzi val | F1 pezzi test | "
-                   "cadute prese test | falsi allarmi/ora test |", "|---|---|---|---|---|---|---|---|"]
-righe_confronto = ["| posa | fps | secondi | macro-F1 test | F1 pezzi test | cadute prese | falsi allarmi/ora | ms CPU |",
-                   "|---|---|---|---|---|---|---|---|"]
+righe_confronto = ["| posa | secondi | finestre di fila | soglia | val: F1 pezzi, cadute prese, falsi allarmi/ora | "
+                   "test: F1 pezzi, cadute prese, falsi allarmi/ora |", "|---|---|---|---|---|---|"]
 cartelle = cartelle_scheletri()
 for modello_posa in cartelle:
     inizio = time.perf_counter()
@@ -779,8 +767,6 @@ for modello_posa in cartelle:
             conteggio[chiave] = 0
         conteggio[chiave] += 1
     print(f"[{modello_posa}] video con etichette: {conteggio} ({time.perf_counter() - inizio:.0f} s)", flush=True)
-    # per ogni variante: probabilità di caduta, video e fine delle finestre di val e test (per i due passi)
-    varianti = {}
     for fps_finestra in FPS_VARIANTI:
         for secondi in SECONDI_VARIANTI:
             nome = f"cadute_stgcn_{modello_posa}_{fps_finestra}fps_{secondi}s"
@@ -802,58 +788,40 @@ for modello_posa in cartelle:
             probabilita_test = probabilita(modello, dati["test"]["finestre"])
             uscita["classi_val"] = metriche_classi(dati["val"]["classi"], probabilita_val.argmax(axis=1), CLASSI)
             uscita["classi_test"] = metriche_classi(dati["test"]["classi"], probabilita_test.argmax(axis=1), CLASSI)
-            # soglia dell'allarme scelta sulla validazione (F1 dei pezzi), poi la stessa sul test
+            # soglia e finestre di fila scelte sulla validazione (F1 dei pezzi), poi le stesse sul test
             caduta_val = probabilita_val[:, 1] + probabilita_val[:, 2]
             caduta_test = probabilita_test[:, 1] + probabilita_test[:, 2]
-            migliore = scegli_soglia(caduta_val, dati["val"], video_per_id)
+            uscita["per_finestre_consecutive"] = {}
+            migliore = None
+            for finestre_consecutive in FINESTRE_CONSECUTIVE:
+                scelta_val = scegli_soglia(caduta_val, dati["val"], video_per_id, finestre_consecutive)
+                persistente_test = probabilita_persistente(caduta_test, dati["test"], finestre_consecutive)
+                scelta_test = metriche_allarme(persistente_test, dati["test"], video_per_id, scelta_val["soglia"])
+                uscita["per_finestre_consecutive"][finestre_consecutive] = {"val": scelta_val, "test": scelta_test}
+                righe_confronto.append(
+                    f"| {modello_posa} | {secondi} | {finestre_consecutive} | {scelta_val['soglia']} | "
+                    f"{scelta_val['f1_pezzi']}, {scelta_val['cadute_prese']}/{scelta_val['cadute']}, "
+                    f"{scelta_val['falsi_allarmi_ora']} | {scelta_test['f1_pezzi']}, "
+                    f"{scelta_test['cadute_prese']}/{scelta_test['cadute']}, {scelta_test['falsi_allarmi_ora']} |")
+                if migliore is None or scelta_val["f1_pezzi"] > migliore["f1_pezzi"]:
+                    migliore = scelta_val
+                    uscita["allarme_test"] = scelta_test
             uscita["allarme_val"] = migliore
-            uscita["allarme_test"] = metriche_allarme(caduta_test, dati["test"], video_per_id, migliore["soglia"])
             lunghezza = int(round(secondi * fps_finestra))
             uscita["ms_cpu_per_finestra"] = millisecondi_cpu(modello, lunghezza)
             uscita["secondi_variante"] = round(time.perf_counter() - inizio, 1)
             esporta(modello, CLASSI, lunghezza, nome, {"fps": fps_finestra, "secondi": secondi,
-                                                       "soglia_allarme": migliore["soglia"], "posa": modello_posa})
+                                                       "soglia_allarme": migliore["soglia"],
+                                                       "finestre_consecutive": migliore["finestre_consecutive"],
+                                                       "posa": modello_posa})
             risultati[nome] = uscita
-            varianti[(fps_finestra, secondi)] = {
-                "val": {"video": dati["val"]["video"], "fini": dati["val"]["fini"], "caduta": caduta_val},
-                "test": {"video": dati["test"]["video"], "fini": dati["test"]["fini"], "caduta": caduta_test}}
             # probabilità salvate: le soglie si possono cambiare dopo senza riallenare
             np.savez(USCITA / f"probabilita_{nome}.npz", video_val=np.array(dati["val"]["video"]),
                      fini_val=dati["val"]["fini"], classi_val=dati["val"]["classi"], probabilita_val=probabilita_val,
                      video_test=np.array(dati["test"]["video"]), fini_test=dati["test"]["fini"],
                      classi_test=dati["test"]["classi"], probabilita_test=probabilita_test)
-            test = uscita["allarme_test"]
-            righe_confronto.append(
-                f"| {modello_posa} | {fps_finestra} | {secondi} | {uscita['classi_test']['macro_f1']} | "
-                f"{test['f1_pezzi']} | {test['cadute_prese']}/{test['cadute']} | {test['falsi_allarmi_ora']} | "
-                f"{uscita['ms_cpu_per_finestra']} |")
-            print(f"[{nome}] test: {uscita['classi_test']['macro_f1']} macro-F1, allarme {test}", flush=True)
+            print(f"[{nome}] scelta su val: {migliore}, test: {uscita['allarme_test']}", flush=True)
             # scritti dopo ogni variante: se la sessione finisce prima, quello che è fatto resta
             (USCITA / "risultati.json").write_text(json.dumps(risultati, indent=1, ensure_ascii=False))
             (USCITA / "confronto.md").write_text("\n".join(righe_confronto) + "\n")
-    # due passi: ogni variante a 5 fps per il segno con ogni variante a 10 fps per l'allarme
-    for segno in varianti:
-        for conferma in varianti:
-            if segno[0] != 5 or conferma[0] != 10:
-                continue
-            migliore = None
-            for soglia_segno in SOGLIE_SEGNO:
-                combinata_val = probabilita_combinata(varianti[segno]["val"], varianti[conferma]["val"], soglia_segno)
-                prova = scegli_soglia(combinata_val, varianti[conferma]["val"], video_per_id)
-                if migliore is None or prova["f1_pezzi"] > migliore[1]["f1_pezzi"]:
-                    migliore = (soglia_segno, prova)
-            soglia_segno = migliore[0]
-            combinata_test = probabilita_combinata(varianti[segno]["test"], varianti[conferma]["test"], soglia_segno)
-            test = metriche_allarme(combinata_test, varianti[conferma]["test"], video_per_id, migliore[1]["soglia"])
-            nome = f"due_passi_{modello_posa}_{segno[1]}s_poi_{conferma[1]}s"
-            risultati[nome] = {"soglia_segno": soglia_segno, "soglia_allarme": migliore[1]["soglia"],
-                               "allarme_val": migliore[1], "allarme_test": test}
-            righe_due_passi.append(
-                f"| {modello_posa} | {segno[1]} s | {conferma[1]} s | {soglia_segno} / {migliore[1]['soglia']} | "
-                f"{migliore[1]['f1_pezzi']} | {test['f1_pezzi']} | {test['cadute_prese']}/{test['cadute']} | "
-                f"{test['falsi_allarmi_ora']} |")
-            print(f"[{nome}] {risultati[nome]}", flush=True)
-    (USCITA / "risultati.json").write_text(json.dumps(risultati, indent=1, ensure_ascii=False))
-    testo = "\n".join(righe_confronto) + "\n\nDue passi (5 fps, poi 10 fps dopo un segno):\n\n" + "\n".join(righe_due_passi)
-    (USCITA / "confronto.md").write_text(testo + "\n")
-print((USCITA / "confronto.md").read_text(), flush=True)
+print("\n".join(righe_confronto), flush=True)
