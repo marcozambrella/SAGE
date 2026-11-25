@@ -73,12 +73,12 @@ class PesiCadute:
     finestre_di_fila: int
 
 
-# si usa quello allenato sugli scheletri della posa in uso (la posa la sceglie Marco). PROVVISORI finché l'agente di
-# allenamento non manda i modelli a un passo: quelli a 5 al secondo con la soglia scelta sulla validazione per il
-# modello usato da solo (scritta nel file)
+# si usa quello allenato sugli scheletri della posa in uso (la posa la sceglie Marco): finestre di 2 s a 5 al secondo,
+# soglia 0,94 con una finestra sola per n e per s (agente di allenamento, 25/11: per la n meno falsi allarmi della
+# scelta scritta nel file, 2 finestre di fila a 0,6, con la F1 quasi uguale)
 PESI_CADUTE = {
-    "pesi/yolo26n-pose.pt": PesiCadute("pesi/cadute_n_segno_5fps_3s.pt", 0.96, 1),
-    "pesi/yolo26s-pose.pt": PesiCadute("pesi/cadute_s_segno_5fps_3s.pt", 0.7, 1),
+    "pesi/yolo26n-pose.pt": PesiCadute("pesi/cadute_n_5fps_2s.pt", 0.94, 1),
+    "pesi/yolo26s-pose.pt": PesiCadute("pesi/cadute_s_5fps_2s.pt", 0.94, 1),
 }
 
 
