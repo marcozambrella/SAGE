@@ -25,7 +25,10 @@ VISIBILITA_MINIMA = 0.3       # sotto questa confidenza il punto non si usa
 FRAZIONE_ALTEZZA_POLSO_NASO = 0.25   # polso dal naso, in altezze del box della persona
 # dal primo all'ultimo fotogramma del gesto: 5 fotogrammi di fila a 5 al secondo (1 s nella taratura)
 SECONDI_GESTO = 0.8
-FRAZIONE_SPALLE_OGGETTO_TESTA = 0.3  # box dell'oggetto dal naso, in larghezze di spalle: l'oggetto tocca la bocca
+# box dell'oggetto dal naso, in altezze del box della persona come il polso (di lato le spalle sembrano strette):
+# sono le 0,3 larghezze di spalle di prima, con le spalle a 0,14 dell'altezza (mediana su 47 mila scheletri in piedi
+# dei dataset pubblici delle cadute, posa n). La tara su Charades l'agente di allenamento (25/11)
+FRAZIONE_ALTEZZA_OGGETTO_TESTA = 0.04
 
 
 def punto(persona: Persona, indice: int) -> np.ndarray | None:
@@ -87,7 +90,8 @@ def oggetto_alla_testa(persona: Persona, box: np.ndarray) -> bool:
     naso = punto(persona, NASO)
     if naso is None:
         return False
-    return distanza_dal_box(naso, box) <= FRAZIONE_SPALLE_OGGETTO_TESTA * misura(persona)
+    altezza = float(persona.box[3] - persona.box[1])
+    return distanza_dal_box(naso, box) <= FRAZIONE_ALTEZZA_OGGETTO_TESTA * altezza
 
 
 def angolo_del_busto(persona: Persona) -> float | None:
