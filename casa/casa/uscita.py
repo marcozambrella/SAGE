@@ -30,7 +30,7 @@ from casa.zone import zona_allargata, zona_della_persona, zone_del_portone
 # così una persona coperta un attimo dalla porta e ritrovata con lo stesso id non diventa un'uscita.
 SECONDI_SPARIZIONE = 8.0
 FATTORE_ZONA_PORTA = 1.5           # zona porta allargata di un quarto per lato
-CONFIDENZA_PORTA = 0.5             # proposta dell'agente di allenamento: da tarare sulle riprese (nessuna dall'alto)
+CONFIDENZA_PORTA = 0.5             # scelta dall'agente di allenamento sui dati pubblici
 LATO_MODELLO_PORTA = 640           # come nell'allenamento
 SECONDI_TRA_CONTROLLI_PORTA = 0.5  # il modello costa ~85 ms: basta guardare la porta ogni mezzo secondo
 

@@ -13,8 +13,8 @@ from contratti.configurazione import Personalizzazione
 
 MODELLO_CLIP = "ViT-B-16"
 PESI_CLIP = "openai"
-# Provvisoria: due foto dello stesso oggetto stanno di solito sopra, oggetti diversi sotto. Da tarare con le foto
-# vere di Marco.
+# Due foto dello stesso oggetto stanno di solito sopra, oggetti diversi sotto (prove con immagini pubbliche, 24/11).
+# Se serve, la tara l'agente di allenamento sui dati pubblici (Marco, 25/11: le sue riprese sono solo per la demo).
 SOGLIA_SOMIGLIANZA = 0.75
 
 
