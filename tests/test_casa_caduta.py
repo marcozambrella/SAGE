@@ -216,3 +216,20 @@ def test_un_fotogramma_in_piedi_non_fa_uscire_da_a_terra():
     assert len(eventi) == 1
     # a terra solo al secondo 3, poi in piedi: esce da "a terra" al secondo 5 (1 s in piedi), a 2 s non ci arriva
     assert scena(SOGGIORNO, ripeti(IN_PIEDI, 3) + ripeti(A_TERRA, 1) + ripeti(IN_PIEDI, 5)) == []
+
+
+def con_id(persona_vista: Persona, id_traccia: int) -> Persona:
+    return Persona(id_traccia, persona_vista.box, persona_vista.confidenza, persona_vista.keypoint)
+
+
+def test_il_tracker_cambia_id_nella_caduta():
+    # in piedi con l'id 1 fino al secondo 2; dal secondo 3 a terra con l'id 2, il box tocca quello di prima
+    caduta = ripeti(IN_PIEDI, 3) + ripeti(con_id(A_TERRA, 2), 5)
+    eventi = scena(SOGGIORNO, caduta)
+    assert len(eventi) == 1
+    assert eventi[0].inizio == INIZIO + datetime.timedelta(seconds=3)
+    # a terra lontano (il box non tocca): è un'altra persona, senza "in piedi" non è una caduta
+    lontano = con_id(persona([[40, 160], [40, 175]], [[90, 162], [90, 177]], [20, 150, 160, 185]), 2)
+    assert scena(SOGGIORNO, ripeti(IN_PIEDI, 3) + ripeti(lontano, 5)) == []
+    # in piedi più di 3 s prima: non si eredita
+    assert scena(SOGGIORNO, ripeti(IN_PIEDI, 3) + ripeti(None, 3) + ripeti(con_id(A_TERRA, 2), 5)) == []

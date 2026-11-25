@@ -5,7 +5,8 @@ tracker):
   qualcosa ha il busto inclinato ma il box alto), fuori dalla zona letto. Con isteresi: si esce da "a terra" solo dopo
   1 s chiaramente in piedi (un fotogramma "in piedi" può essere un errore della posa);
 - caduta: era in piedi meno di 3 s prima di finire a terra (chi si sdraia piano non è caduto) e resta a terra
-  almeno 2 s;
+  almeno 2 s. Se nella caduta il tracker cambia id (la sagoma cambia di colpo), la traccia nuova eredita il momento
+  "in piedi" della traccia vecchia che tocca (coordinatore, 25/11; forma valutata dall'agente di allenamento);
 - conferma: il classificatore (un passo solo, scheletri a 5 al secondo, una finestra ogni 0,5 s per persona) ha
   visto una caduta, per k finestre di fila, da poco prima di finire a terra in poi; e, per far partire l'allarme, il
   busto è quasi orizzontale (70°, se la posa lo vede). Le due cose contro i falsi allarmi le ha scelte l'agente di
@@ -86,6 +87,18 @@ class StatoPersona:
     confermata: datetime.datetime | None        # ultima volta che il classificatore ha visto una caduta
     considerata_a_terra: bool                   # "a terra" con l'isteresi
     chiaramente_in_piedi_da: datetime.datetime | None  # da quando è in piedi mentre è considerata a terra
+    box: np.ndarray | None                      # ultimo box in cui è stata vista
+
+
+def nuovo_stato(ora: datetime.datetime, in_piedi: datetime.datetime | None) -> StatoPersona:
+    return StatoPersona(ora, in_piedi, None, None, False, 0.0, None, None, [], None, False, None, None)
+
+
+def box_si_toccano(box_a: np.ndarray, box_b: np.ndarray) -> bool:
+    """I due box (x1, y1, x2, y2) si sovrappongono o si toccano anche solo con i bordi."""
+    in_orizzontale = box_a[0] <= box_b[2] and box_b[0] <= box_a[2]
+    in_verticale = box_a[1] <= box_b[3] and box_b[1] <= box_a[3]
+    return bool(in_orizzontale and in_verticale)
 
 
 class AnalizzatoreCaduta:
@@ -147,6 +160,26 @@ class AnalizzatoreCaduta:
         stato.chiaramente_in_piedi_da = None
         return False
 
+    def eredita_in_piedi(self, osservazione: Osservazione) -> None:
+        """Una traccia nuova che tocca il box (del fotogramma prima) di una traccia vista in piedi da meno di 3 s
+        prende il suo momento "in piedi", il più recente se sono più di una."""
+        ora = osservazione.ora
+        for persona in osservazione.persone:
+            if persona.id_traccia in self.persone:
+                continue
+            da_ereditare = None
+            for stato in self.persone.values():
+                if stato.in_piedi is None or stato.box is None:
+                    continue
+                if (ora - stato.in_piedi).total_seconds() > SECONDI_CADUTA_RAPIDA:
+                    continue
+                if not box_si_toccano(stato.box, persona.box):
+                    continue
+                if da_ereditare is None or stato.in_piedi > da_ereditare:
+                    da_ereditare = stato.in_piedi
+            if da_ereditare is not None:
+                self.persone[persona.id_traccia] = nuovo_stato(ora, da_ereditare)
+
     def confermata(self, stato: StatoPersona, persona: Persona, secondi_a_terra: float) -> bool:
         if self.classificatore is None or secondi_a_terra >= SECONDI_A_TERRA_SENZA_CONFERMA:
             return True
@@ -165,13 +198,16 @@ class AnalizzatoreCaduta:
         larghezza = osservazione.immagine.shape[1]
         if self.classificatore is not None:
             self.ricorda_fotogramma(osservazione)
+        # prima di aggiornare i box: si confronta con quelli dei fotogrammi prima
+        self.eredita_in_piedi(osservazione)
         eventi = []
         for persona in osservazione.persone:
             stato = self.persone.get(persona.id_traccia)
             if stato is None:
-                stato = StatoPersona(ora, None, None, None, False, 0.0, None, None, [], None, False, None)
+                stato = nuovo_stato(ora, None)
                 self.persone[persona.id_traccia] = stato
             stato.vista = ora
+            stato.box = persona.box
             if self.classificatore is not None:
                 self.valuta(stato, persona.id_traccia, ora)
             nel_letto = zona_della_persona(persona, self.letti, larghezza, altezza) is not None
