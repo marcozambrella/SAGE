@@ -362,3 +362,25 @@ def test_aderenza_nulla_senza_dosi_valutate(client):
     client.put("/programma-casa/personalizzazione", json={"anziano": {"nome": "Anna"}}, headers=CON_TOKEN)
     report = client.get("/demo/report/settimanale", params={"dal": "2025-12-01"}).json()
     assert report["aderenza_farmaci_percentuale"] is None
+
+
+def test_portone_salvato_con_la_personalizzazione(client):
+    con_portone = dict(PERSONALIZZAZIONE)
+    con_portone["regole"] = {"orari_uscita_vietati": [{"dalle": "21:00", "alle": "07:00"}],
+                             "portone_zona_id": "porta-ingresso"}
+    client.put("/programma-casa/personalizzazione", json=con_portone, headers=CON_TOKEN)
+    assert client.get("/demo/personalizzazione").json()["regole"]["portone_zona_id"] == "porta-ingresso"
+    # i pulsanti di Telegram cambiano solo pausa e spegnimento: il portone resta
+    app.state.archivio.cambia_allarme_uscita(False, None)
+    assert client.get("/demo/personalizzazione").json()["regole"]["portone_zona_id"] == "porta-ingresso"
+    # il portone lo decide l'app (dal programma di casa): un nuovo PUT lo cambia
+    con_portone["regole"]["portone_zona_id"] = "porta-garage"
+    client.put("/programma-casa/personalizzazione", json=con_portone, headers=CON_TOKEN)
+    regole = client.get("/demo/personalizzazione").json()["regole"]
+    assert regole["portone_zona_id"] == "porta-garage"
+    assert regole["allarme_uscita_attivo"] is False
+
+
+def test_senza_portone_valgono_tutte_le_porte(client):
+    configura(client)
+    assert client.get("/demo/personalizzazione").json()["regole"]["portone_zona_id"] is None
