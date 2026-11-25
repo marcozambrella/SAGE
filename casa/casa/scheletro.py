@@ -7,7 +7,7 @@ import math
 
 import numpy as np
 
-from casa.percezione import Persona
+from casa.percezione import Oggetto, Persona
 
 NASO = 0
 SPALLA_SX = 5
@@ -31,6 +31,10 @@ FRAZIONE_ALTEZZA_POLSO_NASO = 0.25   # polso dal naso, in altezze del box della 
 SECONDI_GESTO = 0.8
 FRAZIONE_ALTEZZA_OGGETTO_TESTA = 0.2  # box dell'oggetto dal naso, in altezze del box della persona come il polso
 SECONDI_INTORNO_AL_GESTO = 2.0        # l'oggetto conta se visto da tanto prima dell'inizio a tanto dopo la fine
+# "vicino alla persona", anche appoggiato: a portata di mano, un quarto d'altezza come il polso dal naso. Serve alla
+# confidenza dell'evento: la più alta vista per l'oggetto intorno al gesto (coordinatore, 25/11: alla bocca il
+# rilevatore lo vede a 0,05-0,16 e un evento con quella confidenza nella web app sembra un errore)
+FRAZIONE_ALTEZZA_VICINO_ALLA_PERSONA = 0.25
 
 
 @dataclass
@@ -56,6 +60,38 @@ class Gesto:
     def scaduto(self, ora: datetime.datetime) -> bool:
         """Finito da più di 2 s: un oggetto visto adesso non conta più."""
         return (ora - self.ultimo).total_seconds() > SECONDI_INTORNO_AL_GESTO
+
+
+@dataclass
+class VistaOggetto:
+    """Un oggetto visto vicino a una persona, e quando."""
+
+    ora: datetime.datetime
+    oggetto: Oggetto
+
+
+def viste_recenti(viste: list, nuovi: list, ora: datetime.datetime) -> list:
+    """Le VistaOggetto degli ultimi SECONDI_INTORNO_AL_GESTO più gli oggetti visti adesso."""
+    recenti = []
+    for vista in viste:
+        if (ora - vista.ora).total_seconds() <= SECONDI_INTORNO_AL_GESTO:
+            recenti.append(vista)
+    for oggetto in nuovi:
+        recenti.append(VistaOggetto(ora, oggetto))
+    return recenti
+
+
+def alza_la_massima(massime: dict, oggetto: Oggetto) -> None:
+    """massime: classe → confidenza più alta vista finora."""
+    if oggetto.classe not in massime or oggetto.confidenza > massime[oggetto.classe]:
+        massime[oggetto.classe] = oggetto.confidenza
+
+
+def massime_delle_viste(viste: list) -> dict:
+    massime = {}
+    for vista in viste:
+        alza_la_massima(massime, vista.oggetto)
+    return massime
 
 
 def gesto_dopo(gesto: Gesto | None, polso_al_naso: bool, ora: datetime.datetime) -> Gesto | None:
@@ -145,6 +181,14 @@ def angolo_del_busto(persona: Persona) -> float | None:
     if dx == 0 and dy == 0:
         return None
     return math.degrees(math.atan2(abs(dx), dy))
+
+
+def vicino_alla_persona(persona: Persona, box: np.ndarray) -> bool:
+    """Il box dell'oggetto è a portata di mano: tra i due box c'è al massimo un quarto dell'altezza della persona."""
+    dx = max(float(persona.box[0]) - float(box[2]), 0.0, float(box[0]) - float(persona.box[2]))
+    dy = max(float(persona.box[1]) - float(box[3]), 0.0, float(box[1]) - float(persona.box[3]))
+    altezza = float(persona.box[3] - persona.box[1])
+    return math.hypot(dx, dy) <= FRAZIONE_ALTEZZA_VICINO_ALLA_PERSONA * altezza
 
 
 def distanza_dal_box(posizione: np.ndarray, box: np.ndarray) -> float:

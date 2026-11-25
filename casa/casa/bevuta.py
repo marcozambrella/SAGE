@@ -12,7 +12,9 @@ Il contenitore viene dal rilevatore pre-allenato (COCO). Il livello si trova SOL
 arriverà nessun modello del liquido (Marco, 24/11). Il gesto è la regola dei gesti (scheletro.py, Marco 25/11):
 - sorso: un polso vicino al naso per almeno 1 s (5 fotogrammi di fila a 5 al secondo) e un contenitore (bottiglia,
   bicchiere, tazza) vicino alla testa, visto almeno una volta da 2 s prima a 2 s dopo, anche con confidenza bassa
-  (alla bocca la mano lo copre); sorsi vicini della stessa persona (id del tracker) sono la stessa bevuta;
+  (alla bocca la mano lo copre); sorsi vicini della stessa persona (id del tracker) sono la stessa bevuta. La
+  confidenza del contenitore è la più alta vista per la sua classe vicino alla persona, anche appoggiato, da 2 s
+  prima a 2 s dopo il gesto (coordinatore, 25/11); quella del sorso è la minore tra questa e quella della persona;
 - livello: la riga orizzontale che divide il contenitore in aria sopra e liquido sotto, mediana di qualche misura
   prima e dopo, solo quando il contenitore è appoggiato (in mano può essere inclinato o coperto dalle dita);
 - se il livello non si vede (tazza non trasparente, contenitore troppo lontano o sempre in mano) la bevuta si manda
@@ -31,8 +33,9 @@ from contratti.configurazione import Contenitore, Personalizzazione, TelecameraL
 from contratti.eventi import EventoBevuta, Fonte, ValoriBevuta
 
 from casa.percezione import Osservazione, Oggetto, Persona, foto_prova
-from casa.scheletro import (SECONDI_INTORNO_AL_GESTO, Gesto, distanza_dal_box, gesto_dopo, mano_alla_bocca, misura,
-                            oggetto_alla_testa, polsi)
+from casa.scheletro import (SECONDI_INTORNO_AL_GESTO, Gesto, VistaOggetto, alza_la_massima, distanza_dal_box,
+                            gesto_dopo, mano_alla_bocca, massime_delle_viste, misura, oggetto_alla_testa, polsi,
+                            vicino_alla_persona, viste_recenti)
 
 # classe del rilevatore pre-allenato (COCO) → tipi di contenitore compatibili, nell'ordine in cui si cercano nella
 # personalizzazione ("cup" in COCO comprende anche i bicchieri d'acqua)
@@ -195,14 +198,6 @@ class Sorso:
     immagine: np.ndarray
 
 
-@dataclass
-class VistaContenitore:
-    """Un contenitore visto vicino alla testa di una persona."""
-
-    ora: datetime.datetime
-    oggetto: Oggetto
-
-
 def in_mano(persona: Persona, contenitore: Oggetto) -> bool:
     vicino = FRAZIONE_SPALLE_CONTENITORE * misura(persona)
     for polso in polsi(persona):
@@ -226,7 +221,9 @@ class AnalizzatoreBevuta:
         self.misure_recenti = {}  # classe → ultime MisuraLivello dei contenitori lontani dalla bocca
         self.sorsi = {}           # id traccia → Sorso in corso
         self.gesti = {}           # id traccia → Gesto (polso vicino al naso)
-        self.contenitori_alla_testa = {}  # id traccia → ultima VistaContenitore
+        self.contenitori_alla_testa = {}  # id traccia → ultima VistaOggetto di un contenitore vicino alla testa
+        self.viste_vicine = {}    # id traccia → VistaOggetto dei contenitori vicini alla persona negli ultimi 2 s
+        self.massime_al_gesto = {}  # id traccia → classe → confidenza più alta da 2 s prima del gesto in poi
         self.misure_al_gesto = {}  # id traccia → misure_recenti copiate all'inizio del gesto: il "prima" del sorso
         self.immagini_al_gesto = {}  # id traccia → primo fotogramma del gesto (foto di prova)
 
@@ -265,13 +262,19 @@ class AnalizzatoreBevuta:
         """La regola dei gesti per una persona; quando il gesto e il contenitore ci sono tutti e due è un sorso."""
         ora = osservazione.ora
         id_traccia = persona.id_traccia
+        vicini = []  # contenitori vicini alla persona adesso, anche appoggiati: per la confidenza
         for oggetto in osservazione.oggetti + osservazione.contenitori_incerti:
-            if oggetto.classe not in TIPI_DA_CLASSE or not oggetto_alla_testa(persona, oggetto.box):
+            if oggetto.classe not in TIPI_DA_CLASSE or not vicino_alla_persona(persona, oggetto.box):
+                continue
+            vicini.append(oggetto)
+            if not oggetto_alla_testa(persona, oggetto.box):
                 continue
             vista = self.contenitori_alla_testa.get(id_traccia)
             # nello stesso fotogramma si tiene il più sicuro
             if vista is None or vista.ora < ora or oggetto.confidenza > vista.oggetto.confidenza:
-                self.contenitori_alla_testa[id_traccia] = VistaContenitore(ora, oggetto)
+                self.contenitori_alla_testa[id_traccia] = VistaOggetto(ora, oggetto)
+        recenti = viste_recenti(self.viste_vicine.get(id_traccia, []), vicini, ora)
+        self.viste_vicine[id_traccia] = recenti
 
         gesto = gesto_dopo(self.gesti.get(id_traccia), mano_alla_bocca(persona), ora)
         if gesto is None:
@@ -284,9 +287,19 @@ class AnalizzatoreBevuta:
                 copia[classe] = list(self.misure_recenti[classe])
             self.misure_al_gesto[id_traccia] = copia
             self.immagini_al_gesto[id_traccia] = osservazione.immagine
+            self.massime_al_gesto[id_traccia] = massime_delle_viste(recenti)
+        else:
+            # fino a 2 s dopo la fine: poi il gesto si dimentica
+            for oggetto in vicini:
+                alza_la_massima(self.massime_al_gesto[id_traccia], oggetto)
+        massime = self.massime_al_gesto[id_traccia]
         if gesto.confermato:
             sorso = self.sorsi.get(id_traccia)
-            if gesto.in_corso and sorso is not None:
+            if sorso is None:
+                return
+            confidenza = min(persona.confidenza, massime.get(sorso.classe, 0.0))
+            sorso.confidenza = max(sorso.confidenza, confidenza)
+            if gesto.in_corso:
                 sorso.ultima_alla_bocca = ora
                 sorso.finito = False
                 sorso.dopo = []
@@ -295,11 +308,12 @@ class AnalizzatoreBevuta:
         if vista is None or not gesto.abbastanza_lungo() or not gesto.oggetto_visto_intorno(vista.ora):
             return
         gesto.confermato = True
-        self.sorso_dal_gesto(persona, gesto, vista.oggetto)
+        contenitore = max(massime.get(vista.oggetto.classe, 0.0), vista.oggetto.confidenza)
+        self.sorso_dal_gesto(persona, gesto, vista.oggetto, contenitore)
 
-    def sorso_dal_gesto(self, persona: Persona, gesto: Gesto, oggetto: Oggetto) -> None:
+    def sorso_dal_gesto(self, persona: Persona, gesto: Gesto, oggetto: Oggetto, confidenza_contenitore: float) -> None:
         id_traccia = persona.id_traccia
-        confidenza = min(persona.confidenza, oggetto.confidenza)
+        confidenza = min(persona.confidenza, confidenza_contenitore)
         sorso = self.sorsi.get(id_traccia)
         if sorso is None:
             prima = list(self.misure_al_gesto[id_traccia].get(oggetto.classe, []))
@@ -324,6 +338,13 @@ class AnalizzatoreBevuta:
             self.gesti.pop(id_traccia)
             self.misure_al_gesto.pop(id_traccia)
             self.immagini_al_gesto.pop(id_traccia)
+            self.massime_al_gesto.pop(id_traccia)
+        senza_viste = []
+        for id_traccia in self.viste_vicine:
+            if id_traccia not in self.gesti and len(viste_recenti(self.viste_vicine[id_traccia], [], ora)) == 0:
+                senza_viste.append(id_traccia)
+        for id_traccia in senza_viste:
+            self.viste_vicine.pop(id_traccia)
         vecchie = []
         for id_traccia in self.contenitori_alla_testa:
             secondi = (ora - self.contenitori_alla_testa[id_traccia].ora).total_seconds()

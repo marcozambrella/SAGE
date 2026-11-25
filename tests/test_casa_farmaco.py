@@ -174,19 +174,21 @@ def test_il_gesto_deve_durare_un_secondo():
 
 
 # una pillola tra le dita alla bocca (naso in 110, 40) e una giù sul tavolo, lontana dalla testa
-PILLOLA_ALLA_BOCCA = np.array([108, 44, 116, 50], np.float32)
-PILLOLA_SUL_TAVOLO = np.array([120, 140, 128, 146], np.float32)
+PILLOLA_ALLA_BOCCA = Oggetto("pillola", np.array([108, 44, 116, 50], np.float32), 0.6)
+PILLOLA_SUL_TAVOLO = Oggetto("pillola", np.array([120, 140, 128, 146], np.float32), 0.6)
+SEGNO = 255  # valore del pixel in alto a sinistra dei fotogrammi segnati dalla scena
 
 
 class ModelloFarmaciFinto:
-    """Vede la scatola rossa del fotogramma (box 135-165 × 95-125) se c'è; vicino alla testa vede i box dati.
-    Ricorda le chiamate."""
+    """Sul portapillole vede la scatola rossa del fotogramma (box 135-165 × 95-125) se c'è. Intorno alla testa vede
+    `vicino_alla_testa`; con `per_segno` invece vede la lista del valore del pixel in alto a sinistra, con cui la
+    scena segna i fotogrammi (niente in quelli non segnati). Ricorda le chiamate."""
 
-    def __init__(self, box_vicino_alla_testa: list | None = None, solo_col_segno: bool = False):
-        if box_vicino_alla_testa is None:
-            box_vicino_alla_testa = [PILLOLA_ALLA_BOCCA]
-        self.box_vicino_alla_testa = box_vicino_alla_testa
-        self.solo_col_segno = solo_col_segno  # vede i box solo nei fotogrammi segnati (pixel in alto a sinistra)
+    def __init__(self, vicino_alla_testa: list | None = None, per_segno: dict | None = None):
+        if vicino_alla_testa is None:
+            vicino_alla_testa = [PILLOLA_ALLA_BOCCA]
+        self.vicino_alla_testa = vicino_alla_testa
+        self.per_segno = per_segno
         self.chiamate = 0
         self.chiamate_testa = 0
 
@@ -194,13 +196,13 @@ class ModelloFarmaciFinto:
         self.chiamate = self.chiamate + 1
         if immagine[110, 150, 2] != 200:
             return []
-        return [np.array([135, 95, 165, 125], np.float32)]
+        return [Oggetto("scatola_farmaco", np.array([135, 95, 165, 125], np.float32), 0.9)]
 
     def farmaci_nel_riquadro(self, immagine: np.ndarray, riquadro: np.ndarray) -> list:
         self.chiamate_testa = self.chiamate_testa + 1
-        if self.solo_col_segno and immagine[0, 0, 0] != 255:
-            return []
-        return self.box_vicino_alla_testa
+        if self.per_segno is None:
+            return self.vicino_alla_testa
+        return self.per_segno.get(int(immagine[0, 0, 0]), [])
 
 
 class RiconoscitoreCheRicorda:
@@ -213,9 +215,10 @@ class RiconoscitoreCheRicorda:
 
 
 def scena_con_rilevatore(sequenza: list, modello: ModelloFarmaciFinto, riconoscitore,
-                         secondi_segnati: list | None = None) -> list:
+                         secondi_segnati: dict | None = None) -> list:
+    """secondi_segnati: secondo → valore del pixel in alto a sinistra di quel fotogramma."""
     if secondi_segnati is None:
-        secondi_segnati = []
+        secondi_segnati = {}
     analizzatore = AnalizzatoreFarmaco(CUCINA, riconoscitore, modello)
     eventi = []
     for secondo in range(len(sequenza)):
@@ -223,7 +226,7 @@ def scena_con_rilevatore(sequenza: list, modello: ModelloFarmaciFinto, riconosci
         ora = INIZIO + datetime.timedelta(seconds=secondo)
         immagine = fotogramma(passo[1], passo[2])
         if secondo in secondi_segnati:
-            immagine[0, 0] = 255
+            immagine[0, 0] = secondi_segnati[secondo]
         osservazione = Osservazione("cucina", "kitchen", ora, immagine, [persona(passo[0])], passo[3])
         for evento in analizzatore.elabora(osservazione):
             eventi.append(evento)
@@ -265,22 +268,48 @@ def test_con_il_rilevatore_serve_il_farmaco_vicino_alla_testa():
     assert len(scena_con_rilevatore(sequenza, ModelloFarmaciFinto(), None)) == 1
 
 
+def col_segno() -> ModelloFarmaciFinto:
+    """Vede la pillola alla bocca solo nei fotogrammi segnati."""
+    return ModelloFarmaciFinto(per_segno={SEGNO: [PILLOLA_ALLA_BOCCA]})
+
+
 def test_il_farmaco_conta_da_2_s_prima_a_2_s_dopo_il_gesto():
     presa = ripeti("giu", False, 3) + ripeti("portapillole", True, 2)  # presa dal secondo 3
     # pillola vista al secondo 6, gesto ai secondi 7-8: 1 s prima, conta
     prima = presa + ripeti("giu", True, 2) + ripeti("bocca", True, 2)
-    eventi = scena_con_rilevatore(prima, ModelloFarmaciFinto(solo_col_segno=True), None, [6])
-    assert len(eventi) == 1
+    assert len(scena_con_rilevatore(prima, col_segno(), None, {6: SEGNO})) == 1
     # vista al secondo 5, gesto ai secondi 9-10: 4 s prima, non conta
     troppo_prima = presa + ripeti("giu", True, 4) + ripeti("bocca", True, 2)
-    assert scena_con_rilevatore(troppo_prima, ModelloFarmaciFinto(solo_col_segno=True), None, [5]) == []
+    assert scena_con_rilevatore(troppo_prima, col_segno(), None, {5: SEGNO}) == []
     # gesto ai secondi 5-6, vista al secondo 8 (2 s dopo): conta, e l'evento parte lì
     dopo = presa + ripeti("bocca", True, 2) + ripeti("giu", True, 3)
-    eventi = scena_con_rilevatore(dopo, ModelloFarmaciFinto(solo_col_segno=True), None, [8])
+    eventi = scena_con_rilevatore(dopo, col_segno(), None, {8: SEGNO})
     assert len(eventi) == 1
     assert eventi[0].fine == INIZIO + datetime.timedelta(seconds=8)
     # vista al secondo 9 (3 s dopo): non conta
-    assert scena_con_rilevatore(dopo, ModelloFarmaciFinto(solo_col_segno=True), None, [9]) == []
+    assert scena_con_rilevatore(dopo, col_segno(), None, {9: SEGNO}) == []
+
+
+def test_confidenza_del_farmaco_la_piu_alta_intorno_al_gesto():
+    # blister in mano ben visto (0,9) nel riquadro della testa ma lontano dal naso; pillola alla bocca vista male
+    blister = Oggetto("blister", np.array([62, 75, 80, 88], np.float32), 0.9)
+    pillola_coperta = Oggetto("pillola", PILLOLA_ALLA_BOCCA.box, 0.1)
+    presa = ripeti("giu", False, 3) + ripeti("portapillole", False, 2)
+    # blister al secondo 6, gesto ai secondi 7-8 con la pillola al secondo 8: conta il blister
+    sequenza = presa + ripeti("giu", False, 2) + ripeti("bocca", False, 2)
+    modello = ModelloFarmaciFinto(per_segno={SEGNO: [blister], SEGNO - 1: [pillola_coperta]})
+    eventi = scena_con_rilevatore(sequenza, modello, None, {6: SEGNO, 8: SEGNO - 1})
+    assert len(eventi) == 1
+    assert eventi[0].confidenza == pytest.approx(0.85)  # la minore tra la persona (0,85) e il blister (0,9)
+    # senza il blister resta la pillola vista male
+    modello = ModelloFarmaciFinto(per_segno={SEGNO - 1: [pillola_coperta]})
+    eventi = scena_con_rilevatore(sequenza, modello, None, {8: SEGNO - 1})
+    assert eventi[0].confidenza == pytest.approx(0.1)
+    # blister al secondo 5 e gesto dal secondo 8: 3 s prima, non conta
+    sequenza = presa + ripeti("giu", False, 3) + ripeti("bocca", False, 2)
+    modello = ModelloFarmaciFinto(per_segno={SEGNO: [blister], SEGNO - 1: [pillola_coperta]})
+    eventi = scena_con_rilevatore(sequenza, modello, None, {5: SEGNO, 9: SEGNO - 1})
+    assert eventi[0].confidenza == pytest.approx(0.1)
 
 
 @pytest.mark.skipif(not Path(PESI_FARMACI).exists(), reason="pesi dei farmaci non presenti (fuori dal repo)")

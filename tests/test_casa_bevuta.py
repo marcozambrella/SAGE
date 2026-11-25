@@ -268,8 +268,14 @@ def test_regola_dei_gesti_polso_al_naso_e_contenitore_alla_testa():
 TAZZA_COPERTA = Oggetto("cup", np.array([100, 35, 125, 60], np.float32), 0.08)
 
 
-def scena_gesti(sequenza: list) -> list:
+# la stessa tazza appoggiata sul tavolo davanti alla persona, ben vista
+TAZZA_SUL_TAVOLO = Oggetto("cup", np.array([140, 150, 160, 175], np.float32), 0.7)
+
+
+def scena_gesti(sequenza: list, secondi_tazza_sul_tavolo: list | None = None) -> list:
     """Un passo al secondo: sequenza[i] = (polso alla bocca, tazza coperta vista vicino alla testa)."""
+    if secondi_tazza_sul_tavolo is None:
+        secondi_tazza_sul_tavolo = []
     analizzatore = AnalizzatoreBevuta(CUCINA, PERSONALIZZAZIONE)
     inizio = datetime.datetime(2026, 12, 1, 10, 0, tzinfo=ROMA)
     eventi = []
@@ -279,8 +285,11 @@ def scena_gesti(sequenza: list) -> list:
         incerti = []
         if sequenza[indice][1]:
             incerti.append(TAZZA_COPERTA)
+        sicuri = []
+        if indice in secondi_tazza_sul_tavolo:
+            sicuri.append(TAZZA_SUL_TAVOLO)
         immagine = np.full((200, 200, 3), 80, np.uint8)
-        osservazione = Osservazione("cucina", "kitchen", ora, immagine, [persona_al_tavolo(polso_alla_bocca)], [],
+        osservazione = Osservazione("cucina", "kitchen", ora, immagine, [persona_al_tavolo(polso_alla_bocca)], sicuri,
                                     incerti)
         for evento in analizzatore.elabora(osservazione):
             eventi.append(evento)
@@ -306,3 +315,15 @@ def test_contenitore_visto_male_intorno_al_gesto():
     assert scena_gesti(troppo_dopo + [(False, False)] * 2) == []
     # senza tazza il solo polso non è una bevuta
     assert scena_gesti([(True, False)] * 4 + [(False, False)] * 3) == []
+
+
+def test_confidenza_della_tazza_la_piu_alta_intorno_al_gesto():
+    # gesto ai secondi 3-4 con la tazza coperta (0,08) al secondo 4; livello mai visto: confidenza dimezzata
+    sequenza = [(False, False)] * 3 + [(True, False), (True, True)] + [(False, False)] * 3
+    assert scena_gesti(sequenza)[0].confidenza == pytest.approx(0.08 / 2)
+    # la stessa tazza sul tavolo al secondo 2 (0,7): conta la più alta, poi la minore con la persona (0,9)
+    assert scena_gesti(sequenza, [2])[0].confidenza == pytest.approx(0.7 / 2)
+    # sul tavolo al secondo 0, 3 s prima del gesto: non conta
+    assert scena_gesti(sequenza, [0])[0].confidenza == pytest.approx(0.08 / 2)
+    # sul tavolo al secondo 6, 2 s dopo il gesto: conta
+    assert scena_gesti(sequenza, [6])[0].confidenza == pytest.approx(0.7 / 2)

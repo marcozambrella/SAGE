@@ -6,7 +6,9 @@
    polso vicino al naso per almeno 1 s, e una pillola, un blister o una scatola di farmaci_det vicino alla testa,
    vista almeno una volta da 2 s prima a 2 s dopo, anche con confidenza bassa (alla bocca la mano la copre). Per
    questo, durante la presa, il rilevatore guarda anche il riquadro intorno al naso. Senza i pesi di farmaci_det basta
-   il polso, e un contenitore alla bocca è una bevuta.
+   il polso, e un contenitore alla bocca è una bevuta. Con i pesi la confidenza dell'evento è la minore tra quella
+   della persona e la più alta di un farmaco visto vicino alla persona (sul portapillole o intorno alla testa) da 2 s
+   prima del gesto a quando l'evento parte (coordinatore, 25/11).
 3. riconoscimento: quale farmaco, confrontando i ritagli con le foto di scatola/blister (riconoscimento_farmaci.py,
    CLIP congelato). I ritagli sono i box di scatola e blister di farmaci_det; senza, i ritagli intorno alla mano.
 Se la presa è in orario, in ritardo o saltata lo decide il backend. Lo stato è per persona (id del tracker).
@@ -23,9 +25,10 @@ from contratti.eventi import EventoFarmaco, Fonte, ValoriFarmaco
 
 from casa.aspetto_zona import AreaZona, RiferimentoZona
 from casa.bevuta import TIPI_DA_CLASSE, alla_bocca
-from casa.percezione import Osservazione, Persona, foto_prova
+from casa.percezione import Oggetto, Osservazione, Persona, foto_prova
 from casa.riconoscimento_farmaci import RiconoscitoreFarmaci
-from casa.scheletro import NASO, Gesto, gesto_dopo, mano_alla_bocca, misura, oggetto_alla_testa, polsi, punto
+from casa.scheletro import (NASO, Gesto, alza_la_massima, gesto_dopo, mano_alla_bocca, massime_delle_viste, misura,
+                            oggetto_alla_testa, polsi, punto, viste_recenti)
 from casa.zone import dentro_zona, zona_allargata, zone_del_tipo
 
 SECONDI_DALLA_PRESA_ALLA_BOCCA = 120.0
@@ -56,34 +59,36 @@ class ModelloFarmaci:
         # il modello non è stato: le copie per tornare indietro di un secondo (principale.py) lo condividono
         return self
 
-    def box_delle_classi(self, ritaglio: np.ndarray, x1: int, y1: int, classi_cercate: tuple,
-                         confidenza: float) -> list:
-        """Box (x1, y1, x2, y2 in pixel dell'immagine intera) delle classi cercate nel ritaglio che parte da x1, y1."""
+    def oggetti_delle_classi(self, ritaglio: np.ndarray, x1: int, y1: int, classi_cercate: tuple,
+                             confidenza: float) -> list[Oggetto]:
+        """Oggetti delle classi cercate nel ritaglio che parte da x1, y1 (box in pixel dell'immagine intera)."""
         risultato = self.modello.predict(ritaglio, conf=confidenza, imgsz=LATO_MODELLO_FARMACI, device="cpu",
                                          verbose=False)[0]
         box_ritaglio = risultato.boxes.xyxy.cpu().numpy()
         classi = risultato.boxes.cls.int().cpu().numpy()
+        confidenze = risultato.boxes.conf.cpu().numpy()
         spostamento = np.array([x1, y1, x1, y1], np.float32)
-        box = []
+        oggetti = []
         for indice in range(len(box_ritaglio)):
-            if risultato.names[int(classi[indice])] in classi_cercate:
-                box.append(box_ritaglio[indice] + spostamento)
-        return box
+            nome = risultato.names[int(classi[indice])]
+            if nome in classi_cercate:
+                oggetti.append(Oggetto(nome, box_ritaglio[indice] + spostamento, float(confidenze[indice])))
+        return oggetti
 
-    def scatole_e_blister(self, immagine: np.ndarray, area: AreaZona) -> list:
-        """Box delle scatole e dei blister nel riquadro dell'area."""
-        return self.box_delle_classi(area.ritaglio(immagine), area.x1, area.y1, CLASSI_DA_RICONOSCERE,
-                                     CONFIDENZA_FARMACI)
+    def scatole_e_blister(self, immagine: np.ndarray, area: AreaZona) -> list[Oggetto]:
+        """Scatole e blister nel riquadro dell'area."""
+        return self.oggetti_delle_classi(area.ritaglio(immagine), area.x1, area.y1, CLASSI_DA_RICONOSCERE,
+                                         CONFIDENZA_FARMACI)
 
-    def farmaci_nel_riquadro(self, immagine: np.ndarray, riquadro: np.ndarray) -> list:
-        """Box di pillole, blister e scatole nel riquadro (x1, y1, x2, y2 in pixel, tagliato ai bordi)."""
+    def farmaci_nel_riquadro(self, immagine: np.ndarray, riquadro: np.ndarray) -> list[Oggetto]:
+        """Pillole, blister e scatole nel riquadro (x1, y1, x2, y2 in pixel, tagliato ai bordi)."""
         x1 = max(int(riquadro[0]), 0)
         y1 = max(int(riquadro[1]), 0)
         x2 = min(int(riquadro[2]), immagine.shape[1])
         y2 = min(int(riquadro[3]), immagine.shape[0])
         if x2 - x1 < LATO_MINIMO_RITAGLIO or y2 - y1 < LATO_MINIMO_RITAGLIO:
             return []
-        return self.box_delle_classi(immagine[y1:y2, x1:x2], x1, y1, CLASSI_DEL_GESTO, CONFIDENZA_FARMACI_TESTA)
+        return self.oggetti_delle_classi(immagine[y1:y2, x1:x2], x1, y1, CLASSI_DEL_GESTO, CONFIDENZA_FARMACI_TESTA)
 
 
 @dataclass
@@ -97,6 +102,8 @@ class Presa:
     ritagli_farmaci: list    # box di scatole e blister del rilevatore farmaci_det
     gesto: Gesto | None                             # polso vicino al naso
     ultima_vista_farmaco: datetime.datetime | None  # ultima volta che farmaci_det ha visto un farmaco alla testa
+    viste_vicine: list       # VistaOggetto dei farmaci visti vicino alla persona negli ultimi 2 s
+    massime_al_gesto: dict   # classe → confidenza più alta da 2 s prima del gesto in poi
 
 
 def quadrato(centro: np.ndarray, lato: float) -> np.ndarray:
@@ -158,12 +165,14 @@ class AnalizzatoreFarmaco:
             return True
         return (ora - self.ultimo_rilevamento).total_seconds() >= SECONDI_TRA_RILEVAMENTI
 
-    def rileva_farmaci(self, presa: Presa, persona: Persona, immagine: np.ndarray, ora: datetime.datetime) -> None:
+    def rileva_farmaci(self, presa: Presa, persona: Persona, immagine: np.ndarray,
+                       ora: datetime.datetime) -> list[Oggetto]:
         """Il rilevatore farmaci_det sulle zone portapillole (allargate) a cui un polso della persona è vicino."""
+        trovati = []
         if len(presa.ritagli_farmaci) >= RITAGLI_MASSIMI:
-            return
+            return trovati
         if not self.e_ora_di_rilevare(ora):
-            return
+            return trovati
         altezza = immagine.shape[0]
         larghezza = immagine.shape[1]
         for zona in self.vicino_al_portapillole:
@@ -174,22 +183,22 @@ class AnalizzatoreFarmaco:
             if not vicino:
                 continue
             self.ultimo_rilevamento = ora
-            for box in self.modello_farmaci.scatole_e_blister(immagine, AreaZona(zona, immagine)):
-                ritaglio = ritaglio_del_box(immagine, box)
+            for oggetto in self.modello_farmaci.scatole_e_blister(immagine, AreaZona(zona, immagine)):
+                trovati.append(oggetto)
+                ritaglio = ritaglio_del_box(immagine, oggetto.box)
                 if ritaglio is not None and len(presa.ritagli_farmaci) < RITAGLI_MASSIMI:
                     presa.ritagli_farmaci.append(ritaglio)
+        return trovati
 
-    def farmaco_vicino_alla_testa(self, persona: Persona, immagine: np.ndarray, ora: datetime.datetime) -> bool:
-        """farmaci_det sul riquadro intorno al naso: c'è una pillola, un blister o una scatola vicino alla testa?"""
+    def farmaci_intorno_alla_testa(self, persona: Persona, immagine: np.ndarray,
+                                   ora: datetime.datetime) -> list[Oggetto]:
+        """farmaci_det sul riquadro intorno al naso: pillole, blister e scatole lì intorno."""
         naso = punto(persona, NASO)
         if naso is None or not self.e_ora_di_rilevare(ora):
-            return False
+            return []
         self.ultimo_rilevamento = ora
         lato = LATO_RIQUADRO_TESTA * float(persona.box[3] - persona.box[1])
-        for box in self.modello_farmaci.farmaci_nel_riquadro(immagine, quadrato(naso, lato)):
-            if oggetto_alla_testa(persona, box):
-                return True
-        return False
+        return self.modello_farmaci.farmaci_nel_riquadro(immagine, quadrato(naso, lato))
 
     def portapillole_aperto(self, immagine: np.ndarray, persone: list) -> bool:
         """Una zona portapillole ha cambiato aspetto (senza contare i pixel intorno ai polsi)?"""
@@ -220,7 +229,7 @@ class AnalizzatoreFarmaco:
             if polso_nella_zona is not None:
                 mani_al_portapillole = True
                 if presa is None:
-                    presa = Presa(ora, ora, False, [], immagine, 0.0, [], None, None)
+                    presa = Presa(ora, ora, False, [], immagine, 0.0, [], None, None, [], {})
                     self.prese[persona.id_traccia] = presa
                 presa.ultima_mano_nella_zona = ora
                 presa.confidenza = max(presa.confidenza, persona.confidenza)
@@ -232,19 +241,31 @@ class AnalizzatoreFarmaco:
                 continue
             if aperto:
                 presa.portapillole_aperto = True
+            vicini = []  # farmaci visti adesso vicino alla persona (portapillole o testa): per la confidenza
             if self.modello_farmaci is not None:
-                self.rileva_farmaci(presa, persona, immagine, ora)
+                for oggetto in self.rileva_farmaci(presa, persona, immagine, ora):
+                    vicini.append(oggetto)
                 # la testa si guarda per tutta la presa: il farmaco conta anche visto fino a 2 s prima del gesto
                 # (il rilevatore sul portapillole ha la precedenza: un rilevamento ogni 0,2 s in tutto)
-                if self.farmaco_vicino_alla_testa(persona, immagine, ora):
-                    presa.ultima_vista_farmaco = ora
+                for oggetto in self.farmaci_intorno_alla_testa(persona, immagine, ora):
+                    vicini.append(oggetto)
+                    if oggetto_alla_testa(persona, oggetto.box):
+                        presa.ultima_vista_farmaco = ora
+            presa.viste_vicine = viste_recenti(presa.viste_vicine, vicini, ora)
             polso_al_naso = polso_nella_zona is None and mano_alla_bocca(persona)
             # senza i pesi di farmaci_det conta il solo polso, e un contenitore alla bocca è una bevuta; con i pesi
             # decide il farmaco visto (la pillola presa con l'acqua è un farmaco e una bevuta)
             if self.modello_farmaci is None and sta_bevendo(persona, osservazione.oggetti):
                 polso_al_naso = False
             presa.gesto = gesto_dopo(presa.gesto, polso_al_naso, ora)
-            if presa.gesto is None or not presa.gesto.abbastanza_lungo():
+            if presa.gesto is None:
+                continue
+            if presa.gesto.inizio == ora:
+                presa.massime_al_gesto = massime_delle_viste(presa.viste_vicine)
+            else:
+                for oggetto in vicini:
+                    alza_la_massima(presa.massime_al_gesto, oggetto)
+            if not presa.gesto.abbastanza_lungo():
                 continue
             if self.modello_farmaci is None or presa.gesto.oggetto_visto_intorno(presa.ultima_vista_farmaco):
                 eventi.append(self.evento(presa, ora))
@@ -279,14 +300,17 @@ class AnalizzatoreFarmaco:
             if riconoscimento is not None:
                 farmaco_id = riconoscimento.farmaco_id
                 somiglianza = riconoscimento.somiglianza
-        fonte = Fonte(telecamera_id=self.telecamera_id, analizzatore="farmaco", confidenza=presa.confidenza)
+        confidenza = presa.confidenza
+        if self.modello_farmaci is not None and len(presa.massime_al_gesto) > 0:
+            confidenza = min(confidenza, max(presa.massime_al_gesto.values()))
+        fonte = Fonte(telecamera_id=self.telecamera_id, analizzatore="farmaco", confidenza=confidenza)
         return EventoFarmaco(
             id=str(uuid.uuid4()),
             tipo="farmaco",
             inizio=presa.inizio,
             fine=ora_bocca,
             stanza=self.stanza,
-            confidenza=presa.confidenza,
+            confidenza=confidenza,
             fonti=[fonte],
             foto_prova=foto_prova(presa.immagine),
             valori=ValoriFarmaco(farmaco_id=farmaco_id, somiglianza=somiglianza,
