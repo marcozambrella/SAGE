@@ -11,7 +11,10 @@ tra le soglie che vogliono dire davvero "alla bocca" (LIMITI_ALLA_BOCCA). Senza 
 (polso entro il 60% dell'altezza della persona per 4 s): le azioni di Charades coprono tutto il tempo con la tazza o il
 piatto davanti, quindi premiano "mani davanti al busto a lungo", non il gesto (prova del 25/11).
 
-Uso: python3 allenamento/tara_gesti.py runs/dataset_gesti_n
+Con le cartelle del kernel oggetti_charades tara anche FRAZIONE_ALTEZZA_OGGETTO_TESTA di casa (la condizione
+sull'oggetto della bevuta): scelta sulla validazione, numeri finali solo sul test.
+
+Uso: python3 allenamento/tara_gesti.py runs/dataset_gesti_n [runs/kaggle/oggetti_charades_1 runs/kaggle/...]
 """
 import csv
 import json
@@ -31,6 +34,17 @@ SOGLIE = {"spalle": [0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 2.0, 2.5, 3.0],
 DURATE = [0.2, 0.6, 1.0, 1.4, 2.0, 3.0, 4.0]
 # polso entro una larghezza di spalle dal naso, o entro un quarto dell'altezza della persona (circa una testa e mezza)
 LIMITI_ALLA_BOCCA = {"spalle": 1.0, "box": 0.25}
+# Condizione sull'oggetto (coordinatore, 25/11): FRAZIONE_ALTEZZA_OGGETTO_TESTA di casa, distanza tra il naso e il box
+# del contenitore in altezze del box della persona (prima 0,04 = 0,3 larghezze di spalle × 0,14). Si tara sulle
+# bevute di Charades con la regola del polso di casa: polso entro 0,25 altezze dal naso per 1 s.
+AZIONE_BEVUTA = "c106"
+CONTENITORI = ["bottle", "wine glass", "cup"]   # le classi COCO di TIPI_DA_CLASSE in bevuta.py
+SOGLIE_OGGETTO = [0.0, 0.02, 0.04, 0.06, 0.08, 0.1, 0.15, 0.2, 0.3, 0.5]
+# casa tiene gli oggetti sopra 0,25 (CONFIDENZA_MINIMA_OGGETTI): le tazze alla bocca sono piccole e coperte dalla mano,
+# quindi si prova anche a scendere (il kernel oggetti_charades salva da 0,05)
+CONFIDENZE_OGGETTO = [0.25, 0.15, 0.1, 0.05]
+POLSO_CASA = 0.25
+SECONDI_CASA = 1.0
 
 
 def divisioni(cartella: Path) -> dict:
@@ -91,7 +105,48 @@ def distanze_a_5_fps(percorso: Path) -> dict:
         distanza = np.where(visibili, np.minimum(distanza, valore), distanza)
     per_spalle = np.where(spalle_visibili, distanza / np.maximum(spalle, 1), np.inf)
     per_box = np.where(altezze > 1, distanza / np.maximum(altezze, 1), np.inf)
-    return {"istanti": istanti, "spalle": per_spalle, "box": per_box, "durata": durata}
+    return {"istanti": istanti, "spalle": per_spalle, "box": per_box, "durata": durata, "naso": naso,
+            "altezze": altezze}
+
+
+def distanze_oggetto(percorso: Path, distanze: dict, confidenza_minima: float) -> np.ndarray:
+    """Per ogni istante a FPS_CASA: distanza tra il naso e il box del contenitore più vicino, divisa per l'altezza del
+    box della persona, come oggetto_alla_testa di casa (infinito se il naso non si vede o non c'è un contenitore).
+    Gli oggetti vengono dal kernel oggetti_charades, a 5 fotogrammi al secondo come gli istanti."""
+    dati = np.load(percorso)
+    fotogrammi = dati["fotogramma"]
+    classi = dati["classe"]
+    box = dati["box"]
+    confidenze = dati["conf"]
+    naso = distanze["naso"]
+    altezze = distanze["altezze"]
+    risultato = np.full(len(naso), np.inf)
+    for riga in range(len(fotogrammi)):
+        istante = int(fotogrammi[riga])
+        if istante >= len(naso) or str(classi[riga]) not in CONTENITORI:
+            continue
+        if confidenze[riga] < confidenza_minima:
+            continue
+        if naso[istante, 2] <= CONFIDENZA_MINIMA or altezze[istante] <= 1:
+            continue
+        # distanza dal punto al rettangolo (0 se il naso è dentro), come distanza_dal_box di casa
+        dx = max(float(box[riga, 0] - naso[istante, 0]), 0.0, float(naso[istante, 0] - box[riga, 2]))
+        dy = max(float(box[riga, 1] - naso[istante, 1]), 0.0, float(naso[istante, 1] - box[riga, 3]))
+        valore = (dx ** 2 + dy ** 2) ** 0.5 / float(altezze[istante])
+        risultato[istante] = min(risultato[istante], valore)
+    return risultato
+
+
+def con_oggetto(video: list, confidenza_minima: float, soglia_oggetto: float) -> list:
+    """I video con la distanza polso-naso tenuta solo negli istanti con un contenitore vicino alla testa: la regola
+    della bevuta di casa (alla_bocca in bevuta.py). I gesti veri sono solo le bevute."""
+    risultato = []
+    for voce in video:
+        distanze = dict(voce["distanze"])
+        vicino = voce["oggetto"][confidenza_minima] <= soglia_oggetto
+        distanze["box"] = np.where(vicino, voce["distanze"]["box"], np.inf)
+        risultato.append({"distanze": distanze, "gesti": voce["bevute"]})
+    return risultato
 
 
 def tratti_della_regola(distanze: np.ndarray, istanti: np.ndarray, soglia: float, durata_minima: float) -> list:
@@ -145,18 +200,34 @@ def misura(video: list, chiave: str, soglia: float, durata_minima: float) -> dic
 cartella = Path(sys.argv[1])
 divisione_per_video = divisioni(cartella)
 scelti = json.loads((cartella / "video_scelti.json").read_text())
+percorsi_oggetti = {}
+for cartella_oggetti in sys.argv[2:]:
+    for percorso in Path(cartella_oggetti).rglob("*.npz"):
+        percorsi_oggetti[percorso.stem] = percorso
 video = {"val": [], "test": []}
+video_oggetti = {"val": [], "test": []}
 for percorso in sorted((cartella / "scheletri").rglob("*.npz")):
     identificativo = percorso.name.split(".")[0]
     divisione = divisione_per_video[identificativo]
     if divisione == "train":
         continue
     gesti = []
+    bevute = []
     for azione in scelti[identificativo]["azioni"].split(";"):
         parti = azione.split()
         if len(parti) == 3 and parti[0] in AZIONI_GESTO:
             gesti.append((float(parti[1]), float(parti[2])))
-    video[divisione].append({"distanze": distanze_a_5_fps(percorso), "gesti": gesti})
+        if len(parti) == 3 and parti[0] == AZIONE_BEVUTA:
+            bevute.append((float(parti[1]), float(parti[2])))
+    voce = {"distanze": distanze_a_5_fps(percorso), "gesti": gesti}
+    video[divisione].append(voce)
+    if identificativo in percorsi_oggetti:
+        voce["oggetto"] = {}
+        for confidenza_minima in CONFIDENZE_OGGETTO:
+            voce["oggetto"][confidenza_minima] = distanze_oggetto(percorsi_oggetti[identificativo], voce["distanze"],
+                                                                  confidenza_minima)
+        voce["bevute"] = bevute
+        video_oggetti[divisione].append(voce)
 print(f"video: val {len(video['val'])}, test {len(video['test'])}", flush=True)
 migliore = None
 migliore_senza_limiti = None
@@ -186,3 +257,39 @@ for chiave in SOGLIE:
         print(f"{chiave} durata {durata_minima} s: soglia {migliore_durata['soglia']}, val F1 {migliore_durata['f1']}, "
               f"test presi {test_durata['presi']}/{test_durata['gesti']}, inventati/ora {test_durata['inventati_ora']}, "
               f"F1 {test_durata['f1']}")
+
+if len(sys.argv) > 2:
+    print(f"condizione sull'oggetto: video val {len(video_oggetti['val'])}, test {len(video_oggetti['test'])}; "
+          f"polso entro {POLSO_CASA} per {SECONDI_CASA} s; gesti veri = bevute ({AZIONE_BEVUTA})")
+    for divisione in ["val", "test"]:
+        solo_bevute = []
+        for voce in video_oggetti[divisione]:
+            solo_bevute.append({"distanze": voce["distanze"], "gesti": voce["bevute"]})
+        print(f"solo il polso, {divisione}:", misura(solo_bevute, "box", POLSO_CASA, SECONDI_CASA))
+    # confidenza e soglia si scelgono solo sulla validazione; il test si guarda solo per le scelte fatte
+    scelta_per_confidenza = {}
+    for confidenza_minima in CONFIDENZE_OGGETTO:
+        for soglia_oggetto in SOGLIE_OGGETTO:
+            prova = misura(con_oggetto(video_oggetti["val"], confidenza_minima, soglia_oggetto), "box", POLSO_CASA,
+                           SECONDI_CASA)
+            prova["confidenza_oggetto"] = confidenza_minima
+            prova["soglia_oggetto"] = soglia_oggetto
+            print(f"confidenza {confidenza_minima}, oggetto entro {soglia_oggetto}: val presi {prova['presi']}/"
+                  f"{prova['gesti']}, precisione {prova['precisione_tratti']}, inventati/ora {prova['inventati_ora']}, "
+                  f"F1 {prova['f1']}")
+            if confidenza_minima not in scelta_per_confidenza:
+                scelta_per_confidenza[confidenza_minima] = prova
+            if prova["f1"] > scelta_per_confidenza[confidenza_minima]["f1"]:
+                scelta_per_confidenza[confidenza_minima] = prova
+    migliore_oggetto = None
+    for confidenza_minima in CONFIDENZE_OGGETTO:
+        scelta = scelta_per_confidenza[confidenza_minima]
+        if migliore_oggetto is None or scelta["f1"] > migliore_oggetto["f1"]:
+            migliore_oggetto = scelta
+    # la scelta con la confidenza di casa (0,25) e la migliore in assoluto
+    for scelta in [scelta_per_confidenza[CONFIDENZE_OGGETTO[0]], migliore_oggetto]:
+        test = misura(con_oggetto(video_oggetti["test"], scelta["confidenza_oggetto"], scelta["soglia_oggetto"]), "box",
+                      POLSO_CASA, SECONDI_CASA)
+        print(f"FRAZIONE_ALTEZZA_OGGETTO_TESTA {scelta['soglia_oggetto']} con confidenza {scelta['confidenza_oggetto']}"
+              f" (scelta sulla validazione): val {scelta}")
+        print("    test:", test)
