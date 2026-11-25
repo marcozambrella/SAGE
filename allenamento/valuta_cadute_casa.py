@@ -99,6 +99,11 @@ RAPPORTI_USCITA = [1.0, 0.8]
 # Conferme della stessa persona a meno di SECONDI_STESSO_ALLARME dalla precedente sono lo stesso allarme
 SOLO_CLASSIFICATORE = [(0.98, 3), (0.99, 3), (0.99, 4)]
 SECONDI_STESSO_ALLARME = 10.0
+# --allarme-classificatore (Marco, 25/11 sera: sì all'allarme dal solo classificatore molto sicuro): soglie e finestre
+# di fila provate sulla validazione, dalla più severa alla più larga (a pari risultato vince la più severa)
+SOGLIE_SICURE = [0.995, 0.99, 0.98, 0.97]
+FINESTRE_SICURE = [6, 5, 4, 3, 2]
+ALLARME_CLASSIFICATORE = "--allarme-classificatore" in sys.argv
 A_TERRA_DI_CASA = casa.caduta.a_terra
 
 
@@ -347,9 +352,17 @@ def registra_video(percorso: Path, classificatore: ClassificatoreCadute, isteres
 
 
 def decidi_allarmi(registro: dict, soglia: float, finestre_di_fila: int, regole: dict) -> list:
-    """Secondi degli allarmi con le condizioni di caduta.py: il primo fotogramma di ogni volta a terra in cui c'è la
-    conferma del classificatore (k finestre di fila sopra la soglia, da SECONDI_CADUTA_RAPIDA prima di finire a terra
-    in poi) e le regole, oppure 30 s a terra."""
+    """Secondi degli allarmi con le condizioni di caduta.py (vedi allarmi_con_stato)."""
+    allarmi = []
+    for secondi, numero_stato in allarmi_con_stato(registro, soglia, finestre_di_fila, regole):
+        allarmi.append(secondi)
+    return allarmi
+
+
+def allarmi_con_stato(registro: dict, soglia: float, finestre_di_fila: int, regole: dict) -> list:
+    """(secondi, numero dello stato) degli allarmi con le condizioni di caduta.py: il primo fotogramma di ogni volta a
+    terra in cui c'è la conferma del classificatore (k finestre di fila sopra la soglia, da SECONDI_CADUTA_RAPIDA prima
+    di finire a terra in poi) e le regole, oppure 30 s a terra."""
     conferme = {}   # numero dello stato → secondi in cui le ultime k probabilità superano la soglia
     recenti = {}
     for numero_stato, secondi, probabilita in registro["probabilita"]:
@@ -375,7 +388,7 @@ def decidi_allarmi(registro: dict, soglia: float, finestre_di_fila: int, regole:
                 pronta = rispetta_le_regole(candidato["misure"], regole)
         if pronta:
             segnalate.add(volta)
-            allarmi.append(candidato["secondi"])
+            allarmi.append((candidato["secondi"], candidato["stato"]))
     return allarmi
 
 
@@ -500,12 +513,13 @@ def cause_delle_perse(registri: dict, video: list, scelta: dict) -> dict:
     return cause
 
 
-def allarmi_solo_classificatore(registro: dict, soglia: float, finestre_di_fila: int) -> list:
-    """Secondi in cui k finestre di fila della stessa persona superano la soglia, senza la geometria; conferme a meno
-    di SECONDI_STESSO_ALLARME dalla precedente della stessa persona sono lo stesso allarme."""
+def conferme_sicure(registro: dict, soglia: float, finestre_di_fila: int) -> list:
+    """(secondi, numero dello stato) delle conferme sicure nuove: le ultime k finestre della persona tutte sopra la
+    soglia, senza conferme sicure della stessa persona nei SECONDI_STESSO_ALLARME prima (una serie di conferme di fila
+    è un allarme solo)."""
     recenti = {}
     ultima_conferma = {}
-    allarmi = []
+    conferme = []
     for numero_stato, secondi, probabilita in registro["probabilita"]:
         if numero_stato not in recenti:
             recenti[numero_stato] = []
@@ -513,26 +527,30 @@ def allarmi_solo_classificatore(registro: dict, soglia: float, finestre_di_fila:
         ultime = recenti[numero_stato][-finestre_di_fila:]
         if len(ultime) < finestre_di_fila or min(ultime) < soglia:
             continue
-        nuovo = True
+        nuova = True
         if numero_stato in ultima_conferma:
-            nuovo = secondi - ultima_conferma[numero_stato] > SECONDI_STESSO_ALLARME
-        if nuovo:
-            allarmi.append(secondi)
+            nuova = secondi - ultima_conferma[numero_stato] > SECONDI_STESSO_ALLARME
+        if nuova:
+            conferme.append((secondi, numero_stato))
         ultima_conferma[numero_stato] = secondi
+    return conferme
+
+
+def allarmi_con_classificatore_sicuro(registro: dict, scelta: dict, soglia_sicura: float, finestre_sicure: int) -> list:
+    """Allarmi di casa più quelli del solo classificatore molto sicuro (Marco, 25/11 sera: sì). Una persona non dà
+    due allarmi a meno di SECONDI_STESSO_ALLARME l'uno dall'altro: il secondo non si manda (se è quello della
+    geometria, a casa la caduta conta già segnalata)."""
+    eventi = allarmi_con_stato(registro, scelta["soglia"], scelta["finestre"], scelta["regole"])
+    eventi = eventi + conferme_sicure(registro, soglia_sicura, finestre_sicure)
+    eventi.sort()
+    ultimo_allarme = {}
+    allarmi = []
+    for secondi, numero_stato in eventi:
+        if numero_stato in ultimo_allarme and secondi - ultimo_allarme[numero_stato] <= SECONDI_STESSO_ALLARME:
+            continue
+        ultimo_allarme[numero_stato] = secondi
+        allarmi.append(secondi)
     return allarmi
-
-
-def unisci_allarmi(allarmi_casa: list, altri: list) -> list:
-    """Gli allarmi di casa più quelli del solo classificatore lontani da tutti quelli di casa."""
-    tutti = list(allarmi_casa)
-    for allarme in altri:
-        lontano = True
-        for allarme_casa in allarmi_casa:
-            if abs(allarme - allarme_casa) <= SECONDI_STESSO_ALLARME:
-                lontano = False
-        if lontano:
-            tutti.append(allarme)
-    return sorted(tutti)
 
 
 def scegli_regole(registri_val: dict, stampa: bool) -> tuple:
@@ -618,6 +636,63 @@ for identificativo in sorted(etichette):
         video_per_divisione[divisione].append(identificativo)
 print(f"video: val {len(video_per_divisione['val'])}, test {len(video_per_divisione['test'])}", flush=True)
 
+if ALLARME_CLASSIFICATORE:
+    # sul codice di casa com'è (755c443: regole, isteresi ed eredità dentro caduta.py): il registro senza isteresi in
+    # più riproduce casa; si sceglie sulla validazione la conferma sicura che prende più cadute senza più falsi allarmi
+    from casa.principale import PESI_CADUTE
+    pesi_della_posa = {"n": PESI_CADUTE["pesi/yolo26n-pose.pt"], "s": PESI_CADUTE["pesi/yolo26s-pose.pt"]}
+    regole_di_casa = {"angolo": casa.caduta.ANGOLO_A_TERRA_CONFERMATA}
+    registri = registra(["val", "test"], None)
+    for posa in ["s", "n"]:
+        pesi = pesi_della_posa[posa]
+        scelta_casa = {"soglia": pesi.soglia, "finestre": pesi.finestre_di_fila, "regole": regole_di_casa}
+        classificatore = ClassificatoreCadute(str(CARTELLA_CASA / pesi.percorso), pesi.soglia, pesi.finestre_di_fila)
+        diversi = 0
+        for divisione in ["val", "test"]:
+            for identificativo in video_per_divisione[divisione]:
+                veri = allarmi_di_casa(CARTELLE_SCHELETRI[posa] / (identificativo + ".npz"), classificatore)
+                dal_registro = decidi_allarmi(registri[posa][identificativo], scelta_casa["soglia"],
+                                              scelta_casa["finestre"], scelta_casa["regole"])
+                if veri != dal_registro:
+                    diversi += 1
+        print(f"posa {posa}: {diversi} video con allarmi diversi dal codice di casa", flush=True)
+        base = {}
+        for divisione in ["val", "test"]:
+            base[divisione] = metriche_del_registro(registri[posa], video_per_divisione[divisione],
+                                                    scelta_casa["soglia"], scelta_casa["finestre"],
+                                                    scelta_casa["regole"])
+            print(f"posa {posa}, {divisione}, casa com'è:", base[divisione], flush=True)
+        migliore = None
+        for soglia_sicura in SOGLIE_SICURE:
+            for finestre_sicure in FINESTRE_SICURE:
+                allarmi_per_video = {}
+                for identificativo in video_per_divisione["val"]:
+                    allarmi_per_video[identificativo] = allarmi_con_classificatore_sicuro(
+                        registri[posa][identificativo], scelta_casa, soglia_sicura, finestre_sicure)
+                risultato = metriche(allarmi_per_video, etichette)
+                print(f"  val, {finestre_sicure} finestre >= {soglia_sicura}:", risultato, flush=True)
+                if risultato["falsi"] > base["val"]["falsi"] or risultato["prese"] <= base["val"]["prese"]:
+                    continue
+                if migliore is not None:
+                    if risultato["prese"] < migliore["risultato"]["prese"]:
+                        continue
+                    if risultato["prese"] == migliore["risultato"]["prese"]:
+                        if risultato["falsi"] >= migliore["risultato"]["falsi"]:
+                            continue
+                migliore = {"soglia": soglia_sicura, "finestre": finestre_sicure, "risultato": risultato}
+        if migliore is None:
+            print(f"posa {posa}: nessuna conferma sicura prende più cadute senza più falsi allarmi", flush=True)
+            continue
+        allarmi_per_video = {}
+        for identificativo in video_per_divisione["test"]:
+            allarmi_per_video[identificativo] = allarmi_con_classificatore_sicuro(
+                registri[posa][identificativo], scelta_casa, migliore["soglia"], migliore["finestre"])
+        print(f"posa {posa}: scelta sulla validazione {migliore['finestre']} finestre >= {migliore['soglia']}:",
+              migliore["risultato"], flush=True)
+        print(f"posa {posa}, test, con il solo classificatore sicuro:", metriche(allarmi_per_video, etichette),
+              flush=True)
+    sys.exit(0)
+
 if SOLO_CASA:
     # il codice di casa com'è, senza registro: gli allarmi veri dell'analizzatore, con soglia e finestre di principale.py
     from casa.principale import PESI_CADUTE
@@ -701,10 +776,8 @@ for posa in CARTELLE_SCHELETRI:
             allarmi_per_video = {}
             for identificativo in video_per_divisione[divisione]:
                 registro = registri_scelti[posa][identificativo]
-                scelta = migliore["scelta"]
-                allarmi_casa = decidi_allarmi(registro, scelta["soglia"], scelta["finestre"], scelta["regole"])
-                altri = allarmi_solo_classificatore(registro, soglia, finestre_di_fila)
-                allarmi_per_video[identificativo] = unisci_allarmi(allarmi_casa, altri)
+                allarmi_per_video[identificativo] = allarmi_con_classificatore_sicuro(registro, migliore["scelta"],
+                                                                                      soglia, finestre_di_fila)
             risultato = metriche(allarmi_per_video, etichette)
             print(f"posa {posa}, {divisione}, isteresi + regole + solo classificatore {finestre_di_fila} finestre >= "
                   f"{soglia}:", risultato, flush=True)
