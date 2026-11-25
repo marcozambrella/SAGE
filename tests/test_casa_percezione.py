@@ -1,13 +1,15 @@
 """Test della percezione condivisa con i pesi pre-allenati (saltati se pesi/ non c'è: i pesi non sono nel repo)."""
 
 import base64
+import datetime
 from pathlib import Path
 
 import cv2
 import numpy as np
 import pytest
 
-from casa.percezione import CLASSI_OGGETTI, Percezione, foto_prova
+from casa.percezione import (CLASSI_CONTENITORI, CLASSI_OGGETTI, CONFIDENZA_MINIMA_CONTENITORI,
+                             CONFIDENZA_MINIMA_OGGETTI, Percezione, foto_prova)
 
 RADICE = Path(__file__).resolve().parents[1]
 POSA = RADICE / "pesi" / "yolo26n-pose.pt"
@@ -51,6 +53,17 @@ def test_solo_gli_oggetti_che_servono(percezione):
     oggetti = percezione.oggetti(immagine_bus())
     for oggetto in oggetti:
         assert oggetto.classe in CLASSI_OGGETTI
+
+
+@pytest.mark.skipif(mancano_i_pesi, reason="pesi pre-allenati non scaricati in pesi/")
+def test_contenitori_incerti_a_parte(percezione):
+    ora = datetime.datetime(2026, 12, 1, 8, 0, tzinfo=datetime.timezone.utc)
+    osservazione = percezione.osserva(immagine_bus(), percezione.nuovo_tracker(), True, "t", "kitchen", ora)
+    for oggetto in osservazione.oggetti:
+        assert oggetto.confidenza >= CONFIDENZA_MINIMA_OGGETTI
+    for oggetto in osservazione.contenitori_incerti:
+        assert oggetto.classe in CLASSI_CONTENITORI
+        assert CONFIDENZA_MINIMA_CONTENITORI <= oggetto.confidenza < CONFIDENZA_MINIMA_OGGETTI
 
 
 @pytest.mark.skipif(mancano_i_pesi, reason="pesi pre-allenati non scaricati in pesi/")

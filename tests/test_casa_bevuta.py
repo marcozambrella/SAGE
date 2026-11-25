@@ -262,3 +262,47 @@ def test_regola_dei_gesti_polso_al_naso_e_contenitore_alla_testa():
     assert not alla_bocca(persona_al_tavolo(False), bottiglia_alla_bocca)
     # polso al naso, bottiglia sul tavolo: nemmeno
     assert not alla_bocca(persona_al_tavolo(True), Oggetto("bottle", BOX_SUL_TAVOLO, 0.7))
+
+
+# tazza alla bocca vista male dal rilevatore: coperta dalla mano, confidenza bassa
+TAZZA_COPERTA = Oggetto("cup", np.array([100, 35, 125, 60], np.float32), 0.08)
+
+
+def scena_gesti(sequenza: list) -> list:
+    """Un passo al secondo: sequenza[i] = (polso alla bocca, tazza coperta vista vicino alla testa)."""
+    analizzatore = AnalizzatoreBevuta(CUCINA, PERSONALIZZAZIONE)
+    inizio = datetime.datetime(2026, 12, 1, 10, 0, tzinfo=ROMA)
+    eventi = []
+    for indice in range(len(sequenza)):
+        ora = inizio + datetime.timedelta(seconds=indice)
+        polso_alla_bocca = sequenza[indice][0]
+        incerti = []
+        if sequenza[indice][1]:
+            incerti.append(TAZZA_COPERTA)
+        immagine = np.full((200, 200, 3), 80, np.uint8)
+        osservazione = Osservazione("cucina", "kitchen", ora, immagine, [persona_al_tavolo(polso_alla_bocca)], [],
+                                    incerti)
+        for evento in analizzatore.elabora(osservazione):
+            eventi.append(evento)
+    for evento in analizzatore.fine():
+        eventi.append(evento)
+    return eventi
+
+
+def test_contenitore_visto_male_intorno_al_gesto():
+    # gesto ai secondi 3-4; la tazza (confidenza 0,08) vista al secondo 1, 2 s prima: è un sorso
+    prima = [(False, False), (False, True), (False, False), (True, False), (True, False)] + [(False, False)] * 3
+    eventi = scena_gesti(prima)
+    assert len(eventi) == 1
+    assert eventi[0].valori.contenitore in ("tazza", "bicchiere")  # "cup" di COCO: dipende dalla personalizzazione
+    assert not eventi[0].valori.livello_visibile
+    # vista al secondo 0, 3 s prima: no
+    troppo_prima = [(False, True)] + [(False, False)] * 2 + [(True, False)] * 2 + [(False, False)] * 3
+    assert scena_gesti(troppo_prima) == []
+    # gesto ai secondi 1-2, tazza vista al secondo 4 (2 s dopo): sì; al secondo 5: no
+    dopo = [(False, False), (True, False), (True, False), (False, False), (False, True)] + [(False, False)] * 3
+    assert len(scena_gesti(dopo)) == 1
+    troppo_dopo = [(False, False), (True, False), (True, False)] + [(False, False)] * 2 + [(False, True)]
+    assert scena_gesti(troppo_dopo + [(False, False)] * 2) == []
+    # senza tazza il solo polso non è una bevuta
+    assert scena_gesti([(True, False)] * 4 + [(False, False)] * 3) == []

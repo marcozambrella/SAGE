@@ -1,6 +1,8 @@
 """Geometria dello scheletro (17 punti COCO della posa YOLO) per la regola dei gesti (bevuta e farmaco) e per la
 geometria delle cadute."""
 
+from dataclasses import dataclass
+import datetime
 import math
 
 import numpy as np
@@ -20,15 +22,52 @@ CAVIGLIA_DX = 16
 VISIBILITA_MINIMA = 0.3       # sotto questa confidenza il punto non si usa
 
 # Regola dei gesti (Marco, 25/11: nessun modello del gesto): un polso vicino al naso, di fila, + l'oggetto del
-# rilevatore vicino alla testa (bicchiere o bottiglia: bevuta; scatola, blister o pillola: farmaco). Soglie del polso
-# dall'agente di allenamento, tarate su Charades (25/11).
+# rilevatore vicino alla testa (bicchiere o bottiglia: bevuta; scatola, blister o pillola: farmaco), visto almeno una
+# volta da 2 s prima a 2 s dopo il gesto: alla bocca la mano lo copre e il rilevatore quasi non lo vede. Soglie
+# dell'agente di allenamento, tarate su Charades (25/11: sul test 161 bevute prese su 300, 77 falsi all'ora; nello
+# stesso fotogramma del gesto il contenitore non si vedeva quasi mai).
 FRAZIONE_ALTEZZA_POLSO_NASO = 0.25   # polso dal naso, in altezze del box della persona
 # dal primo all'ultimo fotogramma del gesto: 5 fotogrammi di fila a 5 al secondo (1 s nella taratura)
 SECONDI_GESTO = 0.8
-# box dell'oggetto dal naso, in altezze del box della persona come il polso (di lato le spalle sembrano strette):
-# sono le 0,3 larghezze di spalle di prima, con le spalle a 0,14 dell'altezza (mediana su 47 mila scheletri in piedi
-# dei dataset pubblici delle cadute, posa n). La tara su Charades l'agente di allenamento (25/11)
-FRAZIONE_ALTEZZA_OGGETTO_TESTA = 0.04
+FRAZIONE_ALTEZZA_OGGETTO_TESTA = 0.2  # box dell'oggetto dal naso, in altezze del box della persona come il polso
+SECONDI_INTORNO_AL_GESTO = 2.0        # l'oggetto conta se visto da tanto prima dell'inizio a tanto dopo la fine
+
+
+@dataclass
+class Gesto:
+    """Fotogrammi di fila con un polso vicino al naso."""
+
+    inizio: datetime.datetime
+    ultimo: datetime.datetime   # ultimo fotogramma con il polso vicino al naso
+    in_corso: bool              # anche nell'ultimo fotogramma visto il polso era vicino al naso
+    confermato: bool            # con l'oggetto è già diventato un sorso (bevuta)
+
+    def abbastanza_lungo(self) -> bool:
+        return (self.ultimo - self.inizio).total_seconds() >= SECONDI_GESTO
+
+    def oggetto_visto_intorno(self, ora_vista: datetime.datetime | None) -> bool:
+        """L'oggetto visto vicino alla testa a quell'ora conta per questo gesto?"""
+        if ora_vista is None:
+            return False
+        prima_dell_inizio = (self.inizio - ora_vista).total_seconds()
+        dopo_la_fine = (ora_vista - self.ultimo).total_seconds()
+        return prima_dell_inizio <= SECONDI_INTORNO_AL_GESTO and dopo_la_fine <= SECONDI_INTORNO_AL_GESTO
+
+    def scaduto(self, ora: datetime.datetime) -> bool:
+        """Finito da più di 2 s: un oggetto visto adesso non conta più."""
+        return (ora - self.ultimo).total_seconds() > SECONDI_INTORNO_AL_GESTO
+
+
+def gesto_dopo(gesto: Gesto | None, polso_al_naso: bool, ora: datetime.datetime) -> Gesto | None:
+    """Il gesto aggiornato con un fotogramma; se il polso torna vicino al naso dopo un'interruzione è un gesto nuovo."""
+    if not polso_al_naso:
+        if gesto is not None:
+            gesto.in_corso = False
+        return gesto
+    if gesto is None or not gesto.in_corso:
+        return Gesto(ora, ora, True, False)
+    gesto.ultimo = ora
+    return gesto
 
 
 def punto(persona: Persona, indice: int) -> np.ndarray | None:
@@ -86,7 +125,7 @@ def mano_alla_bocca(persona: Persona) -> bool:
 
 
 def oggetto_alla_testa(persona: Persona, box: np.ndarray) -> bool:
-    """Il box dell'oggetto (x1, y1, x2, y2 in pixel) tocca quasi il naso."""
+    """Il box dell'oggetto (x1, y1, x2, y2 in pixel) è vicino al naso."""
     naso = punto(persona, NASO)
     if naso is None:
         return False

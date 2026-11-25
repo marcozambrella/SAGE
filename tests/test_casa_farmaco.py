@@ -182,10 +182,11 @@ class ModelloFarmaciFinto:
     """Vede la scatola rossa del fotogramma (box 135-165 × 95-125) se c'è; vicino alla testa vede i box dati.
     Ricorda le chiamate."""
 
-    def __init__(self, box_vicino_alla_testa: list | None = None):
+    def __init__(self, box_vicino_alla_testa: list | None = None, solo_col_segno: bool = False):
         if box_vicino_alla_testa is None:
             box_vicino_alla_testa = [PILLOLA_ALLA_BOCCA]
         self.box_vicino_alla_testa = box_vicino_alla_testa
+        self.solo_col_segno = solo_col_segno  # vede i box solo nei fotogrammi segnati (pixel in alto a sinistra)
         self.chiamate = 0
         self.chiamate_testa = 0
 
@@ -197,6 +198,8 @@ class ModelloFarmaciFinto:
 
     def farmaci_nel_riquadro(self, immagine: np.ndarray, riquadro: np.ndarray) -> list:
         self.chiamate_testa = self.chiamate_testa + 1
+        if self.solo_col_segno and immagine[0, 0, 0] != 255:
+            return []
         return self.box_vicino_alla_testa
 
 
@@ -209,14 +212,19 @@ class RiconoscitoreCheRicorda:
         return None
 
 
-def scena_con_rilevatore(sequenza: list, modello: ModelloFarmaciFinto, riconoscitore) -> list:
+def scena_con_rilevatore(sequenza: list, modello: ModelloFarmaciFinto, riconoscitore,
+                         secondi_segnati: list | None = None) -> list:
+    if secondi_segnati is None:
+        secondi_segnati = []
     analizzatore = AnalizzatoreFarmaco(CUCINA, riconoscitore, modello)
     eventi = []
     for secondo in range(len(sequenza)):
         passo = sequenza[secondo]
         ora = INIZIO + datetime.timedelta(seconds=secondo)
-        osservazione = Osservazione("cucina", "kitchen", ora, fotogramma(passo[1], passo[2]), [persona(passo[0])],
-                                    passo[3])
+        immagine = fotogramma(passo[1], passo[2])
+        if secondo in secondi_segnati:
+            immagine[0, 0] = 255
+        osservazione = Osservazione("cucina", "kitchen", ora, immagine, [persona(passo[0])], passo[3])
         for evento in analizzatore.elabora(osservazione):
             eventi.append(evento)
     return eventi
@@ -229,10 +237,10 @@ def test_ritagli_dal_rilevatore_dei_farmaci():
                 + ripeti("bocca", True, 2))
     eventi = scena_con_rilevatore(sequenza, modello, riconoscitore)
     assert len(eventi) == 1
-    # sul portapillole il rilevatore gira solo con il polso vicino (2 s); intorno alla testa solo durante il gesto,
-    # finché non vede il farmaco (subito)
+    # sul portapillole il rilevatore gira solo con il polso vicino (2 s); intorno alla testa per il resto della presa
+    # (2 s con la mano giù e 2 alla bocca), perché il farmaco conta anche visto poco prima del gesto
     assert modello.chiamate == 2
-    assert modello.chiamate_testa == 1
+    assert modello.chiamate_testa == 4
     # al riconoscimento vanno i box della scatola con un decimo di bordo: 30 px + 3 px per lato
     assert len(riconoscitore.ritagli) == 2
     assert riconoscitore.ritagli[0].shape == (36, 36, 3)
@@ -255,6 +263,24 @@ def test_con_il_rilevatore_serve_il_farmaco_vicino_alla_testa():
     lontana = ModelloFarmaciFinto([PILLOLA_SUL_TAVOLO])
     assert scena_con_rilevatore(sequenza, lontana, None) == []
     assert len(scena_con_rilevatore(sequenza, ModelloFarmaciFinto(), None)) == 1
+
+
+def test_il_farmaco_conta_da_2_s_prima_a_2_s_dopo_il_gesto():
+    presa = ripeti("giu", False, 3) + ripeti("portapillole", True, 2)  # presa dal secondo 3
+    # pillola vista al secondo 6, gesto ai secondi 7-8: 1 s prima, conta
+    prima = presa + ripeti("giu", True, 2) + ripeti("bocca", True, 2)
+    eventi = scena_con_rilevatore(prima, ModelloFarmaciFinto(solo_col_segno=True), None, [6])
+    assert len(eventi) == 1
+    # vista al secondo 5, gesto ai secondi 9-10: 4 s prima, non conta
+    troppo_prima = presa + ripeti("giu", True, 4) + ripeti("bocca", True, 2)
+    assert scena_con_rilevatore(troppo_prima, ModelloFarmaciFinto(solo_col_segno=True), None, [5]) == []
+    # gesto ai secondi 5-6, vista al secondo 8 (2 s dopo): conta, e l'evento parte lì
+    dopo = presa + ripeti("bocca", True, 2) + ripeti("giu", True, 3)
+    eventi = scena_con_rilevatore(dopo, ModelloFarmaciFinto(solo_col_segno=True), None, [8])
+    assert len(eventi) == 1
+    assert eventi[0].fine == INIZIO + datetime.timedelta(seconds=8)
+    # vista al secondo 9 (3 s dopo): non conta
+    assert scena_con_rilevatore(dopo, ModelloFarmaciFinto(solo_col_segno=True), None, [9]) == []
 
 
 @pytest.mark.skipif(not Path(PESI_FARMACI).exists(), reason="pesi dei farmaci non presenti (fuori dal repo)")

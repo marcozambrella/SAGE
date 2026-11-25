@@ -8,7 +8,7 @@ spenta: le telecamere di casa sono fisse e in ARGO costava ~11 ms a fotogramma.
 """
 
 import base64
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import datetime
 
 import cv2
@@ -26,6 +26,10 @@ CLASSI_OGGETTI = ("bottle", "wine glass", "cup", "bowl", "dining table") + CIBI_
 # 0,1 come il default di `.track` (ARGO, D3): il tracker usa anche le persone poco sicure nel secondo passaggio.
 CONFIDENZA_MINIMA_PERSONE = 0.1
 CONFIDENZA_MINIMA_OGGETTI = 0.25
+# Contenitori anche poco sicuri, solo per cercarli vicino alla testa intorno al gesto della bevuta: alla bocca la mano
+# li copre e il rilevatore li vede con confidenza 0,05-0,16 (agente di allenamento su Charades, 25/11)
+CLASSI_CONTENITORI = ("bottle", "wine glass", "cup")
+CONFIDENZA_MINIMA_CONTENITORI = 0.05
 
 # Foto di prova degli eventi: JPEG piccolo (va nel JSON dell'evento e su Telegram).
 LATO_MASSIMO_FOTO = 640
@@ -57,6 +61,8 @@ class Osservazione:
     immagine: np.ndarray    # BGR: per le foto di prova e per i controlli in pixel (es. livello della bevuta)
     persone: list[Persona]
     oggetti: list[Oggetto]
+    # contenitori con confidenza da 0,05 a 0,25 (sotto la soglia di `oggetti`): solo per la regola dei gesti
+    contenitori_incerti: list[Oggetto] = field(default_factory=list)
 
 
 class Percezione:
@@ -115,8 +121,8 @@ class Percezione:
         return persone
 
     def oggetti(self, immagine: np.ndarray) -> list[Oggetto]:
-        """Contenitori, ciotole e tavoli del rilevatore pre-allenato (D14)."""
-        risultato = self.rilevatore.predict(immagine, conf=CONFIDENZA_MINIMA_OGGETTI, imgsz=self.lato_immagine,
+        """Contenitori, ciotole e tavoli del rilevatore pre-allenato (D14): da 0,25 in su, i contenitori da 0,05."""
+        risultato = self.rilevatore.predict(immagine, conf=CONFIDENZA_MINIMA_CONTENITORI, imgsz=self.lato_immagine,
                                             device="cpu", verbose=False)[0]
         box = risultato.boxes.xyxy.cpu().numpy()
         classi = risultato.boxes.cls.int().cpu().numpy()
@@ -124,17 +130,24 @@ class Percezione:
         oggetti = []
         for indice in range(len(box)):
             nome = risultato.names[int(classi[indice])]
-            if nome in CLASSI_OGGETTI:
-                oggetti.append(Oggetto(nome, box[indice], float(confidenze[indice])))
+            confidenza = float(confidenze[indice])
+            sicuro = nome in CLASSI_OGGETTI and confidenza >= CONFIDENZA_MINIMA_OGGETTI
+            if sicuro or nome in CLASSI_CONTENITORI:
+                oggetti.append(Oggetto(nome, box[indice], confidenza))
         return oggetti
 
     def osserva(self, immagine: np.ndarray, tracker, con_oggetti: bool, telecamera_id: str, stanza: str,
                 ora: datetime.datetime) -> Osservazione:
         persone = self.persone(immagine, tracker)
         oggetti = []
+        contenitori_incerti = []
         if con_oggetti:
-            oggetti = self.oggetti(immagine)
-        return Osservazione(telecamera_id, stanza, ora, immagine, persone, oggetti)
+            for oggetto in self.oggetti(immagine):
+                if oggetto.confidenza >= CONFIDENZA_MINIMA_OGGETTI:
+                    oggetti.append(oggetto)
+                else:
+                    contenitori_incerti.append(oggetto)
+        return Osservazione(telecamera_id, stanza, ora, immagine, persone, oggetti, contenitori_incerti)
 
 
 def foto_prova(immagine: np.ndarray) -> str:

@@ -10,8 +10,9 @@ backend ricalcola i ml con la sua capienza.
 
 Il contenitore viene dal rilevatore pre-allenato (COCO). Il livello si trova SOLO con un controllo sui pixel: non
 arriverà nessun modello del liquido (Marco, 24/11). Il gesto è la regola dei gesti (scheletro.py, Marco 25/11):
-- sorso: un polso vicino al naso e un contenitore (bottiglia, bicchiere, tazza) vicino alla testa per almeno 1 s
-  (5 fotogrammi di fila a 5 al secondo); sorsi vicini della stessa persona (id del tracker) sono la stessa bevuta;
+- sorso: un polso vicino al naso per almeno 1 s (5 fotogrammi di fila a 5 al secondo) e un contenitore (bottiglia,
+  bicchiere, tazza) vicino alla testa, visto almeno una volta da 2 s prima a 2 s dopo, anche con confidenza bassa
+  (alla bocca la mano lo copre); sorsi vicini della stessa persona (id del tracker) sono la stessa bevuta;
 - livello: la riga orizzontale che divide il contenitore in aria sopra e liquido sotto, mediana di qualche misura
   prima e dopo, solo quando il contenitore è appoggiato (in mano può essere inclinato o coperto dalle dita);
 - se il livello non si vede (tazza non trasparente, contenitore troppo lontano o sempre in mano) la bevuta si manda
@@ -30,7 +31,8 @@ from contratti.configurazione import Contenitore, Personalizzazione, TelecameraL
 from contratti.eventi import EventoBevuta, Fonte, ValoriBevuta
 
 from casa.percezione import Osservazione, Oggetto, Persona, foto_prova
-from casa.scheletro import SECONDI_GESTO, distanza_dal_box, mano_alla_bocca, misura, oggetto_alla_testa, polsi
+from casa.scheletro import (SECONDI_INTORNO_AL_GESTO, Gesto, distanza_dal_box, gesto_dopo, mano_alla_bocca, misura,
+                            oggetto_alla_testa, polsi)
 
 # classe del rilevatore pre-allenato (COCO) → tipi di contenitore compatibili, nell'ordine in cui si cercano nella
 # personalizzazione ("cup" in COCO comprende anche i bicchieri d'acqua)
@@ -193,6 +195,14 @@ class Sorso:
     immagine: np.ndarray
 
 
+@dataclass
+class VistaContenitore:
+    """Un contenitore visto vicino alla testa di una persona."""
+
+    ora: datetime.datetime
+    oggetto: Oggetto
+
+
 def in_mano(persona: Persona, contenitore: Oggetto) -> bool:
     vicino = FRAZIONE_SPALLE_CONTENITORE * misura(persona)
     for polso in polsi(persona):
@@ -215,46 +225,26 @@ class AnalizzatoreBevuta:
         self.personalizzazione = personalizzazione
         self.misure_recenti = {}  # classe → ultime MisuraLivello dei contenitori lontani dalla bocca
         self.sorsi = {}           # id traccia → Sorso in corso
+        self.gesti = {}           # id traccia → Gesto (polso vicino al naso)
+        self.contenitori_alla_testa = {}  # id traccia → ultima VistaContenitore
+        self.misure_al_gesto = {}  # id traccia → misure_recenti copiate all'inizio del gesto: il "prima" del sorso
+        self.immagini_al_gesto = {}  # id traccia → primo fotogramma del gesto (foto di prova)
 
     def elabora(self, osservazione: Osservazione) -> list[EventoBevuta]:
         ora = osservazione.ora
-        contenitori_alla_bocca = {}  # id traccia → contenitore
-        appoggiati = []
+        # il livello si misura solo sui contenitori appoggiati: in mano possono essere inclinati o coperti dalle dita
         for oggetto in osservazione.oggetti:
             if oggetto.classe not in TIPI_DA_CLASSE:
                 continue
-            bevitore = None
             tenuto = False
             for persona in osservazione.persone:
-                if alla_bocca(persona, oggetto):
-                    bevitore = persona
-                if in_mano(persona, oggetto):
+                if alla_bocca(persona, oggetto) or in_mano(persona, oggetto):
                     tenuto = True
-            if bevitore is not None:
-                contenitori_alla_bocca[bevitore.id_traccia] = oggetto
-            elif not tenuto:
-                appoggiati.append(oggetto)
-
-        # il livello si misura solo sui contenitori appoggiati: in mano possono essere inclinati o coperti dalle dita
-        for oggetto in appoggiati:
-            self.misura_livello(osservazione.immagine, oggetto)
+            if not tenuto:
+                self.misura_livello(osservazione.immagine, oggetto)
 
         for persona in osservazione.persone:
-            if persona.id_traccia not in contenitori_alla_bocca:
-                continue
-            oggetto = contenitori_alla_bocca[persona.id_traccia]
-            confidenza = min(persona.confidenza, oggetto.confidenza)
-            altezza = float(oggetto.box[3] - oggetto.box[1])
-            sorso = self.sorsi.get(persona.id_traccia)
-            if sorso is None:
-                prima = list(self.misure_recenti.get(oggetto.classe, []))
-                sorso = Sorso(ora, ora, oggetto.classe, confidenza, altezza, prima, [], False, osservazione.immagine)
-                self.sorsi[persona.id_traccia] = sorso
-            # un altro sorso prima di rimettere giù il contenitore: è la stessa bevuta
-            sorso.ultima_alla_bocca = ora
-            sorso.finito = False
-            sorso.dopo = []
-            sorso.confidenza = max(sorso.confidenza, confidenza)
+            self.segui_il_gesto(persona, osservazione)
 
         eventi = []
         chiusi = []
@@ -263,15 +253,84 @@ class AnalizzatoreBevuta:
             lontano_da = (ora - sorso.ultima_alla_bocca).total_seconds()
             if not sorso.finito and lontano_da >= SECONDI_FINE_SORSO:
                 sorso.finito = True
-                if (sorso.ultima_alla_bocca - sorso.inizio).total_seconds() < SECONDI_GESTO:
-                    chiusi.append(id_traccia)  # troppo breve: non era un sorso
-                    continue
             if sorso.finito and (len(sorso.dopo) >= MISURE_PER_LIVELLO or lontano_da >= SECONDI_ATTESA_DOPO):
                 eventi.append(self.evento(sorso))
                 chiusi.append(id_traccia)
         for id_traccia in chiusi:
             self.sorsi.pop(id_traccia)
+        self.dimentica_i_gesti_finiti(ora)
         return eventi
+
+    def segui_il_gesto(self, persona: Persona, osservazione: Osservazione) -> None:
+        """La regola dei gesti per una persona; quando il gesto e il contenitore ci sono tutti e due è un sorso."""
+        ora = osservazione.ora
+        id_traccia = persona.id_traccia
+        for oggetto in osservazione.oggetti + osservazione.contenitori_incerti:
+            if oggetto.classe not in TIPI_DA_CLASSE or not oggetto_alla_testa(persona, oggetto.box):
+                continue
+            vista = self.contenitori_alla_testa.get(id_traccia)
+            # nello stesso fotogramma si tiene il più sicuro
+            if vista is None or vista.ora < ora or oggetto.confidenza > vista.oggetto.confidenza:
+                self.contenitori_alla_testa[id_traccia] = VistaContenitore(ora, oggetto)
+
+        gesto = gesto_dopo(self.gesti.get(id_traccia), mano_alla_bocca(persona), ora)
+        if gesto is None:
+            return
+        self.gesti[id_traccia] = gesto
+        if gesto.inizio == ora:
+            # il "prima" sono le misure fino all'inizio del gesto: alla conferma il contenitore può essere già giù
+            copia = {}
+            for classe in self.misure_recenti:
+                copia[classe] = list(self.misure_recenti[classe])
+            self.misure_al_gesto[id_traccia] = copia
+            self.immagini_al_gesto[id_traccia] = osservazione.immagine
+        if gesto.confermato:
+            sorso = self.sorsi.get(id_traccia)
+            if gesto.in_corso and sorso is not None:
+                sorso.ultima_alla_bocca = ora
+                sorso.finito = False
+                sorso.dopo = []
+            return
+        vista = self.contenitori_alla_testa.get(id_traccia)
+        if vista is None or not gesto.abbastanza_lungo() or not gesto.oggetto_visto_intorno(vista.ora):
+            return
+        gesto.confermato = True
+        self.sorso_dal_gesto(persona, gesto, vista.oggetto)
+
+    def sorso_dal_gesto(self, persona: Persona, gesto: Gesto, oggetto: Oggetto) -> None:
+        id_traccia = persona.id_traccia
+        confidenza = min(persona.confidenza, oggetto.confidenza)
+        sorso = self.sorsi.get(id_traccia)
+        if sorso is None:
+            prima = list(self.misure_al_gesto[id_traccia].get(oggetto.classe, []))
+            altezza = float(oggetto.box[3] - oggetto.box[1])
+            sorso = Sorso(gesto.inizio, gesto.ultimo, oggetto.classe, confidenza, altezza, prima, [], False,
+                          self.immagini_al_gesto[id_traccia])
+            self.sorsi[id_traccia] = sorso
+            return
+        # un altro sorso prima di rimettere giù il contenitore: è la stessa bevuta
+        sorso.ultima_alla_bocca = gesto.ultimo
+        sorso.finito = False
+        sorso.dopo = []
+        sorso.confidenza = max(sorso.confidenza, confidenza)
+
+    def dimentica_i_gesti_finiti(self, ora: datetime.datetime) -> None:
+        """Via i gesti finiti da più di 2 s e i contenitori visti da tanto da chi non ha un gesto."""
+        finiti = []
+        for id_traccia in self.gesti:
+            if self.gesti[id_traccia].scaduto(ora):
+                finiti.append(id_traccia)
+        for id_traccia in finiti:
+            self.gesti.pop(id_traccia)
+            self.misure_al_gesto.pop(id_traccia)
+            self.immagini_al_gesto.pop(id_traccia)
+        vecchie = []
+        for id_traccia in self.contenitori_alla_testa:
+            secondi = (ora - self.contenitori_alla_testa[id_traccia].ora).total_seconds()
+            if id_traccia not in self.gesti and secondi > SECONDI_INTORNO_AL_GESTO:
+                vecchie.append(id_traccia)
+        for id_traccia in vecchie:
+            self.contenitori_alla_testa.pop(id_traccia)
 
     def misura_livello(self, immagine: np.ndarray, oggetto: Oggetto) -> None:
         frazione = frazione_piena_dai_pixel(immagine, oggetto.box, oggetto.classe)
@@ -287,9 +346,9 @@ class AnalizzatoreBevuta:
 
     def fine(self) -> list[EventoBevuta]:
         eventi = []
+        # i sorsi nascono solo da gesti abbastanza lunghi: valgono tutti
         for sorso in self.sorsi.values():
-            if (sorso.ultima_alla_bocca - sorso.inizio).total_seconds() >= SECONDI_GESTO:
-                eventi.append(self.evento(sorso))
+            eventi.append(self.evento(sorso))
         self.sorsi = {}
         return eventi
 

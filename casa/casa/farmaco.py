@@ -3,9 +3,10 @@
    portapillole è aperto se la zona cambia aspetto (aspetto_zona.py). Il rilevatore allenato farmaci_det (25/11:
    pillola, blister, scatola_farmaco, portapillole, scomparto) gira solo quando un polso è vicino alla zona.
 2. gesto: la mano porta la pillola alla bocca entro 2 minuti. È la regola dei gesti (scheletro.py, Marco 25/11): un
-   polso vicino al naso per almeno 1 s, e intanto una pillola, un blister o una scatola di farmaci_det vicino alla
-   testa (il rilevatore gira sul riquadro intorno al naso solo durante il gesto). Senza i pesi di farmaci_det basta
-   il polso. Un contenitore alla bocca è una bevuta, non un farmaco.
+   polso vicino al naso per almeno 1 s, e una pillola, un blister o una scatola di farmaci_det vicino alla testa,
+   vista almeno una volta da 2 s prima a 2 s dopo, anche con confidenza bassa (alla bocca la mano la copre). Per
+   questo, durante la presa, il rilevatore guarda anche il riquadro intorno al naso. Senza i pesi di farmaci_det basta
+   il polso, e un contenitore alla bocca è una bevuta.
 3. riconoscimento: quale farmaco, confrontando i ritagli con le foto di scatola/blister (riconoscimento_farmaci.py,
    CLIP congelato). I ritagli sono i box di scatola e blister di farmaci_det; senza, i ritagli intorno alla mano.
 Se la presa è in orario, in ritardo o saltata lo decide il backend. Lo stato è per persona (id del tracker).
@@ -24,7 +25,7 @@ from casa.aspetto_zona import AreaZona, RiferimentoZona
 from casa.bevuta import TIPI_DA_CLASSE, alla_bocca
 from casa.percezione import Osservazione, Persona, foto_prova
 from casa.riconoscimento_farmaci import RiconoscitoreFarmaci
-from casa.scheletro import NASO, SECONDI_GESTO, mano_alla_bocca, misura, oggetto_alla_testa, polsi, punto
+from casa.scheletro import NASO, Gesto, gesto_dopo, mano_alla_bocca, misura, oggetto_alla_testa, polsi, punto
 from casa.zone import dentro_zona, zona_allargata, zone_del_tipo
 
 SECONDI_DALLA_PRESA_ALLA_BOCCA = 120.0
@@ -38,7 +39,8 @@ LATO_MODELLO_FARMACI = 640       # come nell'allenamento
 SECONDI_TRA_RILEVAMENTI = 0.2    # il rilevatore costa ~60-80 ms: al massimo 5 volte al secondo anche durante gli eventi
 CLASSI_DA_RICONOSCERE = ("scatola_farmaco", "blister")  # le foto caricate nell'app sono di scatole e blister
 CLASSI_DEL_GESTO = ("pillola", "blister", "scatola_farmaco")  # l'oggetto vicino alla testa (Marco, 25/11)
-LATO_RIQUADRO_TESTA = 0.5        # riquadro intorno al naso, in altezze del box: fin dove arriva il polso del gesto
+CONFIDENZA_FARMACI_TESTA = 0.05  # come i contenitori della bevuta: alla bocca la mano copre il farmaco
+LATO_RIQUADRO_TESTA = 0.6        # lato del riquadro intorno al naso, in altezze del box: lo 0,2 della regola + oggetto
 MARGINE_RITAGLIO_FARMACO = 0.1   # un po' di bordo intorno al box della scatola
 
 
@@ -54,9 +56,10 @@ class ModelloFarmaci:
         # il modello non è stato: le copie per tornare indietro di un secondo (principale.py) lo condividono
         return self
 
-    def box_delle_classi(self, ritaglio: np.ndarray, x1: int, y1: int, classi_cercate: tuple) -> list:
+    def box_delle_classi(self, ritaglio: np.ndarray, x1: int, y1: int, classi_cercate: tuple,
+                         confidenza: float) -> list:
         """Box (x1, y1, x2, y2 in pixel dell'immagine intera) delle classi cercate nel ritaglio che parte da x1, y1."""
-        risultato = self.modello.predict(ritaglio, conf=CONFIDENZA_FARMACI, imgsz=LATO_MODELLO_FARMACI, device="cpu",
+        risultato = self.modello.predict(ritaglio, conf=confidenza, imgsz=LATO_MODELLO_FARMACI, device="cpu",
                                          verbose=False)[0]
         box_ritaglio = risultato.boxes.xyxy.cpu().numpy()
         classi = risultato.boxes.cls.int().cpu().numpy()
@@ -69,7 +72,8 @@ class ModelloFarmaci:
 
     def scatole_e_blister(self, immagine: np.ndarray, area: AreaZona) -> list:
         """Box delle scatole e dei blister nel riquadro dell'area."""
-        return self.box_delle_classi(area.ritaglio(immagine), area.x1, area.y1, CLASSI_DA_RICONOSCERE)
+        return self.box_delle_classi(area.ritaglio(immagine), area.x1, area.y1, CLASSI_DA_RICONOSCERE,
+                                     CONFIDENZA_FARMACI)
 
     def farmaci_nel_riquadro(self, immagine: np.ndarray, riquadro: np.ndarray) -> list:
         """Box di pillole, blister e scatole nel riquadro (x1, y1, x2, y2 in pixel, tagliato ai bordi)."""
@@ -79,7 +83,7 @@ class ModelloFarmaci:
         y2 = min(int(riquadro[3]), immagine.shape[0])
         if x2 - x1 < LATO_MINIMO_RITAGLIO or y2 - y1 < LATO_MINIMO_RITAGLIO:
             return []
-        return self.box_delle_classi(immagine[y1:y2, x1:x2], x1, y1, CLASSI_DEL_GESTO)
+        return self.box_delle_classi(immagine[y1:y2, x1:x2], x1, y1, CLASSI_DEL_GESTO, CONFIDENZA_FARMACI_TESTA)
 
 
 @dataclass
@@ -91,8 +95,8 @@ class Presa:
     immagine: np.ndarray
     confidenza: float
     ritagli_farmaci: list    # box di scatole e blister del rilevatore farmaci_det
-    inizio_gesto: datetime.datetime | None  # primo fotogramma di fila con il polso vicino al naso
-    farmaco_alla_testa: bool                # durante questo gesto farmaci_det ha visto un farmaco vicino alla testa
+    gesto: Gesto | None                             # polso vicino al naso
+    ultima_vista_farmaco: datetime.datetime | None  # ultima volta che farmaci_det ha visto un farmaco alla testa
 
 
 def quadrato(centro: np.ndarray, lato: float) -> np.ndarray:
@@ -216,7 +220,7 @@ class AnalizzatoreFarmaco:
             if polso_nella_zona is not None:
                 mani_al_portapillole = True
                 if presa is None:
-                    presa = Presa(ora, ora, False, [], immagine, 0.0, [], None, False)
+                    presa = Presa(ora, ora, False, [], immagine, 0.0, [], None, None)
                     self.prese[persona.id_traccia] = presa
                 presa.ultima_mano_nella_zona = ora
                 presa.confidenza = max(presa.confidenza, persona.confidenza)
@@ -230,18 +234,19 @@ class AnalizzatoreFarmaco:
                 presa.portapillole_aperto = True
             if self.modello_farmaci is not None:
                 self.rileva_farmaci(presa, persona, immagine, ora)
-            gesto = polso_nella_zona is None and mano_alla_bocca(persona)
-            if not gesto or sta_bevendo(persona, osservazione.oggetti):
-                presa.inizio_gesto = None
-                presa.farmaco_alla_testa = False
+                # la testa si guarda per tutta la presa: il farmaco conta anche visto fino a 2 s prima del gesto
+                # (il rilevatore sul portapillole ha la precedenza: un rilevamento ogni 0,2 s in tutto)
+                if self.farmaco_vicino_alla_testa(persona, immagine, ora):
+                    presa.ultima_vista_farmaco = ora
+            polso_al_naso = polso_nella_zona is None and mano_alla_bocca(persona)
+            # senza i pesi di farmaci_det conta il solo polso, e un contenitore alla bocca è una bevuta; con i pesi
+            # decide il farmaco visto (la pillola presa con l'acqua è un farmaco e una bevuta)
+            if self.modello_farmaci is None and sta_bevendo(persona, osservazione.oggetti):
+                polso_al_naso = False
+            presa.gesto = gesto_dopo(presa.gesto, polso_al_naso, ora)
+            if presa.gesto is None or not presa.gesto.abbastanza_lungo():
                 continue
-            if presa.inizio_gesto is None:
-                presa.inizio_gesto = ora
-            if self.modello_farmaci is not None and not presa.farmaco_alla_testa:
-                presa.farmaco_alla_testa = self.farmaco_vicino_alla_testa(persona, immagine, ora)
-            # senza i pesi di farmaci_det resta il solo polso
-            oggetto_visto = self.modello_farmaci is None or presa.farmaco_alla_testa
-            if (ora - presa.inizio_gesto).total_seconds() >= SECONDI_GESTO and oggetto_visto:
+            if self.modello_farmaci is None or presa.gesto.oggetto_visto_intorno(presa.ultima_vista_farmaco):
                 eventi.append(self.evento(presa, ora))
                 self.prese.pop(persona.id_traccia)
 
