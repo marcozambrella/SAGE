@@ -427,15 +427,16 @@
 }
 
 /* ---------- Barra del pasto (Marco, 25/11): completamento e colore secondo la categoria ---------- */
-/* Arancione meno di metà, giallo metà, verde tutto. Il giallo sul binario chiaro non arriva a 3:1: per questo
-   la categoria si legge anche dal riempimento (un terzo, metà, pieno) e dalle parole accanto. */
+/* Arancione meno di metà, giallo metà, verde tutto. Il giallo è un giallo oro con un bordo sottile più scuro
+   (3,5:1 sul binario): da solo un giallo sul fondo chiaro non si legge. La categoria si legge anche dal
+   riempimento (un terzo, metà, pieno) e dalle parole accanto. */
 .pasto-poco {
   background: linear-gradient(180deg, #ec8c52, #d9621f);
 }
 
 .pasto-meta {
-  background: linear-gradient(180deg, #f3c85c, #e3a91f);
-  box-shadow: inset 0 0 0 1px rgba(122, 79, 0, 0.25);
+  background: linear-gradient(180deg, #e6b82e, #d4a000);
+  box-shadow: inset 0 0 0 1px #9a7400;
 }
 
 .pasto-tutto {
