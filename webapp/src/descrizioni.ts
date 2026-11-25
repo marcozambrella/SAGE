@@ -116,6 +116,15 @@ export function descriviEvento(evento: Evento, personalizzazione: Personalizzazi
       gravita: "neutro",
     };
   }
+  if (evento.tipo === "sonno") {
+    // Un pezzo di sonno: dall'addormentarsi al risveglio (la notte può averne più d'uno, tra le alzate).
+    if (evento.fine === null) {
+      return { icona: "letto", titolo: "Fell asleep", dettaglio: "Still asleep", gravita: "neutro" };
+    }
+    const sveglio = oraDellaCasa(evento.fine, personalizzazione.fuso_orario);
+    const dettaglioSonno = "Slept " + durata(minutiTra(evento.inizio, evento.fine)) + " · woke at " + sveglio;
+    return { icona: "letto", titolo: "Asleep", dettaglio: dettaglioSonno, gravita: "neutro" };
+  }
   // alzata_notturna
   const minuti = minutiTra(evento.inizio, evento.fine);
   const dettaglio = durata(minuti) + " out of bed · " + evento.valori.stanze.join(", ");

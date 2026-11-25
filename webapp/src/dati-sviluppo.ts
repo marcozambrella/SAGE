@@ -3,7 +3,8 @@
 //  Servono solo finché il backend non è pronto: api.ts li usa quando VITE_API_URL non è impostato.
 //  Rispettano esattamente i tipi di contratti.ts (copia di contratti/contratti/*.py).
 //  Il "giorno vero" (GIORNO_DEMO) imita i risultati dei video registrati; gli altri giorni imitano lo storico
-//  simulato (simulato: true), con una piccola storia: nell'ultima settimana si beve meno e ci si alza più di notte.
+//  simulato (simulato: true), con una piccola storia: nell'ultima settimana si beve meno, ci si alza più di notte
+//  e si dorme meno.
 // ==========================================================================================================
 import type {
   DoseFarmaco,
@@ -88,6 +89,44 @@ function base(
     ha_foto: false,
     simulato: simulato,
   };
+}
+
+// ---------- Sonno (API.md, Marco 25/11) ----------
+// Una notte è fatta di pezzi di sonno: il primo inizia quando si addormenta la sera, l'ultimo finisce quando si
+// sveglia al mattino, i buchi in mezzo sono le alzate notturne. La notte conta nel giorno in cui finisce.
+
+type PezzoDiSonno = {
+  inizio: string;
+  fine: string;
+};
+
+function minutiDiSonno(pezzi: PezzoDiSonno[]): number {
+  let minuti = 0;
+  for (const pezzo of pezzi) {
+    minuti = minuti + (new Date(pezzo.fine).getTime() - new Date(pezzo.inizio).getTime()) / 60000;
+  }
+  return minuti;
+}
+
+function eventiSonno(pezzi: PezzoDiSonno[], prefissoId: string, simulato: boolean): Evento[] {
+  const eventi: Evento[] = [];
+  for (let i = 0; i < pezzi.length; i++) {
+    eventi.push({
+      ...base(
+        prefissoId + "-sonno-" + i,
+        pezzi[i].inizio,
+        pezzi[i].fine,
+        "Bedroom",
+        "t-camera",
+        "sonno",
+        0.9,
+        simulato,
+      ),
+      tipo: "sonno",
+      valori: { zona_id: "z-letto" },
+    });
+  }
+  return eventi;
 }
 
 // Bevuta calcolata come in D9: ml = livello sceso / altezza del contenitore × capienza.
@@ -232,8 +271,19 @@ function eventiGiornoVero(): Evento[] {
     tipo: "uscita",
     valori: { zona_id: "porta-ingresso", in_orario_vietato: true },
   });
+  for (const evento of eventiSonno(NOTTE_GIORNO_VERO, "ev", false)) {
+    eventi.push(evento);
+  }
+  eventi.sort(confrontaInizio);
   return eventi;
 }
+
+// La notte tra il 13 e il 14: a letto alle 22:40, due alzate (02:14 e 05:40), sveglia alle 06:55.
+const NOTTE_GIORNO_VERO: PezzoDiSonno[] = [
+  { inizio: ora("2026-12-13", "22:40"), fine: ora(G, "02:14") },
+  { inizio: ora(G, "02:26"), fine: ora(G, "05:40") },
+  { inizio: ora(G, "05:46"), fine: ora(G, "06:55") },
+];
 
 const REPORT_GIORNO_VERO: ReportGiornaliero = {
   data: G,
@@ -285,6 +335,9 @@ const REPORT_GIORNO_VERO: ReportGiornaliero = {
   ],
   alzate_notturne: 2,
   minuti_fuori_letto_notte: 18,
+  sonno_minuti: minutiDiSonno(NOTTE_GIORNO_VERO),
+  addormentato_alle: NOTTE_GIORNO_VERO[0].inizio,
+  sveglio_alle: NOTTE_GIORNO_VERO[2].fine,
   cadute: 1,
   uscite: 1,
   uscite_in_orario_vietato: 1,
@@ -302,6 +355,41 @@ function caso(indice: number, seme: number): number {
 // Giorni con un evento particolare nello storico simulato.
 const GIORNI_CON_CADUTA = ["2026-11-27"];
 const GIORNI_CON_USCITA_VIETATA = ["2026-12-03", "2026-12-11"];
+// Una notte in cui la telecamera della camera da letto era spenta: sonno non visto (null).
+const NOTTI_NON_VISTE = ["2026-11-19"];
+// Le alzate notturne simulate: le prime N di queste ore, 9 minuti l'una.
+const ORE_ALZATE = ["02:30", "04:45", "05:50"];
+
+// La notte che finisce la mattina di "giorno", con le sue alzate. null se quella notte non si è vista.
+function notteSimulata(giorno: string, alzate: number): PezzoDiSonno[] | null {
+  if (NOTTI_NON_VISTE.includes(giorno)) {
+    return null;
+  }
+  const seme = Number(giorno.slice(5, 7)) * 31 + Number(giorno.slice(8, 10));
+  // A letto tra le 22:20 e le 23:00, sveglia tra le 06:30 e le 07:10.
+  let minutiDopoLe22 = 20 + Math.round(caso(seme, 6) * 40);
+  let minutiDopoLe6 = 30 + Math.round(caso(seme, 7) * 40);
+  // Nell'ultima settimana va a letto più tardi e si sveglia prima.
+  if (giorno >= spostaGiorno(G, -7)) {
+    minutiDopoLe22 = minutiDopoLe22 + 30;
+    minutiDopoLe6 = minutiDopoLe6 - 20;
+  }
+  const pezzi: PezzoDiSonno[] = [];
+  let inizio = ora(spostaGiorno(giorno, -1), aggiungiMinuti("22:00", minutiDopoLe22));
+  for (let i = 0; i < alzate; i++) {
+    pezzi.push({ inizio: inizio, fine: ora(giorno, ORE_ALZATE[i]) });
+    inizio = ora(giorno, aggiungiMinuti(ORE_ALZATE[i], 9));
+  }
+  pezzi.push({ inizio: inizio, fine: ora(giorno, aggiungiMinuti("06:00", minutiDopoLe6)) });
+  return pezzi;
+}
+
+function sonnoDellaNotte(notte: PezzoDiSonno[] | null): number | null {
+  if (notte === null) {
+    return null;
+  }
+  return minutiDiSonno(notte);
+}
 
 function riassuntoSimulato(giorno: string, indice: number): RiassuntoGiorno {
   // indice = quanti giorni prima del giorno vero.
@@ -347,6 +435,7 @@ function riassuntoSimulato(giorno: string, indice: number): RiassuntoGiorno {
     pasti: 3,
     pasti_meno_di_meta: pastiMenoDiMeta,
     alzate_notturne: alzate,
+    sonno_minuti: sonnoDellaNotte(notteSimulata(giorno, alzate)),
     cadute: cadute,
     uscite_in_orario_vietato: usciteVietate,
     simulato: true,
@@ -364,6 +453,7 @@ function riassuntoGiornoVero(): RiassuntoGiorno {
     pasti: 3,
     pasti_meno_di_meta: 1,
     alzate_notturne: 2,
+    sonno_minuti: minutiDiSonno(NOTTE_GIORNO_VERO),
     cadute: 1,
     uscite_in_orario_vietato: 1,
     simulato: false,
@@ -461,6 +551,14 @@ function reportSimulato(riassunto: RiassuntoGiorno): ReportGiornaliero {
   if (riassunto.pasti_meno_di_meta > 0) {
     cena = "meno_di_meta";
   }
+  // A che ora si è addormentato e svegliato: inizio del primo pezzo di sonno e fine dell'ultimo.
+  const notte = notteSimulata(giorno, riassunto.alzate_notturne);
+  let addormentato: string | null = null;
+  let sveglio: string | null = null;
+  if (notte !== null) {
+    addormentato = notte[0].inizio;
+    sveglio = notte[notte.length - 1].fine;
+  }
   const pasti: PastoDelGiorno[] = [
     { ora: ora(giorno, "08:20"), cibi: MENU[numeroGiorno % 6], quanto_mangiato: "tutto" },
     { ora: ora(giorno, "12:45"), cibi: MENU[(numeroGiorno + 1) % 6], quanto_mangiato: pranzo },
@@ -475,6 +573,9 @@ function reportSimulato(riassunto: RiassuntoGiorno): ReportGiornaliero {
     pasti: pasti,
     alzate_notturne: riassunto.alzate_notturne,
     minuti_fuori_letto_notte: riassunto.alzate_notturne * 9,
+    sonno_minuti: riassunto.sonno_minuti,
+    addormentato_alle: addormentato,
+    sveglio_alle: sveglio,
     cadute: riassunto.cadute,
     uscite: riassunto.uscite_in_orario_vietato,
     uscite_in_orario_vietato: riassunto.uscite_in_orario_vietato,
@@ -485,9 +586,8 @@ function reportSimulato(riassunto: RiassuntoGiorno): ReportGiornaliero {
 function eventiSimulati(report: ReportGiornaliero): Evento[] {
   const giorno = report.data;
   const eventi: Evento[] = [];
-  const oreAlzate = ["02:30", "04:45", "05:50"];
   for (let i = 0; i < report.alzate_notturne; i++) {
-    const inizio = oreAlzate[i];
+    const inizio = ORE_ALZATE[i];
     eventi.push({
       ...base(
         "sim-" + giorno + "-alzata-" + i,
@@ -582,6 +682,12 @@ function eventiSimulati(report: ReportGiornaliero): Evento[] {
       valori: { zona_id: "porta-ingresso", in_orario_vietato: true },
     });
   }
+  const notte = notteSimulata(giorno, report.alzate_notturne);
+  if (notte !== null) {
+    for (const evento of eventiSonno(notte, "sim-" + giorno, true)) {
+      eventi.push(evento);
+    }
+  }
   // In ordine di inizio, come risponde il backend.
   eventi.sort(confrontaInizio);
   return eventi;
@@ -616,8 +722,11 @@ export function reportGiornalieroSviluppo(giorno: string): ReportGiornaliero | n
 
 export function eventiSviluppo(dal: string, al: string, tipo: TipoEvento | null): Evento[] {
   const eventi: Evento[] = [];
+  // Si guarda anche il giorno dopo "al": la sua notte inizia la sera di "al". Poi si tengono solo gli eventi
+  // che iniziano tra "dal" e "al", come fa il backend.
+  const dopo = spostaGiorno(al, 1);
   let giorno = dal;
-  while (giorno <= al) {
+  while (giorno <= dopo) {
     let delGiorno: Evento[] = [];
     if (giorno === G) {
       delGiorno = eventiGiornoVero();
@@ -628,7 +737,9 @@ export function eventiSviluppo(dal: string, al: string, tipo: TipoEvento | null)
       }
     }
     for (const evento of delGiorno) {
-      if (tipo === null || evento.tipo === tipo) {
+      const giornoEvento = evento.inizio.slice(0, 10);
+      const nelPeriodo = giornoEvento >= dal && giornoEvento <= al;
+      if (nelPeriodo && (tipo === null || evento.tipo === tipo)) {
         eventi.push(evento);
       }
     }
@@ -653,6 +764,8 @@ function reportPeriodo(tipo: "settimanale" | "mensile", dal: string, al: string)
   let cadute = 0;
   let usciteVietate = 0;
   let alzate = 0;
+  let minutiSonno = 0;
+  let nottiConSonno = 0;
   for (const riga of giorni) {
     acqua = acqua + riga.acqua_ml;
     previste = previste + riga.dosi_previste;
@@ -660,6 +773,15 @@ function reportPeriodo(tipo: "settimanale" | "mensile", dal: string, al: string)
     cadute = cadute + riga.cadute;
     usciteVietate = usciteVietate + riga.uscite_in_orario_vietato;
     alzate = alzate + riga.alzate_notturne;
+    if (riga.sonno_minuti !== null) {
+      minutiSonno = minutiSonno + riga.sonno_minuti;
+      nottiConSonno = nottiConSonno + 1;
+    }
+  }
+  // Media sulle notti in cui si è visto dormire (API.md).
+  let sonnoMedio: number | null = null;
+  if (nottiConSonno > 0) {
+    sonnoMedio = minutiSonno / nottiConSonno;
   }
   const numeroGiorni = Math.max(1, giorni.length);
   // Senza dosi valutate l'aderenza è null (API.md): la web app scrive "No data".
@@ -677,6 +799,7 @@ function reportPeriodo(tipo: "settimanale" | "mensile", dal: string, al: string)
     cadute: cadute,
     uscite_in_orario_vietato: usciteVietate,
     alzate_notturne_medie: alzate / numeroGiorni,
+    sonno_medio_minuti: sonnoMedio,
   };
 }
 

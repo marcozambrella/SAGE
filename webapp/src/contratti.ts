@@ -9,7 +9,7 @@ export type TipoContenitore = "bicchiere" | "bottiglia" | "tazza";
 // Quanto del piatto è stato mangiato, in tre categorie (niente percentuale: non è abbastanza precisa).
 export type QuantoMangiato = "meno_di_meta" | "meta" | "tutto";
 
-export type TipoEvento = "caduta" | "uscita" | "bevuta" | "farmaco" | "pasto" | "alzata_notturna";
+export type TipoEvento = "caduta" | "uscita" | "bevuta" | "farmaco" | "pasto" | "alzata_notturna" | "sonno";
 
 // Questi tipi fanno partire subito l'allarme Telegram (D10, D16).
 export const TIPI_URGENTI: TipoEvento[] = ["caduta", "uscita"];
@@ -78,6 +78,12 @@ export interface ValoriAlzataNotturna {
   stanze: string[];
 }
 
+// Un pezzo di sonno a letto: inizio = si addormenta, fine = si sveglia. Una notte può averne più d'uno.
+export interface ValoriSonno {
+  // La zona "letto" dove dorme.
+  zona_id: string;
+}
+
 export interface EventoCaduta extends EventoBase {
   tipo: "caduta";
   valori: ValoriCaduta;
@@ -108,8 +114,14 @@ export interface EventoAlzataNotturna extends EventoBase {
   valori: ValoriAlzataNotturna;
 }
 
+export interface EventoSonno extends EventoBase {
+  tipo: "sonno";
+  valori: ValoriSonno;
+}
+
 // Il campo "tipo" dice quale evento è (e quindi che "valori" aspettarsi).
-export type Evento = EventoCaduta | EventoUscita | EventoBevuta | EventoFarmaco | EventoPasto | EventoAlzataNotturna;
+export type Evento =
+  EventoCaduta | EventoUscita | EventoBevuta | EventoFarmaco | EventoPasto | EventoAlzataNotturna | EventoSonno;
 
 // ---------- configurazione.py (solo la parte che vede la web app) ----------
 
@@ -201,6 +213,11 @@ export interface ReportGiornaliero {
   pasti: PastoDelGiorno[];
   alzate_notturne: number;
   minuti_fuori_letto_notte: number;
+  // Sonno della notte che finisce la mattina di questo giorno. null se non si è visto dormire.
+  sonno_minuti: number | null;
+  // Inizio del primo pezzo di sonno e fine dell'ultimo (ISO con fuso).
+  addormentato_alle: string | null;
+  sveglio_alle: string | null;
   cadute: number;
   uscite: number;
   uscite_in_orario_vietato: number;
@@ -218,6 +235,8 @@ export interface RiassuntoGiorno {
   // Pasti con meno di metà del piatto mangiato: il segnale che conta per la famiglia.
   pasti_meno_di_meta: number;
   alzate_notturne: number;
+  // Come nel report giornaliero: null se quella notte non si è visto dormire.
+  sonno_minuti: number | null;
   cadute: number;
   uscite_in_orario_vietato: number;
   simulato: boolean;
@@ -235,6 +254,8 @@ export interface ReportPeriodo {
   cadute: number;
   uscite_in_orario_vietato: number;
   alzate_notturne_medie: number;
+  // Media sulle notti in cui si è visto dormire; null se nessuna.
+  sonno_medio_minuti: number | null;
 }
 
 // ---------- API.md: GET /demo/periodo ----------

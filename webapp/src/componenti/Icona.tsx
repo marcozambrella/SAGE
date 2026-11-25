@@ -15,6 +15,7 @@ export type NomeIcona =
   | "goccia"
   | "pasto"
   | "luna"
+  | "letto"
   | "avviso"
   | "porta"
   | "casa"
@@ -99,6 +100,12 @@ const DISEGNI: Record<NomeIcona, ReactNode> = {
     </>
   ),
   luna: <path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" />,
+  letto: (
+    <>
+      <path d="M3 6v13M3 15h18v4M21 15v-2a3 3 0 0 0-3-3h-7v5" />
+      <circle cx="7" cy="12" r="2" />
+    </>
+  ),
   avviso: (
     <>
       <path d="M10.3 4.6a2 2 0 0 1 3.4 0l7.4 12.9a2 2 0 0 1-1.7 3H4.6a2 2 0 0 1-1.7-3z" />
