@@ -157,6 +157,9 @@ export interface RegoleAllarmi {
   allarme_uscita_attivo: boolean;
   // Pausa dell'allarme uscita: fino a quando (ISO con fuso), null se non è in pausa.
   pausa_fino_a: string | null;
+  // Id della zona "porta" che è il portone di casa: l'uscita si conta solo lì. null: valgono tutte le zone porta.
+  // Si sceglierà nell'app quando le telecamere si potranno collegare: per ora la web app non lo imposta.
+  portone_zona_id: string | null;
 }
 
 export interface Personalizzazione {

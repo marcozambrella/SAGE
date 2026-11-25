@@ -18,6 +18,7 @@ export function personalizzazioneVuota(): Personalizzazione {
       orari_notte: { dalle: "22:00", alle: "07:00" },
       allarme_uscita_attivo: true,
       pausa_fino_a: null,
+      portone_zona_id: null,
     },
     fuso_orario: "Europe/Rome",
   };
