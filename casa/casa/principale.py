@@ -31,6 +31,7 @@ from contratti.eventi import TIPI_URGENTI
 from casa.alzata_notturna import AnalizzatoreAlzataNotturna, AnalizzatorePresenzaNotturna
 from casa.bevuta import AnalizzatoreBevuta
 from casa.caduta import AnalizzatoreCaduta
+from casa.classificatore_cadute import ClassificatoreCadute
 from casa.configurazione import leggi_configurazione
 from casa.farmaco import AnalizzatoreFarmaco
 from casa.invio import SECONDI_TRA_LOTTI, Backend, invia_in_sospeso
@@ -59,6 +60,8 @@ SECONDI_DOPO_IL_SEGNO = 3.0        # si resta a 10 al secondo fino a tanto dopo 
 # a metà del tempo. Pesi copiati da runs/ del worktree allenamento (mai nel repo).
 PESI_PORTA = "pesi/porta_yolo26n.pt"
 PESI_CIBO = "pesi/cibo_yolo26n.pt"
+# la variante scelta dall'agente di allenamento; fps, secondi e soglia sono scritti nel file
+PESI_CADUTE = "pesi/cadute_stgcn.pt"
 
 
 @dataclass
@@ -68,6 +71,7 @@ class Specialisti:
     riconoscitore: RiconoscitoreFarmaci | None = None
     porta: ModelloPorta | None = None
     piatto: ModelloPiatto | None = None
+    cadute: ClassificatoreCadute | None = None
 
 
 def carica_specialisti(configurazione: ConfigurazioneCasa) -> Specialisti:
@@ -90,6 +94,11 @@ def carica_specialisti(configurazione: ConfigurazioneCasa) -> Specialisti:
             specialisti.piatto = ModelloPiatto(PESI_CIBO)
         else:
             print("pesi del cibo mancanti (" + PESI_CIBO + "): quanto ha mangiato non si misura")
+    if "caduta" in nomi:
+        if Path(PESI_CADUTE).exists():
+            specialisti.cadute = ClassificatoreCadute(PESI_CADUTE)
+        else:
+            print("classificatore delle cadute mancante (" + PESI_CADUTE + "): solo la regola geometrica")
     return specialisti
 
 
@@ -143,7 +152,7 @@ def crea_analizzatori(telecamera: TelecameraLocale, personalizzazione: Personali
         if nome == "uscita":
             analizzatori.append(AnalizzatoreUscita(telecamera, specialisti.porta))
         elif nome == "caduta":
-            analizzatori.append(AnalizzatoreCaduta(telecamera))
+            analizzatori.append(AnalizzatoreCaduta(telecamera, specialisti.cadute))
         elif nome == "bevuta":
             analizzatori.append(AnalizzatoreBevuta(telecamera, personalizzazione))
         elif nome == "farmaco":

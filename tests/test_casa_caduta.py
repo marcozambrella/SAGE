@@ -113,3 +113,59 @@ def test_senza_scheletro_conta_il_box():
     in_piedi = persona([[0, 0], [0, 0]], [[0, 0], [0, 0]], [90, 20, 130, 180], visibile=0)
     a_terra = persona([[0, 0], [0, 0]], [[0, 0], [0, 0]], [20, 60, 160, 95], visibile=0)
     assert len(scena(SOGGIORNO, ripeti(in_piedi, 3) + ripeti(a_terra, 5))) == 1
+
+
+class ClassificatoreFinto:
+    """Vede una caduta se `vede_caduta`; ricorda le finestre ricevute."""
+
+    fps = 10.0
+    secondi = 2.0
+    lunghezza = 20
+    soglia = 0.5
+
+    def __init__(self, vede_caduta: bool):
+        self.vede_caduta = vede_caduta
+        self.finestre = []
+
+    def probabilita_caduta(self, finestra: np.ndarray) -> float:
+        self.finestre.append(finestra)
+        if self.vede_caduta:
+            return 0.9
+        return 0.1
+
+
+def scena_ibrida(classificatore: ClassificatoreFinto, sequenza: list, passo: float = 1.0) -> list:
+    analizzatore = AnalizzatoreCaduta(SOGGIORNO, classificatore)
+    immagine = np.zeros((200, 200, 3), np.uint8)
+    eventi = []
+    for indice in range(len(sequenza)):
+        ora = INIZIO + datetime.timedelta(seconds=indice * passo)
+        osservazione = Osservazione("soggiorno", "living room", ora, immagine, [sequenza[indice]], [])
+        for evento in analizzatore.elabora(osservazione):
+            eventi.append(evento)
+    return eventi
+
+
+def test_caduta_confermata_dal_classificatore():
+    eventi = scena_ibrida(ClassificatoreFinto(True), [IN_PIEDI] * 3 + [A_TERRA] * 5)
+    assert len(eventi) == 1
+    assert eventi[0].inizio == INIZIO + datetime.timedelta(seconds=3)
+
+
+def test_senza_conferma_niente_allarme_se_si_rialza():
+    # la geometria vede una caduta ma il classificatore no (es. si sdraia sul tappeto in fretta): niente allarme
+    assert scena_ibrida(ClassificatoreFinto(False), [IN_PIEDI] * 3 + [A_TERRA] * 10 + [IN_PIEDI] * 10) == []
+
+
+def test_senza_conferma_allarme_dopo_30_secondi_a_terra():
+    eventi = scena_ibrida(ClassificatoreFinto(False), [IN_PIEDI] * 3 + [A_TERRA] * 35)
+    assert len(eventi) == 1
+    assert eventi[0].tipo == "caduta"
+
+
+def test_una_finestra_ogni_mezzo_secondo():
+    # 3 s a 10 fotogrammi al secondo: finestre a 0; 0,5; ...; 2,5 s
+    classificatore = ClassificatoreFinto(False)
+    scena_ibrida(classificatore, [IN_PIEDI] * 30, 0.1)
+    assert len(classificatore.finestre) == 6
+    assert classificatore.finestre[0].shape == (20, 17, 3)

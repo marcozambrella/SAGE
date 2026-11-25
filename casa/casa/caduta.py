@@ -1,9 +1,13 @@
-"""Analizzatore caduta, regole PROVVISORIE dalla geometria dello scheletro finché non arriva il classificatore
-allenato sugli scheletri. Per ogni persona tracciata (id del tracker):
+"""Analizzatore caduta, rete ibrida (Marco, 25/11): la geometria dello scheletro decide, il classificatore allenato
+sugli scheletri (classificatore_cadute.py) conferma, per avere meno falsi allarmi. Per ogni persona tracciata (id del
+tracker):
 - "a terra": busto inclinato di almeno 60° dalla verticale e box non più alto che largo (chi si china a raccogliere
   qualcosa ha il busto inclinato ma il box alto), fuori dalla zona letto;
 - caduta: era in piedi meno di 3 s prima di finire a terra (chi si sdraia piano non è caduto) e resta a terra
-  almeno 2 s.
+  almeno 2 s;
+- conferma: il classificatore ha visto una caduta (una finestra ogni 0,5 s) da poco prima di finire a terra in poi.
+  Senza conferma l'allarme parte lo stesso se resta a terra 30 s: una caduta persa è peggio di un falso allarme.
+  Senza pesi del classificatore basta la geometria.
 L'evento parte subito (urgente, Telegram) con secondi_a_terra None. Quando la persona si rialza si manda un secondo
 evento grezzo con la fine e i secondi a terra: il backend lo coordina con il primo (API.md, "la stessa telecamera in
 pezzi vicini") e non rimanda l'allarme.
@@ -18,6 +22,8 @@ import numpy as np
 from contratti.configurazione import TelecameraLocale
 from contratti.eventi import EventoCaduta, Fonte, ValoriCaduta
 
+from casa.classificatore_cadute import (PASSO_SECONDI, ClassificatoreCadute, Scheletro, ScheletriDelFotogramma,
+                                       finestra_della_traccia)
 from casa.percezione import Osservazione, Persona, foto_prova
 from casa.scheletro import angolo_del_busto
 from casa.zone import zona_della_persona, zone_del_tipo
@@ -30,6 +36,7 @@ SECONDI_CADUTA_RAPIDA = 3.0
 SECONDI_A_TERRA = 2.0
 SECONDI_RIALZATO = 3.0             # non più a terra da tanto: si è rialzato
 SECONDI_TRACCIA_DIMENTICATA = 60.0
+SECONDI_A_TERRA_SENZA_CONFERMA = 30.0
 
 
 def rapporto_del_box(persona: Persona) -> float:
@@ -63,28 +70,67 @@ class StatoPersona:
     segnalata: bool                             # l'evento urgente è già partito
     confidenza: float
     immagine: np.ndarray | None
+    valutata: datetime.datetime | None          # ultima finestra data al classificatore
+    confermata: datetime.datetime | None        # ultima volta che il classificatore ha visto una caduta
 
 
 class AnalizzatoreCaduta:
     usa_oggetti = False
 
-    def __init__(self, telecamera: TelecameraLocale):
+    def __init__(self, telecamera: TelecameraLocale, classificatore: ClassificatoreCadute | None = None):
         self.telecamera_id = telecamera.id
         self.stanza = telecamera.stanza
         self.letti = zone_del_tipo(telecamera, "letto")
-        self.persone = {}  # id traccia → StatoPersona
+        self.classificatore = classificatore
+        self.fotogrammi = []  # ScheletriDelFotogramma degli ultimi secondi, per le finestre del classificatore
+        self.persone = {}     # id traccia → StatoPersona
+
+    def ricorda_fotogramma(self, osservazione: Osservazione) -> None:
+        scheletri = {}
+        for persona in osservazione.persone:
+            altezza_box = float(persona.box[3] - persona.box[1])
+            scheletri[persona.id_traccia] = Scheletro(persona.keypoint, altezza_box)
+        self.fotogrammi.append(ScheletriDelFotogramma(osservazione.ora, scheletri))
+        # la finestra più un secondo
+        tenuti = []
+        for fotogramma in self.fotogrammi:
+            if (osservazione.ora - fotogramma.ora).total_seconds() <= self.classificatore.secondi + 1:
+                tenuti.append(fotogramma)
+        self.fotogrammi = tenuti
+
+    def valuta(self, stato: StatoPersona, id_traccia: int, ora: datetime.datetime) -> None:
+        """Una finestra ogni PASSO_SECONDI per persona, come nell'allenamento."""
+        if stato.valutata is not None and (ora - stato.valutata).total_seconds() < PASSO_SECONDI - 0.01:
+            return
+        stato.valutata = ora
+        finestra = finestra_della_traccia(self.fotogrammi, id_traccia, ora, self.classificatore.fps,
+                                          self.classificatore.lunghezza)
+        if self.classificatore.probabilita_caduta(finestra) >= self.classificatore.soglia:
+            stato.confermata = ora
+
+    def confermata(self, stato: StatoPersona, secondi_a_terra: float) -> bool:
+        if self.classificatore is None or secondi_a_terra >= SECONDI_A_TERRA_SENZA_CONFERMA:
+            return True
+        if stato.confermata is None:
+            return False
+        # la caduta si vede nelle finestre da poco prima di finire a terra
+        return stato.confermata >= stato.a_terra_da - datetime.timedelta(seconds=SECONDI_CADUTA_RAPIDA)
 
     def elabora(self, osservazione: Osservazione) -> list[EventoCaduta]:
         ora = osservazione.ora
         altezza = osservazione.immagine.shape[0]
         larghezza = osservazione.immagine.shape[1]
+        if self.classificatore is not None:
+            self.ricorda_fotogramma(osservazione)
         eventi = []
         for persona in osservazione.persone:
             stato = self.persone.get(persona.id_traccia)
             if stato is None:
-                stato = StatoPersona(ora, None, None, None, False, 0.0, None)
+                stato = StatoPersona(ora, None, None, None, False, 0.0, None, None, None)
                 self.persone[persona.id_traccia] = stato
             stato.vista = ora
+            if self.classificatore is not None:
+                self.valuta(stato, persona.id_traccia, ora)
             nel_letto = zona_della_persona(persona, self.letti, larghezza, altezza) is not None
             if a_terra(persona) and not nel_letto:
                 stato.non_a_terra_da = None
@@ -98,7 +144,8 @@ class AnalizzatoreCaduta:
                     stato.confidenza = 0.0
                 stato.confidenza = max(stato.confidenza, persona.confidenza)
                 secondi_a_terra = (ora - stato.a_terra_da).total_seconds()
-                if not stato.segnalata and secondi_a_terra >= SECONDI_A_TERRA:
+                pronta = secondi_a_terra >= SECONDI_A_TERRA and self.confermata(stato, secondi_a_terra)
+                if not stato.segnalata and pronta:
                     stato.segnalata = True
                     stato.immagine = osservazione.immagine
                     eventi.append(self.evento(stato, None))
