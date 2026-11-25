@@ -12,6 +12,7 @@ classificatore deve ricevere gli scheletri come li ha visti allenandosi:
   mediana dell'altezza del box della persona; terzo canale la confidenza del punto;
 - uscita softmax [normale, caduta, a_terra]: caduta se p(caduta) + p(a_terra) ≥ soglia per k finestre di fila
   della stessa persona (finestre_di_fila, scelta insieme alla soglia nell'allenamento); una finestra ogni 0,5 s.
+  "Molto sicuro": finestre_sicure di fila sopra soglia_sicura, per l'allarme anche senza la geometria (caduta.py).
 Un passo solo, con il modello a 5 fotogrammi al secondo (Marco, 25/11: niente 10 al secondo per le cadute).
 """
 
@@ -198,10 +199,11 @@ def finestra_della_traccia(fotogrammi: list, id_traccia: int, fine: datetime.dat
 
 
 class ClassificatoreCadute:
-    """Un modello allenato (.pt dell'allenamento: pesi, classi, lunghezza, fps, secondi, posa) con la sua soglia e
-    quante finestre di fila devono superarla."""
+    """Un modello allenato (.pt dell'allenamento: pesi, classi, lunghezza, fps, secondi, posa) con la sua soglia,
+    quante finestre di fila devono superarla, e la soglia e le finestre di "molto sicuro"."""
 
-    def __init__(self, percorso: str, soglia: float, finestre_di_fila: int):
+    def __init__(self, percorso: str, soglia: float, finestre_di_fila: int, soglia_sicura: float,
+                 finestre_sicure: int):
         dati = torch.load(percorso, map_location="cpu")
         self.classi = dati["classi"]
         self.lunghezza = int(dati["lunghezza"])
@@ -210,6 +212,8 @@ class ClassificatoreCadute:
         self.secondi = float(informazioni["secondi"])
         self.soglia = soglia
         self.finestre_di_fila = finestre_di_fila
+        self.soglia_sicura = soglia_sicura
+        self.finestre_sicure = finestre_sicure
         self.posa = informazioni["posa"]  # es. "yolo26n-pose": gli scheletri su cui è allenato
         self.modello = StGcn(len(self.classi))
         self.modello.load_state_dict(dati["stato"])  # strict: se il modello copiato non è identico si ferma qui

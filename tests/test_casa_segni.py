@@ -178,6 +178,8 @@ class CadutaFinta:
     lunghezza = 15
     soglia = 0.5
     finestre_di_fila = 1
+    soglia_sicura = 0.995
+    finestre_sicure = 6
 
     def probabilita_caduta(self, finestra: np.ndarray) -> float:
         return 0.9

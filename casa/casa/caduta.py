@@ -12,8 +12,10 @@ tracker):
   busto è quasi orizzontale (70°, se la posa lo vede). Le due cose contro i falsi allarmi le ha scelte l'agente di
   allenamento sui dati pubblici (25/11). Le cadute non fanno passare a 10 fotogrammi al secondo: una volta caduta la
   persona resta a terra e si vede lo stesso (Marco, 25/11).
-- senza conferma l'allarme parte lo stesso se resta a terra 30 s; il classificatore da solo non fa partire niente
-  (Marco, 25/11). Senza pesi del classificatore basta la geometria.
+- senza conferma l'allarme parte lo stesso se resta a terra 30 s. Senza pesi del classificatore basta la geometria;
+- il classificatore molto sicuro (le ultime finestre_sicure finestre sopra soglia_sicura) fa partire l'allarme anche
+  senza la geometria (Marco, 25/11 sera; regola dell'agente di allenamento). Una persona non dà mai due allarmi a meno
+  di 10 s l'uno dall'altro, e una serie di conferme sicure di fila è un allarme solo.
 L'evento parte subito (urgente, Telegram) con secondi_a_terra None. Quando la persona si rialza si manda un secondo
 evento grezzo con la fine e i secondi a terra: il backend lo coordina con il primo (API.md, "la stessa telecamera in
 pezzi vicini") e non rimanda l'allarme.
@@ -47,6 +49,7 @@ SECONDI_A_TERRA_SENZA_CONFERMA = 30.0
 # pubblico i falsi allarmi scendono da 16 a 8 all'ora con la posa n e da 20 a 8 con la s, perdendo una caduta su 39
 # con la s (agente di allenamento, 25/11, insieme alle 3 finestre di fila in principale.py)
 ANGOLO_A_TERRA_CONFERMATA = 70.0
+SECONDI_STESSO_ALLARME = 10.0      # allarmi o conferme sicure della stessa persona più vicini di così: uno solo
 # isteresi su "a terra" (coordinatore, 25/11; valore dell'agente di allenamento sulla validazione pubblica)
 SECONDI_IN_PIEDI_PER_RIALZARSI = 1.0
 
@@ -88,10 +91,13 @@ class StatoPersona:
     considerata_a_terra: bool                   # "a terra" con l'isteresi
     chiaramente_in_piedi_da: datetime.datetime | None  # da quando è in piedi mentre è considerata a terra
     box: np.ndarray | None                      # ultimo box in cui è stata vista
+    probabilita_sicure: list                    # probabilità delle ultime finestre_sicure finestre
+    ultima_conferma_sicura: datetime.datetime | None
+    ultimo_allarme: datetime.datetime | None    # ultimo allarme mandato, di qualunque tipo
 
 
 def nuovo_stato(ora: datetime.datetime, in_piedi: datetime.datetime | None) -> StatoPersona:
-    return StatoPersona(ora, in_piedi, None, None, False, 0.0, None, None, [], None, False, None, None)
+    return StatoPersona(ora, in_piedi, None, None, False, 0.0, None, None, [], None, False, None, None, [], None, None)
 
 
 def box_si_toccano(box_a: np.ndarray, box_b: np.ndarray) -> bool:
@@ -126,22 +132,40 @@ class AnalizzatoreCaduta:
                 tenuti.append(fotogramma)
         self.fotogrammi = tenuti
 
-    def valuta(self, stato: StatoPersona, id_traccia: int, ora: datetime.datetime) -> None:
+    def valuta(self, stato: StatoPersona, id_traccia: int, ora: datetime.datetime) -> bool:
         """Una finestra per ogni mezzo secondo dell'orologio (PASSO_SECONDI) per persona, come nell'allenamento: a 5
-        fotogrammi al secondo "ogni 0,5 s dall'ultima" diventerebbe ogni 0,6 s."""
+        fotogrammi al secondo "ogni 0,5 s dall'ultima" diventerebbe ogni 0,6 s. True se c'è una conferma sicura nuova
+        (nessun'altra della persona nei 10 s prima)."""
         if stato.valutata is not None:
             mezzo_secondo_adesso = int(ora.timestamp() / PASSO_SECONDI)
             if mezzo_secondo_adesso == int(stato.valutata.timestamp() / PASSO_SECONDI):
-                return
+                return False
         stato.valutata = ora
         finestra = finestra_della_traccia(self.fotogrammi, id_traccia, ora, self.classificatore.fps,
                                           self.classificatore.lunghezza)
-        stato.probabilita_recenti.append(self.classificatore.probabilita_caduta(finestra))
+        probabilita = self.classificatore.probabilita_caduta(finestra)
+        stato.probabilita_recenti.append(probabilita)
         stato.probabilita_recenti = stato.probabilita_recenti[-self.classificatore.finestre_di_fila:]
-        if len(stato.probabilita_recenti) < self.classificatore.finestre_di_fila:
-            return
-        if min(stato.probabilita_recenti) >= self.classificatore.soglia:
-            stato.confermata = ora
+        if len(stato.probabilita_recenti) == self.classificatore.finestre_di_fila:
+            if min(stato.probabilita_recenti) >= self.classificatore.soglia:
+                stato.confermata = ora
+        stato.probabilita_sicure.append(probabilita)
+        stato.probabilita_sicure = stato.probabilita_sicure[-self.classificatore.finestre_sicure:]
+        if len(stato.probabilita_sicure) < self.classificatore.finestre_sicure:
+            return False
+        if min(stato.probabilita_sicure) < self.classificatore.soglia_sicura:
+            return False
+        nuova = True
+        if stato.ultima_conferma_sicura is not None:
+            nuova = (ora - stato.ultima_conferma_sicura).total_seconds() > SECONDI_STESSO_ALLARME
+        # si aggiorna anche con le conferme non nuove: una serie di conferme di fila è un allarme solo
+        stato.ultima_conferma_sicura = ora
+        return nuova
+
+    def allarme_recente(self, stato: StatoPersona, ora: datetime.datetime) -> bool:
+        if stato.ultimo_allarme is None:
+            return False
+        return (ora - stato.ultimo_allarme).total_seconds() <= SECONDI_STESSO_ALLARME
 
     def a_terra_con_isteresi(self, stato: StatoPersona, persona: Persona, ora: datetime.datetime) -> bool:
         """Si entra in "a terra" come con a_terra(); si esce solo dopo 1 s chiaramente in piedi (in_piedi())."""
@@ -208,8 +232,16 @@ class AnalizzatoreCaduta:
                 self.persone[persona.id_traccia] = stato
             stato.vista = ora
             stato.box = persona.box
+            conferma_sicura = False
             if self.classificatore is not None:
-                self.valuta(stato, persona.id_traccia, ora)
+                conferma_sicura = self.valuta(stato, persona.id_traccia, ora)
+            # il classificatore molto sicuro fa partire l'allarme anche se la geometria non la vede a terra
+            if conferma_sicura and not self.allarme_recente(stato, ora):
+                stato.ultimo_allarme = ora
+                inizio = ora
+                if stato.a_terra_da is not None:
+                    inizio = stato.a_terra_da
+                eventi.append(self.evento_caduta(inizio, None, None, persona.confidenza, osservazione.immagine))
             nel_letto = zona_della_persona(persona, self.letti, larghezza, altezza) is not None
             # l'isteresi si aggiorna a ogni fotogramma, anche nel letto
             if self.a_terra_con_isteresi(stato, persona, ora) and not nel_letto:
@@ -226,9 +258,13 @@ class AnalizzatoreCaduta:
                 secondi_a_terra = (ora - stato.a_terra_da).total_seconds()
                 pronta = secondi_a_terra >= SECONDI_A_TERRA and self.confermata(stato, persona, secondi_a_terra)
                 if not stato.segnalata and pronta:
+                    # con un allarme negli ultimi 10 s (quello del classificatore molto sicuro) non si rimanda, ma la
+                    # caduta conta già segnalata: alla rialzata parte l'evento di fine
                     stato.segnalata = True
                     stato.immagine = osservazione.immagine
-                    eventi.append(self.evento(stato, None))
+                    if not self.allarme_recente(stato, ora):
+                        stato.ultimo_allarme = ora
+                        eventi.append(self.evento(stato, None))
                 continue
             if in_piedi(persona):
                 stato.in_piedi = ora
@@ -261,15 +297,19 @@ class AnalizzatoreCaduta:
         secondi_a_terra = None
         if fine is not None:
             secondi_a_terra = (fine - stato.a_terra_da).total_seconds()
-        fonte = Fonte(telecamera_id=self.telecamera_id, analizzatore="caduta", confidenza=stato.confidenza)
+        return self.evento_caduta(stato.a_terra_da, fine, secondi_a_terra, stato.confidenza, stato.immagine)
+
+    def evento_caduta(self, inizio: datetime.datetime, fine: datetime.datetime | None, secondi_a_terra: float | None,
+                      confidenza: float, immagine: np.ndarray) -> EventoCaduta:
+        fonte = Fonte(telecamera_id=self.telecamera_id, analizzatore="caduta", confidenza=confidenza)
         return EventoCaduta(
             id=str(uuid.uuid4()),
             tipo="caduta",
-            inizio=stato.a_terra_da,
+            inizio=inizio,
             fine=fine,
             stanza=self.stanza,
-            confidenza=stato.confidenza,
+            confidenza=confidenza,
             fonti=[fonte],
-            foto_prova=foto_prova(stato.immagine),
+            foto_prova=foto_prova(immagine),
             valori=ValoriCaduta(secondi_a_terra=secondi_a_terra),
         )

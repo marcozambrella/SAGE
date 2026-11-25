@@ -66,19 +66,23 @@ PESI_FARMACI = "pesi/farmaci_yolo26n.pt"
 @dataclass
 class PesiCadute:
     """Classificatore delle cadute per una posa (un passo solo, scheletri a 5 al secondo), la sua soglia e quante
-    finestre di fila la devono superare."""
+    finestre di fila la devono superare; soglia e finestre di "molto sicuro" (allarme anche senza la geometria)."""
 
     percorso: str
     soglia: float
     finestre_di_fila: int
+    soglia_sicura: float
+    finestre_sicure: int
 
 
 # si usa quello allenato sugli scheletri della posa in uso (di base la s, scelta di Marco): finestre di 2 s a 5 fps,
 # soglia 0,94 per n e per s, 3 finestre di fila (1,5 s): scelte dall'agente di allenamento facendo girare
-# AnalizzatoreCaduta sugli scheletri pubblici (25/11), insieme al busto a 70° in caduta.py
+# AnalizzatoreCaduta sugli scheletri pubblici (25/11), insieme al busto a 70° in caduta.py. Molto sicuro (Marco, 25/11
+# sera: sì all'allarme senza la geometria): 0,995 per 6 finestre (3 s) con la s, per 2 con la n, scelte allo stesso
+# modo; sul test pubblico la s prende 23 cadute su 39 invece di 21, la n 22 invece di 15, stessi falsi allarmi
 PESI_CADUTE = {
-    "pesi/yolo26n-pose.pt": PesiCadute("pesi/cadute_n_5fps_2s.pt", 0.94, 3),
-    "pesi/yolo26s-pose.pt": PesiCadute("pesi/cadute_s_5fps_2s.pt", 0.94, 3),
+    "pesi/yolo26n-pose.pt": PesiCadute("pesi/cadute_n_5fps_2s.pt", 0.94, 3, 0.995, 2),
+    "pesi/yolo26s-pose.pt": PesiCadute("pesi/cadute_s_5fps_2s.pt", 0.94, 3, 0.995, 6),
 }
 
 
@@ -123,7 +127,8 @@ def carica_specialisti(configurazione: ConfigurazioneCasa, posa: str) -> Special
         if pesi is None:
             print("nessun classificatore delle cadute per la posa " + posa + ": solo la regola geometrica")
         elif Path(pesi.percorso).exists():
-            classificatore = ClassificatoreCadute(pesi.percorso, pesi.soglia, pesi.finestre_di_fila)
+            classificatore = ClassificatoreCadute(pesi.percorso, pesi.soglia, pesi.finestre_di_fila, pesi.soglia_sicura,
+                                                  pesi.finestre_sicure)
             if classificatore.posa == Path(posa).stem:
                 specialisti.cadute = classificatore
             else:

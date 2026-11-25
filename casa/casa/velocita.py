@@ -108,7 +108,8 @@ def carica_specialisti_per_la_prova(configurazione, posa: str) -> Specialisti:
     specialisti.piatto = ModelloPiatto(PESI_CIBO)
     specialisti.farmaci = ModelloFarmaci(PESI_FARMACI)
     pesi = PESI_CADUTE[posa]
-    specialisti.cadute = ClassificatoreCadute(pesi.percorso, pesi.soglia, pesi.finestre_di_fila)
+    specialisti.cadute = ClassificatoreCadute(pesi.percorso, pesi.soglia, pesi.finestre_di_fila, pesi.soglia_sicura,
+                                              pesi.finestre_sicure)
     return specialisti
 
 

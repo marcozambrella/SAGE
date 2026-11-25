@@ -80,13 +80,15 @@ def salva_pesi_finti(percorso) -> None:
 def test_pesi_nel_formato_dell_allenamento(tmp_path):
     percorso = tmp_path / "cadute.pt"
     salva_pesi_finti(percorso)
-    classificatore = ClassificatoreCadute(str(percorso), 0.9, 2)
+    classificatore = ClassificatoreCadute(str(percorso), 0.9, 2, 0.995, 6)
     assert classificatore.fps == 10
     assert classificatore.secondi == 2
     assert classificatore.lunghezza == 20
     assert classificatore.soglia == 0.9
     assert classificatore.posa == "yolo26n-pose"
     assert classificatore.finestre_di_fila == 2
+    assert classificatore.soglia_sicura == 0.995
+    assert classificatore.finestre_sicure == 6
     fotogrammi = fotogrammi_a_5_al_secondo(11)
     finestra = finestra_della_traccia(fotogrammi, 7, fotogrammi[-1].ora, 10, 20)
     probabilita = classificatore.probabilita_caduta(finestra)
@@ -101,4 +103,4 @@ def test_pesi_di_un_modello_diverso_si_fermano(tmp_path):
                 "informazioni": {"fps": 10, "secondi": 2, "soglia_allarme": 0.9, "posa": "yolo26n-pose"}},
                str(percorso))
     with pytest.raises(RuntimeError):
-        ClassificatoreCadute(str(percorso), 0.9, 2)
+        ClassificatoreCadute(str(percorso), 0.9, 2, 0.995, 6)

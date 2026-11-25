@@ -119,15 +119,19 @@ def test_senza_scheletro_conta_il_box():
 
 
 class ClassificatoreFinto:
-    """Vede una caduta se `vede_caduta` (o dalla finestra numero `da_finestra` in poi); ricorda le finestre."""
+    """Vede una caduta se `vede_caduta` (o dalla finestra numero `da_finestra` in poi), con 0,9 o, se `molto_sicuro`,
+    con 0,999; ricorda le finestre."""
 
     soglia = 0.5
+    soglia_sicura = 0.995
 
     def __init__(self, vede_caduta: bool, fps: float, secondi: float, finestre_di_fila: int = 1,
-                 da_finestra: int = 0):
+                 da_finestra: int = 0, molto_sicuro: bool = False, finestre_sicure: int = 6):
         self.vede_caduta = vede_caduta
         self.finestre_di_fila = finestre_di_fila
         self.da_finestra = da_finestra
+        self.molto_sicuro = molto_sicuro
+        self.finestre_sicure = finestre_sicure
         self.fps = fps
         self.secondi = secondi
         self.lunghezza = int(round(fps * secondi))
@@ -136,6 +140,8 @@ class ClassificatoreFinto:
     def probabilita_caduta(self, finestra: np.ndarray) -> float:
         self.finestre.append(finestra)
         if self.vede_caduta and len(self.finestre) > self.da_finestra:
+            if self.molto_sicuro:
+                return 0.999
             return 0.9
         return 0.1
 
@@ -170,7 +176,7 @@ def test_senza_conferma_allarme_dopo_30_secondi_a_terra():
 
 
 def test_il_classificatore_da_solo_non_fa_partire_niente():
-    # il classificatore vede sempre una caduta ma la persona resta in piedi
+    # il classificatore vede sempre una caduta, ma non è molto sicuro, e la persona resta in piedi
     assert scena_ibrida(ClassificatoreFinto(True, 5, 3), [IN_PIEDI] * 40) == []
 
 
@@ -233,3 +239,27 @@ def test_il_tracker_cambia_id_nella_caduta():
     assert scena(SOGGIORNO, ripeti(IN_PIEDI, 3) + ripeti(lontano, 5)) == []
     # in piedi più di 3 s prima: non si eredita
     assert scena(SOGGIORNO, ripeti(IN_PIEDI, 3) + ripeti(None, 3) + ripeti(con_id(A_TERRA, 2), 5)) == []
+
+
+def test_classificatore_molto_sicuro_allarme_senza_geometria():
+    # una finestra al secondo, in piedi tutto il tempo: alla sesta finestra sopra 0,995 (secondo 5) parte l'allarme
+    molto_sicuro = ClassificatoreFinto(True, 5, 3, molto_sicuro=True)
+    eventi = scena_ibrida(molto_sicuro, [IN_PIEDI] * 40)
+    # le conferme sicure di fila sono un allarme solo
+    assert len(eventi) == 1
+    assert eventi[0].tipo == "caduta"
+    assert eventi[0].inizio == INIZIO + datetime.timedelta(seconds=5)
+    assert eventi[0].fine is None
+    # con 5 finestre sole no
+    assert scena_ibrida(ClassificatoreFinto(True, 5, 3, molto_sicuro=True), [IN_PIEDI] * 5) == []
+
+
+def test_molto_sicuro_e_geometria_un_allarme_solo():
+    # a terra dal secondo 3: al secondo 5 la conferma sicura (inizio = a terra) e la geometria insieme, un allarme
+    # solo; la caduta conta segnalata, quindi alla rialzata parte l'evento di fine
+    molto_sicuro = ClassificatoreFinto(True, 5, 3, molto_sicuro=True)
+    eventi = scena_ibrida(molto_sicuro, [IN_PIEDI] * 3 + [A_TERRA] * 6 + [IN_PIEDI] * 6)
+    assert len(eventi) == 2
+    assert eventi[0].inizio == INIZIO + datetime.timedelta(seconds=3)
+    assert eventi[0].fine is None
+    assert eventi[1].fine is not None
