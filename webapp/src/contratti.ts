@@ -6,6 +6,9 @@
 
 export type TipoContenitore = "bicchiere" | "bottiglia" | "tazza";
 
+// Quanto del piatto è stato mangiato, in tre categorie (niente percentuale: non è abbastanza precisa).
+export type QuantoMangiato = "meno_di_meta" | "meta" | "tutto";
+
 export type TipoEvento = "caduta" | "uscita" | "bevuta" | "farmaco" | "pasto" | "alzata_notturna";
 
 // Questi tipi fanno partire subito l'allarme Telegram (D10, D16).
@@ -67,7 +70,8 @@ export interface ValoriFarmaco {
 
 export interface ValoriPasto {
   cibi: string[];
-  percentuale_mangiata: number;
+  // null se non si è potuto misurare (piatto coperto, poco cibo all'inizio).
+  quanto_mangiato: QuantoMangiato | null;
 }
 
 export interface ValoriAlzataNotturna {
@@ -182,7 +186,7 @@ export interface DoseFarmaco {
 export interface PastoDelGiorno {
   ora: string;
   cibi: string[];
-  percentuale_mangiata: number;
+  quanto_mangiato: QuantoMangiato | null;
 }
 
 export interface ReportGiornaliero {
@@ -207,8 +211,9 @@ export interface RiassuntoGiorno {
   dosi_in_orario: number;
   dosi_in_ritardo: number;
   dosi_saltate: number;
-  // null se quel giorno non si è visto nessun pasto.
-  percentuale_mangiata_media: number | null;
+  pasti: number;
+  // Pasti con meno di metà del piatto mangiato: il segnale che conta per la famiglia.
+  pasti_meno_di_meta: number;
   alzate_notturne: number;
   cadute: number;
   uscite_in_orario_vietato: number;

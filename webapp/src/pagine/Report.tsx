@@ -25,6 +25,7 @@ import {
 import Caricamento from "../componenti/Caricamento";
 import { bevuteNonMisurate, orariDose, testoNonMisurate } from "../descrizioni";
 import EtichettaDose from "../componenti/EtichettaDose";
+import EtichettaPasto from "../componenti/EtichettaPasto";
 import EtichettaSimulato from "../componenti/EtichettaSimulato";
 import Icona from "../componenti/Icona";
 import InAttesaTelecamere from "../componenti/InAttesaTelecamere";
@@ -250,11 +251,14 @@ function ReportDelGiorno({ periodo, personalizzazione }: ProprietaGiorno) {
           </h3>
           <ul className="lista-semplice">
             {report.pasti.map((pasto) => (
-              <li key={pasto.ora} className="riga-spaziata riga-lista">
-                <span>
-                  <strong>{oraDellaCasa(pasto.ora, fuso)}</strong> {maiuscola(pasto.cibi.join(", "))}
-                </span>
-                <span className="testo-secondario">ate {Math.round(pasto.percentuale_mangiata)}%</span>
+              <li key={pasto.ora} className="pila riga-lista" style={{ gap: 8 }}>
+                <div className="riga-spaziata">
+                  <strong>{maiuscola(pasto.cibi.join(", "))}</strong>
+                  <span className="testo-secondario testo-piccolo">{oraDellaCasa(pasto.ora, fuso)}</span>
+                </div>
+                <div>
+                  <EtichettaPasto quanto={pasto.quanto_mangiato} />
+                </div>
               </li>
             ))}
           </ul>

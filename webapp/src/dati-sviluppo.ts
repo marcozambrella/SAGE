@@ -7,6 +7,7 @@
 // ==========================================================================================================
 import type {
   DoseFarmaco,
+  QuantoMangiato,
   Evento,
   EventoBase,
   PastoDelGiorno,
@@ -172,7 +173,7 @@ function eventiGiornoVero(): Evento[] {
   eventi.push({
     ...base("ev-0815", ora(G, "08:15"), ora(G, "08:38"), "Kitchen", "t-cucina", "pasto", 0.84, false),
     tipo: "pasto",
-    valori: { cibi: ["bread", "milk", "biscuits"], percentuale_mangiata: 90 },
+    valori: { cibi: ["bread", "milk", "biscuits"], quanto_mangiato: "tutto" },
   });
   eventi.push({
     ...base("ev-0852", ora(G, "08:52"), null, "Kitchen", "t-cucina", "farmaco", 0.85, false),
@@ -185,7 +186,7 @@ function eventiGiornoVero(): Evento[] {
   eventi.push({
     ...base("ev-1240", ora(G, "12:40"), ora(G, "13:05"), "Kitchen", "t-cucina", "pasto", 0.82, false),
     tipo: "pasto",
-    valori: { cibi: ["pasta with tomato sauce", "green salad"], percentuale_mangiata: 60 },
+    valori: { cibi: ["pasta with tomato sauce", "green salad"], quanto_mangiato: "meta" },
   });
   eventi.push(
     bevuta("ev-1245", ora(G, "12:45"), "Kitchen", "t-cucina", "bicchiere", "c-bicchiere", 250, 120, 72, false),
@@ -214,7 +215,7 @@ function eventiGiornoVero(): Evento[] {
   eventi.push({
     ...base("ev-1930", ora(G, "19:30"), ora(G, "19:52"), "Kitchen", "t-cucina", "pasto", 0.8, false),
     tipo: "pasto",
-    valori: { cibi: ["vegetable soup", "cheese"], percentuale_mangiata: 45 },
+    valori: { cibi: ["vegetable soup", "cheese"], quanto_mangiato: "meno_di_meta" },
   });
   eventi.push(
     bevuta("ev-1940", ora(G, "19:40"), "Kitchen", "t-cucina", "bicchiere", "c-bicchiere", 250, 120, 48, false),
@@ -277,9 +278,9 @@ const REPORT_GIORNO_VERO: ReportGiornaliero = {
     },
   ],
   pasti: [
-    { ora: ora(G, "08:15"), cibi: ["bread", "milk", "biscuits"], percentuale_mangiata: 90 },
-    { ora: ora(G, "12:40"), cibi: ["pasta with tomato sauce", "green salad"], percentuale_mangiata: 60 },
-    { ora: ora(G, "19:30"), cibi: ["vegetable soup", "cheese"], percentuale_mangiata: 45 },
+    { ora: ora(G, "08:15"), cibi: ["bread", "milk", "biscuits"], quanto_mangiato: "tutto" },
+    { ora: ora(G, "12:40"), cibi: ["pasta with tomato sauce", "green salad"], quanto_mangiato: "meta" },
+    { ora: ora(G, "19:30"), cibi: ["vegetable soup", "cheese"], quanto_mangiato: "meno_di_meta" },
   ],
   alzate_notturne: 2,
   minuti_fuori_letto_notte: 18,
@@ -318,6 +319,15 @@ function riassuntoSimulato(giorno: string, indice: number): RiassuntoGiorno {
   if (caso(indice, 4) < 0.3) {
     inRitardo = 1;
   }
+  // Pasti con meno di metà mangiato: più spesso nell'ultima settimana (fa parte della piccola storia).
+  let pastiMenoDiMeta = 0;
+  let probabilitaPocoCibo = 0.2;
+  if (ultimaSettimana) {
+    probabilitaPocoCibo = 0.5;
+  }
+  if (caso(indice, 5) < probabilitaPocoCibo) {
+    pastiMenoDiMeta = 1;
+  }
   let cadute = 0;
   if (GIORNI_CON_CADUTA.includes(giorno)) {
     cadute = 1;
@@ -333,7 +343,8 @@ function riassuntoSimulato(giorno: string, indice: number): RiassuntoGiorno {
     dosi_in_orario: 4 - saltate - inRitardo,
     dosi_in_ritardo: inRitardo,
     dosi_saltate: saltate,
-    percentuale_mangiata_media: Math.round(60 + caso(indice, 5) * 30),
+    pasti: 3,
+    pasti_meno_di_meta: pastiMenoDiMeta,
     alzate_notturne: alzate,
     cadute: cadute,
     uscite_in_orario_vietato: usciteVietate,
@@ -349,7 +360,8 @@ function riassuntoGiornoVero(): RiassuntoGiorno {
     dosi_in_orario: 2,
     dosi_in_ritardo: 1,
     dosi_saltate: 1,
-    percentuale_mangiata_media: 65,
+    pasti: 3,
+    pasti_meno_di_meta: 1,
     alzate_notturne: 2,
     cadute: 1,
     uscite_in_orario_vietato: 1,
@@ -437,15 +449,21 @@ function reportSimulato(riassunto: RiassuntoGiorno): ReportGiornaliero {
       farmaco_riconosciuto: riconosciuto,
     });
   }
-  let media = 70;
-  if (riassunto.percentuale_mangiata_media !== null) {
-    media = riassunto.percentuale_mangiata_media;
-  }
+  // Colazione tutta; pranzo a metà, oppure non misurato un giorno su cinque; cena con meno di metà nei giorni
+  // in cui il riassunto lo dice, altrimenti tutta.
   const numeroGiorno = Number(giorno.slice(8, 10));
+  let pranzo: QuantoMangiato | null = "meta";
+  if (numeroGiorno % 5 === 0) {
+    pranzo = null;
+  }
+  let cena: QuantoMangiato = "tutto";
+  if (riassunto.pasti_meno_di_meta > 0) {
+    cena = "meno_di_meta";
+  }
   const pasti: PastoDelGiorno[] = [
-    { ora: ora(giorno, "08:20"), cibi: MENU[numeroGiorno % 6], percentuale_mangiata: Math.min(100, media + 10) },
-    { ora: ora(giorno, "12:45"), cibi: MENU[(numeroGiorno + 1) % 6], percentuale_mangiata: media },
-    { ora: ora(giorno, "19:15"), cibi: MENU[(numeroGiorno + 2) % 6], percentuale_mangiata: Math.max(0, media - 10) },
+    { ora: ora(giorno, "08:20"), cibi: MENU[numeroGiorno % 6], quanto_mangiato: "tutto" },
+    { ora: ora(giorno, "12:45"), cibi: MENU[(numeroGiorno + 1) % 6], quanto_mangiato: pranzo },
+    { ora: ora(giorno, "19:15"), cibi: MENU[(numeroGiorno + 2) % 6], quanto_mangiato: cena },
   ];
   return {
     data: giorno,
@@ -535,7 +553,7 @@ function eventiSimulati(report: ReportGiornaliero): Evento[] {
     eventi.push({
       ...base("sim-" + giorno + "-pasto-" + i, pasto.ora, null, "Kitchen", "t-cucina", "pasto", 0.8, true),
       tipo: "pasto",
-      valori: { cibi: pasto.cibi, percentuale_mangiata: pasto.percentuale_mangiata },
+      valori: { cibi: pasto.cibi, quanto_mangiato: pasto.quanto_mangiato },
     });
   }
   if (report.cadute > 0) {

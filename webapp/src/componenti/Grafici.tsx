@@ -7,8 +7,6 @@ import {
   BarChart,
   CartesianGrid,
   Legend,
-  Line,
-  LineChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -61,10 +59,6 @@ function testoLegenda(valore: string): ReactNode {
 
 function formattaMl(valore: unknown): string {
   return millilitri(Number(valore));
-}
-
-function formattaPercentuale(valore: unknown): string {
-  return Math.round(Number(valore)) + "%";
 }
 
 function formattaMigliaia(valore: number): string {
@@ -198,49 +192,53 @@ export function GraficoDosi({ giorni }: { giorni: RiassuntoGiorno[] }) {
   );
 }
 
-// Quanta parte del piatto è stata mangiata, in media, ogni giorno.
+// Pasti di ogni giorno, uno sopra l'altro: quelli con almeno metà del piatto mangiato (grigio, il caso normale) e
+// quelli con meno di metà (il segnale che conta). Niente percentuali: il modello del piatto non è così preciso.
+function pastiAlmenoMeta(riga: RiassuntoGiorno): number {
+  return riga.pasti - riga.pasti_meno_di_meta;
+}
+
 export function GraficoPasti({ giorni }: { giorni: RiassuntoGiorno[] }) {
   return (
-    <figure className="grafico" aria-label="Share of the plate eaten each day">
+    <figure className="grafico" aria-label="Meals each day: half or more eaten, and less than half eaten">
       <ResponsiveContainer width="100%" height={ALTEZZA}>
-        <LineChart data={giorni} margin={{ top: 16, right: 12, left: 0, bottom: 0 }}>
+        <BarChart data={giorni} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
           <CartesianGrid vertical={false} stroke={GRIGLIA} />
           <XAxis
             dataKey="data"
             tickFormatter={formatoAsse(giorni)}
-            padding={{ left: 14, right: 14 }}
             tick={TESTO_ASSI}
             tickLine={false}
             axisLine={false}
             interval="preserveStartEnd"
             minTickGap={10}
           />
-          <YAxis
-            domain={[0, 100]}
-            ticks={[0, 50, 100]}
-            tickFormatter={formattaPercentuale}
-            tick={TESTO_ASSI}
-            tickLine={false}
-            axisLine={false}
-            width={48}
-          />
-          <Tooltip
-            contentStyle={STILE_SUGGERIMENTO}
-            labelFormatter={titoloSuggerimento}
-            formatter={formattaPercentuale}
-          />
-          <Line
-            type="monotone"
-            dataKey="percentuale_mangiata_media"
-            name="Eaten"
-            stroke={ACCENTO}
+          <YAxis allowDecimals={false} tick={TESTO_ASSI} tickLine={false} axisLine={false} width={48} />
+          <Tooltip cursor={CURSORE_BARRE} contentStyle={STILE_SUGGERIMENTO} labelFormatter={titoloSuggerimento} />
+          <Legend iconType="circle" formatter={testoLegenda} />
+          <Bar
+            dataKey={pastiAlmenoMeta}
+            name="Half or more"
+            stackId="pasti"
+            fill={DOSE_IN_ORARIO}
+            stroke={SUPERFICIE}
             strokeWidth={2}
-            dot={{ r: 4, fill: ACCENTO, stroke: SUPERFICIE, strokeWidth: 2 }}
-            activeDot={{ r: 6, fill: ACCENTO, stroke: SUPERFICIE, strokeWidth: 2 }}
-            connectNulls
+            radius={[4, 4, 0, 0]}
+            maxBarSize={24}
             isAnimationActive={false}
           />
-        </LineChart>
+          <Bar
+            dataKey="pasti_meno_di_meta"
+            name="Less than half"
+            stackId="pasti"
+            fill={ACCENTO}
+            stroke={SUPERFICIE}
+            strokeWidth={2}
+            radius={[4, 4, 0, 0]}
+            maxBarSize={24}
+            isAnimationActive={false}
+          />
+        </BarChart>
       </ResponsiveContainer>
     </figure>
   );

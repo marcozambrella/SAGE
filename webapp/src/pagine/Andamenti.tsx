@@ -41,20 +41,15 @@ export default function Andamenti({ demo, personalizzazione }: Proprieta) {
   );
 }
 
-// Media della parte di piatto mangiata, solo sui giorni con almeno un pasto; null se non ce ne sono.
-function mediaMangiato(giorni: RiassuntoGiorno[]): number | null {
-  let somma = 0;
-  let quanti = 0;
+// Quanti pasti in tutto e quanti con meno di metà del piatto mangiato, nel periodo.
+function contaPasti(giorni: RiassuntoGiorno[]): { pasti: number; menoDiMeta: number } {
+  let pasti = 0;
+  let menoDiMeta = 0;
   for (const riga of giorni) {
-    if (riga.percentuale_mangiata_media !== null) {
-      somma = somma + riga.percentuale_mangiata_media;
-      quanti = quanti + 1;
-    }
+    pasti = pasti + riga.pasti;
+    menoDiMeta = menoDiMeta + riga.pasti_meno_di_meta;
   }
-  if (quanti === 0) {
-    return null;
-  }
-  return somma / quanti;
+  return { pasti: pasti, menoDiMeta: menoDiMeta };
 }
 
 function AndamentiCasaDemo() {
@@ -120,6 +115,8 @@ function GraficiDelPeriodo({ report, personalizzazione }: ProprietaGrafici) {
     }
   }
 
+  const pastiDelPeriodo = contaPasti(report.giorni);
+
   // Cadute e uscite sono poche: invece di un grafico quasi vuoto, l'elenco dei giorni in cui sono successe.
   const giorniDaRicordare: { data: string; testo: string }[] = [];
   for (const riga of report.giorni) {
@@ -161,8 +158,10 @@ function GraficiDelPeriodo({ report, personalizzazione }: ProprietaGrafici) {
         </Scheda>
         <Scheda titolo="Meals" icona="pasto">
           <p>
-            <span className="numero-medio">{percentuale(mediaMangiato(report.giorni))}</span>{" "}
-            <span className="testo-secondario">of the plate eaten on average</span>
+            <span className="numero-medio">{pastiDelPeriodo.menoDiMeta}</span>{" "}
+            <span className="testo-secondario">
+              of {quanti(pastiDelPeriodo.pasti, "meal", "meals")} with less than half eaten
+            </span>
           </p>
           <GraficoPasti giorni={report.giorni} />
         </Scheda>

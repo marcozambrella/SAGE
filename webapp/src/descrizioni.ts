@@ -1,6 +1,6 @@
 // Come si racconta un evento a una famiglia: icona, titolo, dettaglio e gravità (per il colore e l'etichetta).
 import type { NomeIcona } from "./componenti/Icona";
-import type { DoseFarmaco, Evento, Personalizzazione, TipoContenitore } from "./contratti";
+import type { DoseFarmaco, Evento, Personalizzazione, QuantoMangiato, TipoContenitore } from "./contratti";
 import { durata, maiuscola, millilitri, oraDellaCasa } from "./formato";
 
 export type Gravita = "critico" | "attenzione" | "buono" | "neutro";
@@ -33,6 +33,31 @@ function minutiTra(inizio: string, fine: string | null): number {
     return 0;
   }
   return (new Date(fine).getTime() - new Date(inizio).getTime()) / 60000;
+}
+
+// Quanto ha mangiato, a parole: niente numeri, il modello del piatto non è abbastanza preciso per una percentuale.
+export function testoQuantoMangiato(quanto: QuantoMangiato | null): string {
+  if (quanto === "meno_di_meta") {
+    return "Ate less than half";
+  }
+  if (quanto === "meta") {
+    return "Ate about half";
+  }
+  if (quanto === "tutto") {
+    return "Ate everything";
+  }
+  return "Amount not measured";
+}
+
+// Meno di metà è il segnale che conta per la famiglia; tutto è una buona notizia; il resto è neutro.
+export function gravitaQuantoMangiato(quanto: QuantoMangiato | null): Gravita {
+  if (quanto === "meno_di_meta") {
+    return "attenzione";
+  }
+  if (quanto === "tutto") {
+    return "buono";
+  }
+  return "neutro";
 }
 
 export function descriviEvento(evento: Evento, personalizzazione: Personalizzazione): Descrizione {
@@ -93,8 +118,13 @@ export function descriviEvento(evento: Evento, personalizzazione: Personalizzazi
   }
   if (evento.tipo === "pasto") {
     const cibi = maiuscola(evento.valori.cibi.join(", "));
-    const dettaglio = "Ate about " + Math.round(evento.valori.percentuale_mangiata) + "% of the plate";
-    return { icona: "pasto", titolo: cibi, dettaglio: dettaglio, gravita: "neutro" };
+    const quanto = evento.valori.quanto_mangiato;
+    return {
+      icona: "pasto",
+      titolo: cibi,
+      dettaglio: testoQuantoMangiato(quanto),
+      gravita: gravitaQuantoMangiato(quanto),
+    };
   }
   // alzata_notturna
   const minuti = minutiTra(evento.inizio, evento.fine);
