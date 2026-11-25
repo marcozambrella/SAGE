@@ -37,6 +37,10 @@ class ReportGiornaliero(BaseModel):
     pasti: list[PastoDelGiorno]
     alzate_notturne: int
     minuti_fuori_letto_notte: float
+    # Sonno della notte che finisce la mattina di questo giorno (Marco, 25/11). None se non si è visto dormire.
+    sonno_minuti: float | None = None
+    addormentato_alle: AwareDatetime | None = None
+    sveglio_alle: AwareDatetime | None = None
     cadute: int
     uscite: int
     uscite_in_orario_vietato: int
@@ -56,6 +60,8 @@ class RiassuntoGiorno(BaseModel):
     # Pasti con meno di metà del piatto mangiato: il segnale che conta per la famiglia (Marco, 25/11).
     pasti_meno_di_meta: int
     alzate_notturne: int
+    # Come nel report giornaliero: None se quella notte non si è visto dormire.
+    sonno_minuti: float | None = None
     cadute: int
     uscite_in_orario_vietato: int
     simulato: bool = False
@@ -73,3 +79,5 @@ class ReportPeriodo(BaseModel):
     cadute: int
     uscite_in_orario_vietato: int
     alzate_notturne_medie: float
+    # Media sulle notti in cui si è visto dormire; None se nessuna.
+    sonno_medio_minuti: float | None = None

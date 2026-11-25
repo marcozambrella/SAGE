@@ -44,6 +44,7 @@ ESEMPI = [
     evento_esempio("pasto", {"cibi": ["pasta", "salad"], "quanto_mangiato": "meta"}),
     evento_esempio("pasto", {"cibi": ["soup"], "quanto_mangiato": None}),
     evento_esempio("alzata_notturna", {"stanze": ["bedroom", "bathroom"]}),
+    evento_esempio("sonno", {"zona_id": "letto-camera"}),
 ]
 
 

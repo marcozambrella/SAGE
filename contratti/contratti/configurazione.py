@@ -15,7 +15,7 @@ from contratti.eventi import TipoContenitore
 # Un'ora locale "HH:MM" (00:00 - 23:59): un orario scritto male viene rifiutato subito.
 Ora = Annotated[str, Field(pattern=r"^([01][0-9]|2[0-3]):[0-5][0-9]$")]
 TipoZona = Literal["porta", "letto", "tavolo", "portapillole"]
-Analizzatore = Literal["caduta", "uscita", "bevuta", "farmaco", "pasto", "alzata_notturna"]
+Analizzatore = Literal["caduta", "uscita", "bevuta", "farmaco", "pasto", "alzata_notturna", "sonno"]
 
 
 class FasciaOraria(BaseModel):

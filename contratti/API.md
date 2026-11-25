@@ -75,3 +75,14 @@ dopo un errore di rete. Il backend non deve né duplicarlo né perderlo:
   percentuale del piatto: sotto il 35% `meno_di_meta`, dal 35 al 75% `meta`, oltre il 75% `tutto`; `null` se non
   misurata. Nei riassunti dei giorni: `pasti` visti e `pasti_meno_di_meta`.
 - **Notte**: le alzate contano negli `orari_notte`.
+- **Ore di sonno** (Marco, 25/11): il programma di casa manda eventi `sonno` (pezzi di sonno nella zona letto); il
+  backend somma i pezzi che iniziano tra 2 ore prima di `orari_notte.dalle` e 4 ore dopo `orari_notte.alle`, e li
+  conta nel giorno in cui finisce la notte. `addormentato_alle` = inizio del primo pezzo, `sveglio_alle` = fine
+  dell'ultimo. Le alzate notturne sono i buchi tra un pezzo e l'altro.
+
+## Inserimenti a mano dei familiari (web app, Marco 25/11)
+- Nella web app un familiare può segnare a mano se e quanto ha mangiato e bevuto l'anziano. Come la
+  personalizzazione (D29), questi inserimenti restano nel browser e non vanno al backend.
+- Bevuta: ora, ml oppure numero di bicchieri (ml = bicchieri × capienza del contenitore scelto, 200 ml se nessuno).
+- Pasto: ora, cibi (testo libero, facoltativo), quanto: `niente` | `meno_di_meta` | `meta` | `tutto`.
+- La web app li mostra con la scritta "logged by family" e li somma ai dati delle telecamere nei totali del giorno.
