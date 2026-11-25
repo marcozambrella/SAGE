@@ -5,7 +5,6 @@ import uuid
 from zoneinfo import ZoneInfo
 
 import numpy as np
-import pytest
 
 from contratti.configurazione import TelecameraLocale
 from contratti.eventi import EventoCaduta, Fonte, ValoriCaduta
@@ -72,16 +71,12 @@ def test_contenitore_in_mano():
     assert not RilevatoreSegni(CUCINA).c_e_un_segno(osservazione(0, [persona(100)], [sul_tavolo]))
 
 
-@pytest.mark.parametrize("secondi_per_inclinarsi, segno", [(0.6, True), (3.0, False)])
-def test_busto_che_si_inclina_in_fretta(secondi_per_inclinarsi, segno):
-    # da in piedi a 60 gradi: in fretta è il segno di una caduta, piano (sedersi, chinarsi) no
+def test_una_caduta_non_e_un_primo_segno():
+    # il busto va da in piedi a 60 gradi in 0,6 s: chi è caduto resta a terra e si vede anche a 5 al secondo
     segni = RilevatoreSegni(CUCINA)
-    visto = False
     for passo in range(11):
-        secondi = passo / 10 * secondi_per_inclinarsi
-        if segni.c_e_un_segno(osservazione(secondi, [persona(100, 60 * passo / 10)])):
-            visto = True
-    assert visto == segno
+        secondi = passo / 10 * 0.6
+        assert not segni.c_e_un_segno(osservazione(secondi, [persona(100, 60 * passo / 10)]))
 
 
 def test_solo_i_segni_degli_analizzatori_accesi():
@@ -173,63 +168,38 @@ def test_dal_primo_segno_10_al_secondo_da_un_secondo_prima(tmp_path):
     registro.chiudi()
 
 
-class SegnoDiCadutaFinto:
-    """Modello del segno che vede l'inizio di una caduta solo nella finestra che finisce a 5 s."""
+class CadutaFinta:
+    """Classificatore delle cadute che vede sempre una caduta."""
 
     fps = 5.0
     secondi = 3.0
     lunghezza = 15
     soglia = 0.5
 
-    def __init__(self):
-        self.ora = None
-
     def probabilita_caduta(self, finestra: np.ndarray) -> float:
-        if self.ora == 5.0:
-            return 0.9
-        return 0.0
-
-
-class AllarmeFinto:
-    fps = 10.0
-    secondi = 2.0
-    lunghezza = 20
-    soglia = 0.5
-
-    def probabilita_caduta(self, finestra: np.ndarray) -> float:
-        return 0.0
+        return 0.9
 
 
 class PercezioneSoggiorno:
-    """Una persona in mezzo alla stanza; dice al segno finto che ore sono."""
-
-    def __init__(self, segno: SegnoDiCadutaFinto):
-        self.segno = segno
+    """Una persona in mezzo alla stanza."""
 
     def nuovo_tracker(self):
         return TrackerFinto()
 
     def osserva(self, immagine, tracker, con_oggetti, telecamera_id, stanza, ora) -> Osservazione:
         secondi = round((ora - INIZIO).total_seconds(), 1)
-        self.segno.ora = secondi
         tracker.secondi.append(secondi)
         return osservazione(secondi, [persona(100)])
 
 
-def test_il_segno_di_caduta_del_classificatore_fa_tornare_indietro(tmp_path):
+def test_il_classificatore_delle_cadute_non_fa_passare_a_10_al_secondo(tmp_path):
     soggiorno = CUCINA.model_copy(update={"analizzatori": ["caduta"], "zone": []})
-    segno = SegnoDiCadutaFinto()
-    analizzatore = AnalizzatoreCaduta(soggiorno, segno, AllarmeFinto())
+    analizzatore = AnalizzatoreCaduta(soggiorno, CadutaFinta())
     telecamera = Telecamera("cucina", "kitchen", VideoFinto(), [analizzatore], False, RilevatoreSegni(soggiorno))
     registro = RegistroLocale(str(tmp_path / "registro.sqlite3"))
-    elabora([telecamera], PercezioneSoggiorno(segno), registro, None, INIZIO)
+    elabora([telecamera], PercezioneSoggiorno(), registro, None, INIZIO)
     registro.chiudi()
-    # segno a 5 s: 10 al secondo da 4 s a 10 s
     attesi = []
-    for decimo in range(0, 40, 2):
-        attesi.append(decimo / 10)
-    for decimo in range(40, 101):
-        attesi.append(decimo / 10)
-    for decimo in range(102, 120, 2):
+    for decimo in range(0, 120, 2):
         attesi.append(decimo / 10)
     assert telecamera.tracker.secondi == attesi

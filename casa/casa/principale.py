@@ -54,7 +54,7 @@ FPS_NORMALI = 5
 SECONDI_TRA_ANALIZZATI = 1 / FPS_NORMALI - 0.5 / FPS_LETTURA
 PASSI_INDIETRO = 5
 FOTOGRAMMI_IN_MEMORIA = 11         # l'ultimo secondo letto a 10 al secondo, più quello di adesso
-SECONDI_DOPO_IL_SEGNO = 5.0        # si resta a 10 al secondo fino a tanto dopo l'ultimo segno (come le cadute)
+SECONDI_DOPO_IL_SEGNO = 5.0        # si resta a 10 al secondo fino a tanto dopo l'ultimo segno
 
 # Modelli specialisti allenati (25/11), grandezza n come consiglia l'agente di allenamento: stessa precisione della s
 # a metà del tempo. Pesi copiati da runs/ del worktree allenamento (mai nel repo).
@@ -65,21 +65,18 @@ PESI_FARMACI = "pesi/farmaci_yolo26n.pt"
 
 @dataclass
 class PesiCadute:
-    """Classificatore delle cadute in due passi per una posa, con le soglie dei due passi (agente di allenamento,
-    25/11: tarate sulla validazione, da ritarare sulle riprese di Marco)."""
+    """Classificatore delle cadute per una posa (un passo solo, scheletri a 5 al secondo) e la sua soglia."""
 
-    segno: str
-    soglia_segno: float
-    allarme: str
-    soglia_allarme: float
+    percorso: str
+    soglia: float
 
 
-# si usa quello allenato sugli scheletri della posa in uso (la posa la sceglie Marco)
+# si usa quello allenato sugli scheletri della posa in uso (la posa la sceglie Marco). PROVVISORI finché l'agente di
+# allenamento non manda i modelli a un passo: quelli a 5 al secondo con la soglia scelta sulla validazione per il
+# modello usato da solo (scritta nel file)
 PESI_CADUTE = {
-    "pesi/yolo26n-pose.pt": PesiCadute("pesi/cadute_n_segno_5fps_3s.pt", 0.8,
-                                       "pesi/cadute_n_allarme_10fps_2s.pt", 0.98),
-    "pesi/yolo26s-pose.pt": PesiCadute("pesi/cadute_s_segno_5fps_3s.pt", 0.4,
-                                       "pesi/cadute_s_allarme_10fps_2s.pt", 0.8),
+    "pesi/yolo26n-pose.pt": PesiCadute("pesi/cadute_n_segno_5fps_3s.pt", 0.96),
+    "pesi/yolo26s-pose.pt": PesiCadute("pesi/cadute_s_segno_5fps_3s.pt", 0.7),
 }
 
 
@@ -90,8 +87,7 @@ class Specialisti:
     riconoscitore: RiconoscitoreFarmaci | None = None
     porta: ModelloPorta | None = None
     piatto: ModelloPiatto | None = None
-    cadute_segno: ClassificatoreCadute | None = None
-    cadute_allarme: ClassificatoreCadute | None = None
+    cadute: ClassificatoreCadute | None = None
     farmaci: ModelloFarmaci | None = None
 
 
@@ -121,17 +117,14 @@ def carica_specialisti(configurazione: ConfigurazioneCasa) -> Specialisti:
             print("pesi del cibo mancanti (" + PESI_CIBO + "): quanto ha mangiato non si misura")
     if "caduta" in nomi:
         pesi = PESI_CADUTE[POSA_PREDEFINITA]
-        if Path(pesi.segno).exists() and Path(pesi.allarme).exists():
-            segno = ClassificatoreCadute(pesi.segno, pesi.soglia_segno)
-            allarme = ClassificatoreCadute(pesi.allarme, pesi.soglia_allarme)
-            posa = Path(POSA_PREDEFINITA).stem
-            if segno.posa == posa and allarme.posa == posa:
-                specialisti.cadute_segno = segno
-                specialisti.cadute_allarme = allarme
+        if Path(pesi.percorso).exists():
+            classificatore = ClassificatoreCadute(pesi.percorso, pesi.soglia)
+            if classificatore.posa == Path(POSA_PREDEFINITA).stem:
+                specialisti.cadute = classificatore
             else:
                 print("classificatore delle cadute allenato su un'altra posa: solo la regola geometrica")
         else:
-            print("classificatore delle cadute mancante (" + pesi.segno + "): solo la regola geometrica")
+            print("classificatore delle cadute mancante (" + pesi.percorso + "): solo la regola geometrica")
     return specialisti
 
 
@@ -185,7 +178,7 @@ def crea_analizzatori(telecamera: TelecameraLocale, personalizzazione: Personali
         if nome == "uscita":
             analizzatori.append(AnalizzatoreUscita(telecamera, specialisti.porta))
         elif nome == "caduta":
-            analizzatori.append(AnalizzatoreCaduta(telecamera, specialisti.cadute_segno, specialisti.cadute_allarme))
+            analizzatori.append(AnalizzatoreCaduta(telecamera, specialisti.cadute))
         elif nome == "bevuta":
             analizzatori.append(AnalizzatoreBevuta(telecamera, personalizzazione))
         elif nome == "farmaco":
@@ -264,10 +257,6 @@ def analizza(telecamera: Telecamera, letto: Letto, percezione, ora_inizio: datet
         for evento in analizzatore.elabora(osservazione):
             eventi.append(evento)
     segno = telecamera.segni.c_e_un_segno(osservazione)
-    for analizzatore in telecamera.analizzatori:
-        # il segno di caduta lo dà il classificatore delle cadute, che sta nel suo analizzatore
-        if isinstance(analizzatore, AnalizzatoreCaduta) and analizzatore.segno_adesso:
-            segno = True
     if segno:
         telecamera.veloce_fino_a = ora + datetime.timedelta(seconds=SECONDI_DOPO_IL_SEGNO)
     telecamera.secondi_ultimo_analizzato = fotogramma.secondi

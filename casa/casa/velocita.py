@@ -108,8 +108,7 @@ def carica_specialisti_per_la_prova(configurazione, posa: str) -> Specialisti:
     specialisti.piatto = ModelloPiatto(PESI_CIBO)
     specialisti.farmaci = ModelloFarmaci(PESI_FARMACI)
     pesi = PESI_CADUTE[posa]
-    specialisti.cadute_segno = ClassificatoreCadute(pesi.segno, pesi.soglia_segno)
-    specialisti.cadute_allarme = ClassificatoreCadute(pesi.allarme, pesi.soglia_allarme)
+    specialisti.cadute = ClassificatoreCadute(pesi.percorso, pesi.soglia)
     return specialisti
 
 
@@ -173,9 +172,9 @@ def specialisti_da_soli(percorso_configurazione: str) -> None:
                 tempi.append((time.perf_counter() - partenza) * 1000)
             tempo = statistics.median(tempi[1:])  # il primo è di riscaldamento
             righe.append("farmaci (ritaglio " + lato + ")  " + format(tempo, ".0f") + " ms")
-    finestra = np.zeros((specialisti.cadute_allarme.lunghezza, 17, 3), np.float32)
+    finestra = np.zeros((specialisti.cadute.lunghezza, 17, 3), np.float32)
     righe.append("classificatore cadute (una finestra)  " + format(
-        millisecondi(specialisti.cadute_allarme.probabilita_caduta, finestra, 50), ".1f") + " ms")
+        millisecondi(specialisti.cadute.probabilita_caduta, finestra, 50), ".1f") + " ms")
     if specialisti.riconoscitore is not None:
         ritagli = []
         for numero in range(8):

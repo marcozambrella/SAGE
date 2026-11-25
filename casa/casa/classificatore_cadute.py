@@ -10,9 +10,7 @@ classificatore deve ricevere gli scheletri come li ha visti allenandosi:
 - punti con confidenza ≤ 0,1: zeri; x, y meno il centro (media dei punti visibili della finestra) diviso per la
   mediana dell'altezza del box della persona; terzo canale la confidenza del punto;
 - uscita softmax [normale, caduta, a_terra]: caduta se p(caduta) + p(a_terra) ≥ soglia; una finestra ogni 0,5 s.
-Due passi (agente di allenamento, 25/11): il modello del "segno" (5 al secondo, 3 s) su tutti; quando supera la sua
-soglia si analizzano 10 fotogrammi al secondo per 5 s e il modello dell'"allarme" (10 al secondo, 2 s) decide. Le
-soglie dei due passi non sono quelle scritte nel file (valgono per un modello usato da solo).
+Un passo solo, con il modello a 5 fotogrammi al secondo (Marco, 25/11: niente 10 al secondo per le cadute).
 """
 
 from dataclasses import dataclass

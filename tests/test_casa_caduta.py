@@ -134,12 +134,8 @@ class ClassificatoreFinto:
         return 0.1
 
 
-def segno_e_allarme(vede_segno: bool, vede_allarme: bool) -> tuple:
-    return ClassificatoreFinto(vede_segno, 5, 3), ClassificatoreFinto(vede_allarme, 10, 2)
-
-
-def scena_ibrida(modelli: tuple, sequenza: list, passo: float = 1.0) -> list:
-    analizzatore = AnalizzatoreCaduta(SOGGIORNO, modelli[0], modelli[1])
+def scena_ibrida(classificatore: ClassificatoreFinto, sequenza: list, passo: float = 1.0) -> list:
+    analizzatore = AnalizzatoreCaduta(SOGGIORNO, classificatore)
     immagine = np.zeros((200, 200, 3), np.uint8)
     eventi = []
     for indice in range(len(sequenza)):
@@ -151,35 +147,30 @@ def scena_ibrida(modelli: tuple, sequenza: list, passo: float = 1.0) -> list:
 
 
 def test_caduta_confermata_dal_classificatore():
-    eventi = scena_ibrida(segno_e_allarme(True, True), [IN_PIEDI] * 3 + [A_TERRA] * 5)
+    eventi = scena_ibrida(ClassificatoreFinto(True, 5, 3), [IN_PIEDI] * 3 + [A_TERRA] * 5)
     assert len(eventi) == 1
     assert eventi[0].inizio == INIZIO + datetime.timedelta(seconds=3)
 
 
-def test_allarme_del_classificatore_solo_dopo_un_segno():
-    # il modello dell'allarme direbbe "caduta" ma il segno non c'è: non lo si guarda nemmeno
-    modelli = segno_e_allarme(False, True)
-    assert scena_ibrida(modelli, [IN_PIEDI] * 3 + [A_TERRA] * 10 + [IN_PIEDI] * 10) == []
-    assert len(modelli[0].finestre) == 23
-    assert len(modelli[1].finestre) == 0
-
-
 def test_senza_conferma_niente_allarme_se_si_rialza():
     # la geometria vede una caduta ma il classificatore no (es. si sdraia sul tappeto in fretta): niente allarme
-    assert scena_ibrida(segno_e_allarme(True, False), [IN_PIEDI] * 3 + [A_TERRA] * 10 + [IN_PIEDI] * 10) == []
+    assert scena_ibrida(ClassificatoreFinto(False, 5, 3), [IN_PIEDI] * 3 + [A_TERRA] * 10 + [IN_PIEDI] * 10) == []
 
 
 def test_senza_conferma_allarme_dopo_30_secondi_a_terra():
-    eventi = scena_ibrida(segno_e_allarme(False, False), [IN_PIEDI] * 3 + [A_TERRA] * 35)
+    eventi = scena_ibrida(ClassificatoreFinto(False, 5, 3), [IN_PIEDI] * 3 + [A_TERRA] * 35)
     assert len(eventi) == 1
     assert eventi[0].tipo == "caduta"
 
 
+def test_il_classificatore_da_solo_non_fa_partire_niente():
+    # il classificatore vede sempre una caduta ma la persona resta in piedi
+    assert scena_ibrida(ClassificatoreFinto(True, 5, 3), [IN_PIEDI] * 40) == []
+
+
 def test_una_finestra_ogni_mezzo_secondo_della_lunghezza_giusta():
-    # 3 s a 10 fotogrammi al secondo: finestre a 0; 0,5; ...; 2,5 s
-    modelli = segno_e_allarme(True, False)
-    scena_ibrida(modelli, [IN_PIEDI] * 30, 0.1)
-    assert len(modelli[0].finestre) == 6
-    assert len(modelli[1].finestre) == 6
-    assert modelli[0].finestre[0].shape == (15, 17, 3)  # segno: 3 s a 5 al secondo
-    assert modelli[1].finestre[0].shape == (20, 17, 3)  # allarme: 2 s a 10 al secondo
+    # 3 s a 10 fotogrammi al secondo (es. durante una bevuta): finestre a 0; 0,5; ...; 2,5 s, sempre a 5 al secondo
+    classificatore = ClassificatoreFinto(False, 5, 3)
+    scena_ibrida(classificatore, [IN_PIEDI] * 30, 0.1)
+    assert len(classificatore.finestre) == 6
+    assert classificatore.finestre[0].shape == (15, 17, 3)
