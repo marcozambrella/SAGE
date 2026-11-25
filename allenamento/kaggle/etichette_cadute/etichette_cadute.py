@@ -2,7 +2,8 @@
 
 La valutazione importa il codice di casa e gira sul PC; le etichette però sono nei dataset originali su Kaggle
 (CAUCAFall 8,3 GB, Le2i, GMDCSA): questo kernel le legge come cadute_stgcn e scrive solo un json piccolo.
-Funzioni copiate da cadute_stgcn.py senza cambiarle (stesse etichette e stesse divisioni dell'allenamento).
+Funzioni copiate da cadute_stgcn.py (stesse etichette e divisioni dell'allenamento), tranne etichette_gmdcsa
+(corretta, vedi sotto).
 Uscita: etichette_cadute.json, per ogni video (id come in cadute_stgcn: "<dataset>/<percorso del video>"):
 dataset, divisione, fps, numero_frame, eventi (inizio e fine in secondi di ogni tratto caduta + a terra) e tratti
 (primo fotogramma, fotogramma dopo l'ultimo, classe 1 caduta o 2 a terra).
@@ -20,6 +21,8 @@ import numpy as np
 INGRESSO = Path("/kaggle/input")
 USCITA = Path("/kaggle/working")
 SECONDI_CADUTA = 1.5
+# "Falling (SW)[3.4 to 6]", anche "Fall (FW)[0 to 3]", "Falling (BW)[2.3 6]" e "Falling (BW[5.9 to 10]"
+REGOLA_CADUTA_GMDCSA = r"Fall(?:ing)?\s*(?:\([A-Za-z]*\)?)?\s*\[\s*([\d.]+)\s*(?:to\s*)?([\d.]+)\s*\]"
 
 
 # ===== copiato da cadute_stgcn.py =====
@@ -93,13 +96,19 @@ def etichette_caucafall(cartella_video: Path, numero_frame: int, fps: float) -> 
     return dividi_caduta(cade, fps)
 
 
-def etichette_gmdcsa(percorso_csv: Path, nome_video: str, numero_frame: int, fps: float) -> np.ndarray:
-    """Riga del video nel csv: gli intervalli "Falling (..)[a to b]" in secondi sono caduta + a terra."""
+def etichette_gmdcsa(percorso_csv: Path, nome_video: str, numero_frame: int, fps: float):
+    """Riga del video nel csv: gli intervalli "Falling (..)[a to b]" in secondi sono caduta + a terra.
+    Corretta rispetto a cadute_stgcn (25/11), che sbagliava 4 righe su 8 csv (nessuna di train): accetta anche
+    "Fall (FW)[0 to 3]", "Falling (BW)[2.3 6]" e "Falling (BW[5.9 to 10]"; un video del csv delle cadute senza i
+    tempi della caduta ("Falling (FW); Sitting[0 to 1.7]", prima preso come caduta da 0 a 1,7 s) non si usa."""
     cade = np.zeros(numero_frame, dtype=bool)
     for riga in percorso_csv.read_text(errors="replace").splitlines():
         if not riga.startswith(nome_video):
             continue
-        for inizio, fine in re.findall(r"Falling[^\[]*\[\s*([\d.]+)\s*to\s*([\d.]+)\s*\]", riga):
+        intervalli = re.findall(REGOLA_CADUTA_GMDCSA, riga)
+        if len(intervalli) == 0 and percorso_csv.stem == "Fall":
+            return None
+        for inizio, fine in intervalli:
             primo = int(float(inizio) * fps)
             ultimo = int(math.ceil(float(fine) * fps))
             cade[primo:min(ultimo + 1, numero_frame)] = True
