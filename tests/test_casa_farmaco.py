@@ -2,6 +2,7 @@
 posto di CLIP (il colore medio dell'immagine): così il test non carica modelli."""
 
 import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import cv2
@@ -11,8 +12,10 @@ import pytest
 from contratti.configurazione import Personalizzazione, TelecameraLocale
 from contratti.eventi import LETTORE_EVENTO, leggi_evento
 
-from casa.farmaco import AnalizzatoreFarmaco
+from casa.aspetto_zona import AreaZona
+from casa.farmaco import AnalizzatoreFarmaco, ModelloFarmaci
 from casa.percezione import Oggetto, Osservazione, Persona
+from casa.principale import PESI_FARMACI
 from casa.riconoscimento_farmaci import RiconoscitoreFarmaci, crea_riconoscitore
 
 ROMA = ZoneInfo("Europe/Rome")
@@ -160,3 +163,71 @@ def test_bere_non_e_la_pillola_alla_bocca():
     assert scena(sequenza) == []
     # dopo aver bevuto, la pillola alla bocca conta
     assert len(scena(sequenza + ripeti("giu", False, 1) + ripeti("bocca", False, 1))) == 1
+
+
+class ModelloFarmaciFinto:
+    """Vede la scatola rossa del fotogramma (box 135-165 × 95-125) se c'è; ricorda le chiamate."""
+
+    def __init__(self):
+        self.chiamate = 0
+
+    def scatole_e_blister(self, immagine: np.ndarray, area) -> list:
+        self.chiamate = self.chiamate + 1
+        if immagine[110, 150, 2] != 200:
+            return []
+        return [np.array([135, 95, 165, 125], np.float32)]
+
+
+class RiconoscitoreCheRicorda:
+    def __init__(self):
+        self.ritagli = None
+
+    def riconosci(self, ritagli: list):
+        self.ritagli = ritagli
+        return None
+
+
+def scena_con_rilevatore(sequenza: list, modello: ModelloFarmaciFinto, riconoscitore) -> list:
+    analizzatore = AnalizzatoreFarmaco(CUCINA, riconoscitore, modello)
+    eventi = []
+    for secondo in range(len(sequenza)):
+        passo = sequenza[secondo]
+        ora = INIZIO + datetime.timedelta(seconds=secondo)
+        osservazione = Osservazione("cucina", "kitchen", ora, fotogramma(passo[1], passo[2]), [persona(passo[0])],
+                                    passo[3])
+        for evento in analizzatore.elabora(osservazione):
+            eventi.append(evento)
+    return eventi
+
+
+def test_ritagli_dal_rilevatore_dei_farmaci():
+    modello = ModelloFarmaciFinto()
+    riconoscitore = RiconoscitoreCheRicorda()
+    sequenza = (ripeti("giu", False, 3) + ripeti("portapillole", True, 2, scatola=True) + ripeti("giu", True, 2)
+                + ripeti("bocca", True, 1))
+    eventi = scena_con_rilevatore(sequenza, modello, riconoscitore)
+    assert len(eventi) == 1
+    # il rilevatore gira solo con il polso vicino al portapillole (2 s), non con la mano giù o alla bocca
+    assert modello.chiamate == 2
+    # al riconoscimento vanno i box della scatola con un decimo di bordo: 30 px + 3 px per lato
+    assert len(riconoscitore.ritagli) == 2
+    assert riconoscitore.ritagli[0].shape == (36, 36, 3)
+
+
+def test_senza_scatole_viste_i_ritagli_della_mano():
+    modello = ModelloFarmaciFinto()
+    riconoscitore = RiconoscitoreCheRicorda()
+    sequenza = ripeti("giu", False, 3) + ripeti("portapillole", True, 2) + ripeti("bocca", True, 1)
+    scena_con_rilevatore(sequenza, modello, riconoscitore)
+    assert len(riconoscitore.ritagli) == 2
+    assert riconoscitore.ritagli[0].shape == (40, 40, 3)  # lato = larghezza delle spalle intorno al polso
+
+
+@pytest.mark.skipif(not Path(PESI_FARMACI).exists(), reason="pesi dei farmaci non presenti (fuori dal repo)")
+def test_modello_vero_dei_farmaci():
+    modello = ModelloFarmaci(PESI_FARMACI)
+    nomi = list(modello.modello.names.values())
+    assert nomi == ["pillola", "blister", "scatola_farmaco", "portapillole", "scomparto"]
+    immagine = np.full((200, 200, 3), 128, np.uint8)
+    area = AreaZona(CUCINA.zone[0], immagine)
+    assert modello.scatole_e_blister(immagine, area) == []

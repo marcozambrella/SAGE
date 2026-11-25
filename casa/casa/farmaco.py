@@ -1,11 +1,11 @@
 """Analizzatore farmaco (D15), rete ibrida (Marco, 24/11). Tre parti separate, ognuna sostituibile dal suo modello:
 1. presa: la mano prende il farmaco dal portapillole. PROVVISORIO: un polso dentro la zona "portapillole"; il
-   portapillole è aperto se la zona cambia aspetto (aspetto_zona.py). Poi: il rilevatore farmaci_det (scatola,
-   blister, portapillole aperto/chiuso).
+   portapillole è aperto se la zona cambia aspetto (aspetto_zona.py). Il rilevatore allenato farmaci_det (25/11:
+   pillola, blister, scatola_farmaco, portapillole, scomparto) gira solo quando un polso è vicino alla zona.
 2. gesto: la mano porta la pillola alla bocca entro 2 minuti. PROVVISORIO: polso vicino al naso senza un contenitore
    alla bocca (quella è una bevuta). Poi: il classificatore allenato sugli scheletri.
-3. riconoscimento: quale farmaco, confrontando i ritagli intorno alla mano con le foto di scatola/blister
-   (riconoscimento_farmaci.py, CLIP congelato). Con farmaci_det il ritaglio sarà il box della scatola.
+3. riconoscimento: quale farmaco, confrontando i ritagli con le foto di scatola/blister (riconoscimento_farmaci.py,
+   CLIP congelato). I ritagli sono i box di scatola e blister di farmaci_det; senza, i ritagli intorno alla mano.
 Se la presa è in orario, in ritardo o saltata lo decide il backend. Lo stato è per persona (id del tracker).
 """
 
@@ -18,18 +18,50 @@ import numpy as np
 from contratti.configurazione import TelecameraLocale
 from contratti.eventi import EventoFarmaco, Fonte, ValoriFarmaco
 
-from casa.aspetto_zona import RiferimentoZona
+from casa.aspetto_zona import AreaZona, RiferimentoZona
 from casa.bevuta import TIPI_DA_CLASSE, alla_bocca
 from casa.percezione import Osservazione, Persona, foto_prova
 from casa.riconoscimento_farmaci import RiconoscitoreFarmaci
 from casa.scheletro import mano_alla_bocca, misura, polsi
-from casa.zone import dentro_zona, zone_del_tipo
+from casa.zone import dentro_zona, zona_allargata, zone_del_tipo
 
 SECONDI_DALLA_PRESA_ALLA_BOCCA = 120.0
 RITAGLI_MASSIMI = 8              # ritagli della mano per il riconoscimento (i primi, con la mano sul farmaco)
 LATO_RITAGLIO_SPALLE = 1.0       # lato del ritaglio intorno alla mano, in larghezze di spalle (una scatola ci sta)
 LATO_MANO_SPALLE = 0.5           # quadrato intorno al polso che non conta per dire se il portapillole è aperto
 LATO_MINIMO_RITAGLIO = 16
+FATTORE_ZONA_PORTAPILLOLE = 1.5  # "vicino al portapillole": la zona allargata di un quarto per lato
+CONFIDENZA_FARMACI = 0.4         # i ritagli sbagliati vanno a CLIP: meglio pochi e buoni
+LATO_MODELLO_FARMACI = 640       # come nell'allenamento
+SECONDI_TRA_RILEVAMENTI = 0.2    # il rilevatore costa ~60-80 ms: al massimo 5 volte al secondo anche durante gli eventi
+CLASSI_DA_RICONOSCERE = ("scatola_farmaco", "blister")  # le foto caricate nell'app sono di scatole e blister
+MARGINE_RITAGLIO_FARMACO = 0.1   # un po' di bordo intorno al box della scatola
+
+
+class ModelloFarmaci:
+    """Rilevatore allenato farmaci_det sul riquadro della zona portapillole allargata."""
+
+    def __init__(self, percorso: str):
+        from ultralytics import YOLO  # lento da importare: solo quando serve davvero
+
+        self.modello = YOLO(percorso)
+
+    def __deepcopy__(self, memo: dict) -> "ModelloFarmaci":
+        # il modello non è stato: le copie per tornare indietro di un secondo (principale.py) lo condividono
+        return self
+
+    def scatole_e_blister(self, immagine: np.ndarray, area: AreaZona) -> list:
+        """Box (x1, y1, x2, y2 in pixel dell'immagine intera) delle scatole e dei blister nel riquadro dell'area."""
+        risultato = self.modello.predict(area.ritaglio(immagine), conf=CONFIDENZA_FARMACI, imgsz=LATO_MODELLO_FARMACI,
+                                         device="cpu", verbose=False)[0]
+        box_ritaglio = risultato.boxes.xyxy.cpu().numpy()
+        classi = risultato.boxes.cls.int().cpu().numpy()
+        spostamento = np.array([area.x1, area.y1, area.x1, area.y1], np.float32)
+        box = []
+        for indice in range(len(box_ritaglio)):
+            if risultato.names[int(classi[indice])] in CLASSI_DA_RICONOSCERE:
+                box.append(box_ritaglio[indice] + spostamento)
+        return box
 
 
 @dataclass
@@ -37,9 +69,10 @@ class Presa:
     inizio: datetime.datetime
     ultima_mano_nella_zona: datetime.datetime
     portapillole_aperto: bool
-    ritagli: list
+    ritagli: list            # intorno alla mano
     immagine: np.ndarray
     confidenza: float
+    ritagli_farmaci: list    # box di scatole e blister del rilevatore farmaci_det
 
 
 def quadrato(centro: np.ndarray, lato: float) -> np.ndarray:
@@ -58,6 +91,18 @@ def ritaglio_intorno(immagine: np.ndarray, centro: np.ndarray, lato: float) -> n
     return immagine[y1:y2, x1:x2].copy()
 
 
+def ritaglio_del_box(immagine: np.ndarray, box: np.ndarray) -> np.ndarray | None:
+    margine_x = MARGINE_RITAGLIO_FARMACO * float(box[2] - box[0])
+    margine_y = MARGINE_RITAGLIO_FARMACO * float(box[3] - box[1])
+    x1 = max(int(box[0] - margine_x), 0)
+    y1 = max(int(box[1] - margine_y), 0)
+    x2 = min(int(box[2] + margine_x), immagine.shape[1])
+    y2 = min(int(box[3] + margine_y), immagine.shape[0])
+    if x2 - x1 < LATO_MINIMO_RITAGLIO or y2 - y1 < LATO_MINIMO_RITAGLIO:
+        return None
+    return immagine[y1:y2, x1:x2].copy()
+
+
 def sta_bevendo(persona: Persona, oggetti: list) -> bool:
     for oggetto in oggetti:
         if oggetto.classe in TIPI_DA_CLASSE and alla_bocca(persona, oggetto):
@@ -69,15 +114,42 @@ class AnalizzatoreFarmaco:
     # gli oggetti servono solo a escludere le bevute: si usano se la telecamera ha già il rilevatore per la bevuta
     usa_oggetti = False
 
-    def __init__(self, telecamera: TelecameraLocale, riconoscitore: RiconoscitoreFarmaci | None):
+    def __init__(self, telecamera: TelecameraLocale, riconoscitore: RiconoscitoreFarmaci | None,
+                 modello_farmaci: ModelloFarmaci | None = None):
         self.telecamera_id = telecamera.id
         self.stanza = telecamera.stanza
         self.riconoscitore = riconoscitore
+        self.modello_farmaci = modello_farmaci
         self.portapillole = zone_del_tipo(telecamera, "portapillole")
         self.riferimenti = {}  # id zona → RiferimentoZona ("portapillole chiuso")
+        self.vicino_al_portapillole = []  # zone allargate
         for zona in self.portapillole:
             self.riferimenti[zona.id] = RiferimentoZona(zona)
+            self.vicino_al_portapillole.append(zona_allargata(zona, FATTORE_ZONA_PORTAPILLOLE))
+        self.ultimo_rilevamento = None
         self.prese = {}        # id traccia → Presa in corso
+
+    def rileva_farmaci(self, presa: Presa, persona: Persona, immagine: np.ndarray, ora: datetime.datetime) -> None:
+        """Il rilevatore farmaci_det sulle zone portapillole (allargate) a cui un polso della persona è vicino."""
+        if len(presa.ritagli_farmaci) >= RITAGLI_MASSIMI:
+            return
+        if self.ultimo_rilevamento is not None:
+            if (ora - self.ultimo_rilevamento).total_seconds() < SECONDI_TRA_RILEVAMENTI:
+                return
+        altezza = immagine.shape[0]
+        larghezza = immagine.shape[1]
+        for zona in self.vicino_al_portapillole:
+            vicino = False
+            for polso in polsi(persona):
+                if dentro_zona(float(polso[0]), float(polso[1]), zona, larghezza, altezza):
+                    vicino = True
+            if not vicino:
+                continue
+            self.ultimo_rilevamento = ora
+            for box in self.modello_farmaci.scatole_e_blister(immagine, AreaZona(zona, immagine)):
+                ritaglio = ritaglio_del_box(immagine, box)
+                if ritaglio is not None and len(presa.ritagli_farmaci) < RITAGLI_MASSIMI:
+                    presa.ritagli_farmaci.append(ritaglio)
 
     def portapillole_aperto(self, immagine: np.ndarray, persone: list) -> bool:
         """Una zona portapillole ha cambiato aspetto (senza contare i pixel intorno ai polsi)?"""
@@ -108,7 +180,7 @@ class AnalizzatoreFarmaco:
             if polso_nella_zona is not None:
                 mani_al_portapillole = True
                 if presa is None:
-                    presa = Presa(ora, ora, False, [], immagine, 0.0)
+                    presa = Presa(ora, ora, False, [], immagine, 0.0, [])
                     self.prese[persona.id_traccia] = presa
                 presa.ultima_mano_nella_zona = ora
                 presa.confidenza = max(presa.confidenza, persona.confidenza)
@@ -120,6 +192,8 @@ class AnalizzatoreFarmaco:
                 continue
             if aperto:
                 presa.portapillole_aperto = True
+            if self.modello_farmaci is not None:
+                self.rileva_farmaci(presa, persona, immagine, ora)
             if polso_nella_zona is None and mano_alla_bocca(persona) and not sta_bevendo(persona, osservazione.oggetti):
                 eventi.append(self.evento(presa, ora))
                 self.prese.pop(persona.id_traccia)
@@ -145,8 +219,11 @@ class AnalizzatoreFarmaco:
     def evento(self, presa: Presa, ora_bocca: datetime.datetime) -> EventoFarmaco:
         farmaco_id = None
         somiglianza = None
+        ritagli = presa.ritagli_farmaci
+        if len(ritagli) == 0:
+            ritagli = presa.ritagli
         if self.riconoscitore is not None:
-            riconoscimento = self.riconoscitore.riconosci(presa.ritagli)
+            riconoscimento = self.riconoscitore.riconosci(ritagli)
             if riconoscimento is not None:
                 farmaco_id = riconoscimento.farmaco_id
                 somiglianza = riconoscimento.somiglianza

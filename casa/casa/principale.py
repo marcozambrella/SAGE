@@ -33,7 +33,7 @@ from casa.bevuta import AnalizzatoreBevuta
 from casa.caduta import AnalizzatoreCaduta
 from casa.classificatore_cadute import ClassificatoreCadute
 from casa.configurazione import leggi_configurazione
-from casa.farmaco import AnalizzatoreFarmaco
+from casa.farmaco import AnalizzatoreFarmaco, ModelloFarmaci
 from casa.invio import SECONDI_TRA_LOTTI, Backend, invia_in_sospeso
 from casa.pasto import AnalizzatorePasto, ModelloPiatto
 from casa.percezione import POSA_PREDEFINITA, RILEVATORE_PREDEFINITO, Percezione
@@ -60,6 +60,7 @@ SECONDI_DOPO_IL_SEGNO = 3.0        # si resta a 10 al secondo fino a tanto dopo 
 # a metà del tempo. Pesi copiati da runs/ del worktree allenamento (mai nel repo).
 PESI_PORTA = "pesi/porta_yolo26n.pt"
 PESI_CIBO = "pesi/cibo_yolo26n.pt"
+PESI_FARMACI = "pesi/farmaci_yolo26n.pt"
 # la variante scelta dall'agente di allenamento; fps, secondi e soglia sono scritti nel file
 PESI_CADUTE = "pesi/cadute_stgcn.pt"
 
@@ -72,6 +73,7 @@ class Specialisti:
     porta: ModelloPorta | None = None
     piatto: ModelloPiatto | None = None
     cadute: ClassificatoreCadute | None = None
+    farmaci: ModelloFarmaci | None = None
 
 
 def carica_specialisti(configurazione: ConfigurazioneCasa) -> Specialisti:
@@ -84,6 +86,10 @@ def carica_specialisti(configurazione: ConfigurazioneCasa) -> Specialisti:
     if "farmaco" in nomi:
         specialisti.riconoscitore = crea_riconoscitore(configurazione.personalizzazione,
                                                        configurazione.cartella_foto_farmaci)
+        if Path(PESI_FARMACI).exists():
+            specialisti.farmaci = ModelloFarmaci(PESI_FARMACI)
+        else:
+            print("pesi dei farmaci mancanti (" + PESI_FARMACI + "): ritagli intorno alla mano per il riconoscimento")
     if "uscita" in nomi:
         if Path(PESI_PORTA).exists():
             specialisti.porta = ModelloPorta(PESI_PORTA)
@@ -156,7 +162,7 @@ def crea_analizzatori(telecamera: TelecameraLocale, personalizzazione: Personali
         elif nome == "bevuta":
             analizzatori.append(AnalizzatoreBevuta(telecamera, personalizzazione))
         elif nome == "farmaco":
-            analizzatori.append(AnalizzatoreFarmaco(telecamera, specialisti.riconoscitore))
+            analizzatori.append(AnalizzatoreFarmaco(telecamera, specialisti.riconoscitore, specialisti.farmaci))
         elif nome == "pasto":
             analizzatori.append(AnalizzatorePasto(telecamera, specialisti.piatto))
         elif nome == "alzata_notturna":
