@@ -9,6 +9,7 @@ import TitoloPagina from "../componenti/TitoloPagina";
 import ModuloAnziano from "../personalizzazione/ModuloAnziano";
 import ModuloContenitori from "../personalizzazione/ModuloContenitori";
 import ModuloFarmaci from "../personalizzazione/ModuloFarmaci";
+import ModuloPortone from "../personalizzazione/ModuloPortone";
 import ModuloRegole from "../personalizzazione/ModuloRegole";
 import ModuloTelecamere from "../personalizzazione/ModuloTelecamere";
 
@@ -95,6 +96,9 @@ function ImpostazioniCasaUtente({ personalizzazione, onSalva, onCancella }: Prop
           valore={bozza.telecamere}
           onCambia={(telecamere) => cambia({ ...bozza, telecamere: telecamere })}
         />
+      </Scheda>
+      <Scheda titolo="Front door" icona="porta">
+        <ModuloPortone nomeAnziano={bozza.anziano.nome} />
       </Scheda>
       <Scheda titolo="Alerts and night hours" icona="campanella">
         <ModuloRegole

@@ -1,12 +1,14 @@
-// Personalizzazione guidata (D21, D28): cinque passi, poi si salva nel browser (D29) e si va a "Coming soon".
+// Personalizzazione guidata (D21, D28): sei passi, poi si salva nel browser (D29) e si va a "Coming soon".
+// Il portone di casa è solo annunciato (Marco, 25/11): il suo passo si salta.
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import type { Personalizzazione } from "../contratti";
-import Icona from "../componenti/Icona";
+import Icona, { type NomeIcona } from "../componenti/Icona";
 import Pulsante from "../componenti/Pulsante";
 import ModuloAnziano from "../personalizzazione/ModuloAnziano";
 import ModuloContenitori from "../personalizzazione/ModuloContenitori";
 import ModuloFarmaci from "../personalizzazione/ModuloFarmaci";
+import ModuloPortone from "../personalizzazione/ModuloPortone";
 import ModuloRegole from "../personalizzazione/ModuloRegole";
 import ModuloTelecamere from "../personalizzazione/ModuloTelecamere";
 import { personalizzazioneVuota } from "../salvataggio";
@@ -16,6 +18,7 @@ const PASSI = [
   { titolo: "Medications", sotto: "SAGE checks each dose is taken, and on time." },
   { titolo: "Cups, glasses and bottles", sotto: "The containers they usually drink from." },
   { titolo: "Cameras", sotto: "Which rooms the cameras will watch." },
+  { titolo: "Front door", sotto: "The one door that counts as going out." },
   { titolo: "Alerts and night hours", sotto: "When going out is a worry, and when night starts." },
 ];
 
@@ -29,10 +32,22 @@ export default function Personalizza({ onSalva }: Proprieta) {
   const vai = useNavigate();
 
   const ultimoPasso = passo === PASSI.length - 1;
+  const passoPortone = 4;
   const nomeMancante = bozza.anziano.nome.trim() === "";
   let nome = "them";
   if (!nomeMancante) {
     nome = bozza.anziano.nome.trim();
+  }
+
+  // Il pulsante principale: "Skip for now" sul passo del portone, che per ora non si può impostare.
+  let testoAvanti = "Next";
+  let iconaAvanti: NomeIcona = "freccia";
+  if (passo === passoPortone) {
+    testoAvanti = "Skip for now";
+  }
+  if (ultimoPasso) {
+    testoAvanti = "Save my home";
+    iconaAvanti = "spunta";
   }
 
   // Un pallino per passo: pieno se fatto, gonfio e colorato se è quello attuale.
@@ -100,7 +115,8 @@ export default function Personalizza({ onSalva }: Proprieta) {
             onCambia={(telecamere) => setBozza({ ...bozza, telecamere: telecamere })}
           />
         )}
-        {passo === 4 && (
+        {passo === passoPortone && <ModuloPortone nomeAnziano={nome} />}
+        {passo === 5 && (
           <ModuloRegole
             valore={bozza.regole}
             nomeAnziano={nome}
@@ -115,7 +131,7 @@ export default function Personalizza({ onSalva }: Proprieta) {
             <Icona nome="indietro" /> Back
           </Pulsante>
           <Pulsante disattivato={nomeMancante} onClick={avanti}>
-            {ultimoPasso ? "Save my home" : "Next"} <Icona nome={ultimoPasso ? "spunta" : "freccia"} />
+            {testoAvanti} <Icona nome={iconaAvanti} />
           </Pulsante>
         </div>
       </div>
