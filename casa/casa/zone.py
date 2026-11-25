@@ -16,6 +16,15 @@ def zone_del_tipo(telecamera: TelecameraLocale, tipo: str) -> list[Zona]:
     return zone
 
 
+def zone_del_portone(telecamera: TelecameraLocale, portone_zona_id: str | None) -> list[Zona]:
+    """Le zone "porta" che fanno da portone di casa: quella scelta nell'app, o tutte se non è scelta (contratto)."""
+    zone = []
+    for zona in zone_del_tipo(telecamera, "porta"):
+        if portone_zona_id is None or zona.id == portone_zona_id:
+            zone.append(zona)
+    return zone
+
+
 def punto_a_terra(persona: Persona) -> tuple[float, float]:
     """Centro del lato basso del box: dove la persona poggia (pavimento, o materasso se è sdraiata).
     Con il centro del box, una persona in piedi davanti al letto sembrerebbe dentro il letto."""

@@ -1,8 +1,11 @@
-"""Analizzatore uscita (D16): la persona APRE IL PORTONE di casa ed esce (Marco, 24/11). Per ogni persona tracciata
-(id del tracker):
-- è nella zona porta allargata (con i piedi: allargata per non perdere chi è coperto a metà dalla porta) e la porta
-  è aperta, mentre la persona è lì o subito dopo che è sparita;
-- poi la persona sparisce per SECONDI_SPARIZIONE.
+"""Analizzatore uscita (D16): la persona esce dal PORTONE di casa (Marco, 25/11: "parte se la persona non c'è e il
+portone che scegli dall'app è aperto"). Solo la zona porta scelta nell'app come portone (portone_zona_id; se non è
+scelta, tutte le zone porta). Per ogni persona tracciata (id del tracker):
+- è vicino al portone (piedi nella zona allargata: non si perde chi è coperto a metà dalla porta);
+- quando sparisce il portone è aperto: l'ultimo controllo mentre era lì, o un controllo nell'attesa dopo (la porta
+  si vede meglio quando la persona non la copre). Va bene anche la porta lasciata aperta; chi apre, richiude e se ne
+  va di lato non è uscito;
+- non si vede più per SECONDI_SPARIZIONE.
 Porta aperta: il modello allenato porta_aperta/porta_chiusa (25/11) sul ritaglio della zona, solo quando qualcuno è
 alla porta e al massimo ogni mezzo secondo. Riserva se mancano i pesi: la zona cambia aspetto rispetto al
 riferimento "porta chiusa" (aspetto_zona.py).
@@ -21,7 +24,7 @@ from contratti.eventi import EventoUscita, Fonte, ValoriUscita
 
 from casa.aspetto_zona import AreaZona, RiferimentoZona
 from casa.percezione import Osservazione, foto_prova
-from casa.zone import zona_allargata, zona_della_persona, zone_del_tipo
+from casa.zone import zona_allargata, zona_della_persona, zone_del_portone
 
 # Più del tempo in cui il tracker tiene in vita una traccia persa (30 fotogrammi: 6 s a 5 fotogrammi al secondo),
 # così una persona coperta un attimo dalla porta e ritrovata con lo stesso id non diventa un'uscita.
@@ -69,46 +72,45 @@ class Traccia:
     ora: datetime.datetime            # ultima volta vista
     confidenza: float
     zona_id: str | None               # zona porta in cui aveva i piedi l'ultima volta, None se fuori dalle porte
-    porta_aperta: bool                # la porta si è aperta mentre era lì (o subito dopo che è sparita)
+    porta_aperta: bool                # portone aperto all'ultimo controllo mentre era lì (o dopo che è sparita)
     immagine: np.ndarray | None       # foto di prova: davanti alla porta, se possibile con la porta aperta
 
 
 class AnalizzatoreUscita:
     usa_oggetti = False
 
-    def __init__(self, telecamera: TelecameraLocale, modello_porta: ModelloPorta | None = None):
+    def __init__(self, telecamera: TelecameraLocale, portone_zona_id: str | None,
+                 modello_porta: ModelloPorta | None = None):
         self.telecamera_id = telecamera.id
         self.stanza = telecamera.stanza
         self.modello_porta = modello_porta
-        self.porte = []        # zone porta allargate
+        self.porte = []        # zone del portone allargate
         self.riferimenti = {}  # id zona → RiferimentoZona ("porta chiusa"), per la regola di riserva
-        for zona in zone_del_tipo(telecamera, "porta"):
+        for zona in zone_del_portone(telecamera, portone_zona_id):
             self.porte.append(zona_allargata(zona, FATTORE_ZONA_PORTA))
             self.riferimenti[zona.id] = RiferimentoZona(zona)
         self.controlli = {}    # id zona → ultimo ControlloPorta del modello
         self.tracce = {}       # id traccia → Traccia
 
-    def porte_aperte(self, osservazione: Osservazione, zone_da_guardare: list) -> list:
-        """Id delle zone porta, tra quelle da guardare, che adesso sembrano aperte."""
+    def stato_delle_porte(self, osservazione: Osservazione, zone_da_guardare: list) -> dict:
+        """id zona → True (aperta), False (chiusa) o None (non si sa), per le zone da guardare."""
         box_persone = []
         for persona in osservazione.persone:
             box_persone.append(persona.box)
-        aperte = []
+        stati = {}
         for zona in self.porte:
             if zona.id not in zone_da_guardare:
                 continue
             if self.modello_porta is None:
-                if self.riferimenti[zona.id].cambiata(osservazione.immagine, box_persone):
-                    aperte.append(zona.id)
+                stati[zona.id] = self.riferimenti[zona.id].cambiata(osservazione.immagine, box_persone)
                 continue
             controllo = self.controlli.get(zona.id)
             if controllo is None or (osservazione.ora - controllo.ora).total_seconds() >= SECONDI_TRA_CONTROLLI_PORTA:
                 ritaglio = AreaZona(zona, osservazione.immagine).ritaglio(osservazione.immagine)
                 controllo = ControlloPorta(osservazione.ora, self.modello_porta.aperta(ritaglio))
                 self.controlli[zona.id] = controllo
-            if controllo.aperta:
-                aperte.append(zona.id)
-        return aperte
+            stati[zona.id] = controllo.aperta
+        return stati
 
     def elabora(self, osservazione: Osservazione) -> list[EventoUscita]:
         ora = osservazione.ora
@@ -125,7 +127,7 @@ class AnalizzatoreUscita:
         for id_traccia in self.tracce:
             if id_traccia not in visti and self.tracce[id_traccia].zona_id is not None:
                 zone_da_guardare.append(self.tracce[id_traccia].zona_id)
-        aperte = self.porte_aperte(osservazione, zone_da_guardare)
+        stati = self.stato_delle_porte(osservazione, zone_da_guardare)
 
         for persona in osservazione.persone:
             zona = zona_della_persona(persona, self.porte, larghezza, altezza)
@@ -144,8 +146,9 @@ class AnalizzatoreUscita:
             traccia.zona_id = zona.id
             if not traccia.porta_aperta:
                 traccia.immagine = osservazione.immagine
-            if zona.id in aperte:
-                traccia.porta_aperta = True
+            # conta com'è il portone adesso: se l'ha aperto e richiuso, è chiuso
+            if stati[zona.id] is not None:
+                traccia.porta_aperta = stati[zona.id]
 
         eventi = []
         sparite = []
@@ -156,8 +159,8 @@ class AnalizzatoreUscita:
             traccia = self.tracce[id_traccia]
             if traccia.zona_id is not None:
                 in_attesa_davanti_alla_porta = True
-                # la porta si vede meglio appena la persona non la copre più
-                if traccia.zona_id in aperte:
+                # il portone si vede meglio appena la persona non lo copre più
+                if stati[traccia.zona_id]:
                     traccia.porta_aperta = True
             if (ora - traccia.ora).total_seconds() >= SECONDI_SPARIZIONE:
                 sparite.append(id_traccia)

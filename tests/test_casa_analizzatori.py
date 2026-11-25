@@ -88,7 +88,7 @@ def uscita(passi_scena: list) -> list:
     for passo in passi_scena:
         posizioni.append(passo[0])
         immagini.append(immagine_ingresso(passo[1]))
-    return scena(AnalizzatoreUscita(INGRESSO), inizio, posizioni, immagini)
+    return scena(AnalizzatoreUscita(INGRESSO, None), inizio, posizioni, immagini)
 
 
 def ripeti(persone: list, porta_aperta: bool, quanti: int) -> list:
@@ -283,22 +283,24 @@ def test_presenza_notturna_a_fine_video():
 
 
 class ModelloPortaFinto:
-    """Dice "aperta" dal secondo `da` in poi; ricorda quante volte l'hanno chiamato."""
+    """Dice "aperta" dal secondo `da` fino al secondo `a`; ricorda quante volte l'hanno chiamato."""
 
-    def __init__(self, da: float):
+    def __init__(self, da: float, a: float = 10000):
         self.da = da
+        self.a = a
         self.ora = None
         self.chiamate = 0
 
     def aperta(self, ritaglio: np.ndarray) -> bool:
         self.chiamate = self.chiamate + 1
-        return self.ora >= self.da
+        return self.da <= self.ora < self.a
 
 
-def uscita_con_modello(modello: ModelloPortaFinto, posizioni: list, porta_che_cambia: bool, passo: float = 1.0):
+def uscita_con_modello(modello: ModelloPortaFinto, posizioni: list, porta_che_cambia: bool, passo: float = 1.0,
+                       telecamera: TelecameraLocale = INGRESSO, portone: str | None = None):
     """posizioni[i] = persone al passo i (un passo ogni `passo` secondi). porta_che_cambia: l'immagine della porta
     cambia sempre aspetto (per vedere che la regola di riserva non conta quando c'è il modello)."""
-    analizzatore = AnalizzatoreUscita(INGRESSO, modello)
+    analizzatore = AnalizzatoreUscita(telecamera, portone, modello)
     inizio = datetime.datetime(2026, 12, 1, 15, 0, tzinfo=ROMA)
     eventi = []
     for indice in range(len(posizioni)):
@@ -348,3 +350,41 @@ def test_modello_vero_della_porta():
     assert "porta_aperta" in nomi and "porta_chiusa" in nomi
     # una parete grigia: nessuna porta
     assert modello.aperta(np.full((200, 120, 3), 128, np.uint8)) is None
+
+
+# ingresso con due porte: a sinistra il portone, a destra la porta del bagno
+DUE_PORTE = TelecameraLocale.model_validate({
+    "id": "ingresso", "nome": "Front door", "stanza": "hall", "sorgente": "x.mp4", "analizzatori": ["uscita"],
+    "zone": [{"id": "portone", "tipo": "porta", "punti": [[0, 0], [0.25, 0], [0.25, 1], [0, 1]]},
+             {"id": "bagno", "tipo": "porta", "punti": [[0.75, 0], [1, 0], [1, 1], [0.75, 1]]}],
+})
+
+
+def test_uscita_solo_dal_portone_scelto_nell_app():
+    dal_bagno = [[]] * 3 + [[persona(1, 180)]] * 3 + [[]] * DOPO_LA_SPARIZIONE
+    dal_portone = [[]] * 3 + [[persona(1, 20)]] * 3 + [[]] * DOPO_LA_SPARIZIONE
+    assert uscita_con_modello(ModelloPortaFinto(0), dal_bagno, False, telecamera=DUE_PORTE, portone="portone") == []
+    eventi = uscita_con_modello(ModelloPortaFinto(0), dal_portone, False, telecamera=DUE_PORTE, portone="portone")
+    assert len(eventi) == 1
+    assert eventi[0].valori.zona_id == "portone"
+    # portone non scelto: valgono tutte le zone porta
+    assert len(uscita_con_modello(ModelloPortaFinto(0), dal_bagno, False, telecamera=DUE_PORTE)) == 1
+
+
+def test_porta_lasciata_aperta_e_uscita():
+    posizioni = [[]] * 3 + [[persona(1, 150)]] * 2 + [[persona(1, 30)]] * 2 + [[]] * DOPO_LA_SPARIZIONE
+    assert len(uscita_con_modello(ModelloPortaFinto(0), posizioni, False)) == 1
+
+
+def test_apre_richiude_e_se_ne_va_di_lato_non_e_uscita():
+    # alla porta dal secondo 3 al 7: aperta dal 4 al 6, poi chiusa; sparisce al secondo 8 con il portone chiuso
+    modello = ModelloPortaFinto(4, 6)
+    posizioni = [[]] * 3 + [[persona(1, 30)]] * 5 + [[]] * DOPO_LA_SPARIZIONE
+    assert uscita_con_modello(modello, posizioni, False) == []
+
+
+def test_esce_e_si_chiude_la_porta_alle_spalle():
+    # aperta mentre passa (secondi 5-7), sparisce al secondo 7 e la porta si richiude subito dopo
+    modello = ModelloPortaFinto(5, 8)
+    posizioni = [[]] * 3 + [[persona(1, 30)]] * 4 + [[]] * DOPO_LA_SPARIZIONE
+    assert len(uscita_con_modello(modello, posizioni, False)) == 1

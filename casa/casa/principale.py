@@ -178,7 +178,8 @@ def crea_analizzatori(telecamera: TelecameraLocale, personalizzazione: Personali
     analizzatori = []
     for nome in telecamera.analizzatori:
         if nome == "uscita":
-            analizzatori.append(AnalizzatoreUscita(telecamera, specialisti.porta))
+            portone = personalizzazione.regole.portone_zona_id
+            analizzatori.append(AnalizzatoreUscita(telecamera, portone, specialisti.porta))
         elif nome == "caduta":
             analizzatori.append(AnalizzatoreCaduta(telecamera, specialisti.cadute))
         elif nome == "bevuta":
@@ -208,7 +209,7 @@ def prepara_telecamere(configurazione: ConfigurazioneCasa, fps: float, specialis
             if analizzatore.usa_oggetti:
                 usa_oggetti = True
         sorgente = apri_sorgente(telecamera_locale.sorgente, fps, telecamera_locale.id)
-        segni = RilevatoreSegni(telecamera_locale)
+        segni = RilevatoreSegni(telecamera_locale, configurazione.personalizzazione.regole.portone_zona_id)
         telecamera = Telecamera(telecamera_locale.id, telecamera_locale.stanza, sorgente, analizzatori, usa_oggetti,
                                 segni)
         telecamere.append(telecamera)

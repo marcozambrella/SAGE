@@ -51,29 +51,31 @@ def osservazione(secondi: float, persone: list, oggetti: list = []) -> Osservazi
 
 
 def test_nessun_segno_in_mezzo_alla_stanza():
-    segni = RilevatoreSegni(CUCINA)
+    segni = RilevatoreSegni(CUCINA, None)
     assert not segni.c_e_un_segno(osservazione(0, [persona(100)]))
     assert not segni.c_e_un_segno(osservazione(0, []))
 
 
 def test_persona_nella_zona_porta():
-    assert RilevatoreSegni(CUCINA).c_e_un_segno(osservazione(0, [persona(20)]))
+    assert RilevatoreSegni(CUCINA, None).c_e_un_segno(osservazione(0, [persona(20)]))
+    # se il portone scelto nell'app è un'altra zona, questa porta non è un segno
+    assert not RilevatoreSegni(CUCINA, "altra-porta").c_e_un_segno(osservazione(0, [persona(20)]))
 
 
 def test_mano_nella_zona_portapillole():
-    assert RilevatoreSegni(CUCINA).c_e_un_segno(osservazione(0, [persona(100, polso=(180, 10))]))
+    assert RilevatoreSegni(CUCINA, None).c_e_un_segno(osservazione(0, [persona(100, polso=(180, 10))]))
 
 
 def test_contenitore_in_mano():
     in_mano = Oggetto("cup", np.array([95, 65, 105, 80], np.float32), 0.8)
     sul_tavolo = Oggetto("cup", np.array([150, 65, 160, 80], np.float32), 0.8)
-    assert RilevatoreSegni(CUCINA).c_e_un_segno(osservazione(0, [persona(100)], [in_mano]))
-    assert not RilevatoreSegni(CUCINA).c_e_un_segno(osservazione(0, [persona(100)], [sul_tavolo]))
+    assert RilevatoreSegni(CUCINA, None).c_e_un_segno(osservazione(0, [persona(100)], [in_mano]))
+    assert not RilevatoreSegni(CUCINA, None).c_e_un_segno(osservazione(0, [persona(100)], [sul_tavolo]))
 
 
 def test_una_caduta_non_e_un_primo_segno():
     # il busto va da in piedi a 60 gradi in 0,6 s: chi è caduto resta a terra e si vede anche a 5 al secondo
-    segni = RilevatoreSegni(CUCINA)
+    segni = RilevatoreSegni(CUCINA, None)
     for passo in range(11):
         secondi = passo / 10 * 0.6
         assert not segni.c_e_un_segno(osservazione(secondi, [persona(100, 60 * passo / 10)]))
@@ -81,7 +83,7 @@ def test_una_caduta_non_e_un_primo_segno():
 
 def test_solo_i_segni_degli_analizzatori_accesi():
     solo_pasto = CUCINA.model_copy(update={"analizzatori": ["pasto"]})
-    segni = RilevatoreSegni(solo_pasto)
+    segni = RilevatoreSegni(solo_pasto, None)
     assert not segni.c_e_un_segno(osservazione(0, [persona(20, polso=(180, 10))]))
 
 
@@ -154,7 +156,7 @@ def secondi_attesi() -> list:
 
 def test_dal_primo_segno_10_al_secondo_da_un_secondo_prima(tmp_path):
     analizzatore = AnalizzatoreFinto()
-    telecamera = Telecamera("cucina", "kitchen", VideoFinto(), [analizzatore], False, RilevatoreSegni(CUCINA))
+    telecamera = Telecamera("cucina", "kitchen", VideoFinto(), [analizzatore], False, RilevatoreSegni(CUCINA, None))
     registro = RegistroLocale(str(tmp_path / "registro.sqlite3"))
     percezione = PercezioneFinta()
     percezione.nuovo_tracker = TrackerFinto
@@ -196,7 +198,7 @@ class PercezioneSoggiorno:
 def test_il_classificatore_delle_cadute_non_fa_passare_a_10_al_secondo(tmp_path):
     soggiorno = CUCINA.model_copy(update={"analizzatori": ["caduta"], "zone": []})
     analizzatore = AnalizzatoreCaduta(soggiorno, CadutaFinta())
-    telecamera = Telecamera("cucina", "kitchen", VideoFinto(), [analizzatore], False, RilevatoreSegni(soggiorno))
+    telecamera = Telecamera("cucina", "kitchen", VideoFinto(), [analizzatore], False, RilevatoreSegni(soggiorno, None))
     registro = RegistroLocale(str(tmp_path / "registro.sqlite3"))
     elabora([telecamera], PercezioneSoggiorno(), registro, None, INIZIO)
     registro.chiudi()
