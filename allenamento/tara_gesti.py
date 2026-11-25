@@ -43,6 +43,10 @@ SOGLIE_OGGETTO = [0.0, 0.02, 0.04, 0.06, 0.08, 0.1, 0.15, 0.2, 0.3, 0.5]
 # casa tiene gli oggetti sopra 0,25 (CONFIDENZA_MINIMA_OGGETTI): le tazze alla bocca sono piccole e coperte dalla mano,
 # quindi si prova anche a scendere (il kernel oggetti_charades salva da 0,05)
 CONFIDENZE_OGGETTO = [0.25, 0.15, 0.1, 0.05]
+# Seconda forma della condizione (prova del 25/11): con la tazza alla bocca il rilevatore quasi non la vede, quindi
+# basta il contenitore vicino alla testa almeno una volta da FINESTRA secondi prima dell'inizio del tratto del polso
+# fino a FINESTRA secondi dopo la fine (non in ogni fotogramma)
+FINESTRE_OGGETTO = [0, 2, 5]
 POLSO_CASA = 0.25
 SECONDI_CASA = 1.0
 
@@ -145,7 +149,7 @@ def con_oggetto(video: list, confidenza_minima: float, soglia_oggetto: float) ->
         distanze = dict(voce["distanze"])
         vicino = voce["oggetto"][confidenza_minima] <= soglia_oggetto
         distanze["box"] = np.where(vicino, voce["distanze"]["box"], np.inf)
-        risultato.append({"distanze": distanze, "gesti": voce["bevute"]})
+        risultato.append({"distanze": distanze, "gesti": voce["bevute"], "oggetto": voce["oggetto"]})
     return risultato
 
 
@@ -166,7 +170,20 @@ def tratti_della_regola(distanze: np.ndarray, istanti: np.ndarray, soglia: float
     return tratti
 
 
-def misura(video: list, chiave: str, soglia: float, durata_minima: float) -> dict:
+def tratti_con_oggetto(voce: dict, tratti: list, filtro: dict) -> list:
+    """I tratti con un contenitore (confidenza >= filtro["confidenza"]) entro filtro["soglia"] altezze dal naso
+    almeno una volta, da filtro["finestra"] secondi prima dell'inizio a filtro["finestra"] secondi dopo la fine."""
+    istanti = voce["distanze"]["istanti"]
+    oggetto = voce["oggetto"][filtro["confidenza"]]
+    tenuti = []
+    for inizio_tratto, fine_tratto in tratti:
+        dentro = (istanti >= inizio_tratto - filtro["finestra"]) & (istanti <= fine_tratto + filtro["finestra"])
+        if np.any(oggetto[dentro] <= filtro["soglia"]):
+            tenuti.append((inizio_tratto, fine_tratto))
+    return tenuti
+
+
+def misura(video: list, chiave: str, soglia: float, durata_minima: float, filtro_oggetto: dict = None) -> dict:
     gesti = 0
     presi = 0
     tratti_totali = 0
@@ -175,6 +192,8 @@ def misura(video: list, chiave: str, soglia: float, durata_minima: float) -> dic
     for voce in video:
         ore += voce["distanze"]["durata"] / 3600
         tratti = tratti_della_regola(voce["distanze"][chiave], voce["distanze"]["istanti"], soglia, durata_minima)
+        if filtro_oggetto is not None:
+            tratti = tratti_con_oggetto(voce, tratti, filtro_oggetto)
         for inizio, fine in voce["gesti"]:
             gesti += 1
             for inizio_tratto, fine_tratto in tratti:
@@ -293,3 +312,19 @@ if len(sys.argv) > 2:
         print(f"FRAZIONE_ALTEZZA_OGGETTO_TESTA {scelta['soglia_oggetto']} con confidenza {scelta['confidenza_oggetto']}"
               f" (scelta sulla validazione): val {scelta}")
         print("    test:", test)
+    # seconda forma: contenitore vicino alla testa almeno una volta intorno al tratto del polso
+    migliore_finestra = None
+    for confidenza_minima in CONFIDENZE_OGGETTO:
+        for finestra in FINESTRE_OGGETTO:
+            for soglia_oggetto in SOGLIE_OGGETTO:
+                filtro = {"confidenza": confidenza_minima, "finestra": finestra, "soglia": soglia_oggetto}
+                prova = misura(con_oggetto(video_oggetti["val"], confidenza_minima, np.inf), "box", POLSO_CASA,
+                               SECONDI_CASA, filtro)
+                prova["filtro_oggetto"] = filtro
+                if migliore_finestra is None or prova["f1"] > migliore_finestra["f1"]:
+                    migliore_finestra = prova
+    filtro = migliore_finestra["filtro_oggetto"]
+    test = misura(con_oggetto(video_oggetti["test"], filtro["confidenza"], np.inf), "box", POLSO_CASA, SECONDI_CASA,
+                  filtro)
+    print("contenitore almeno una volta intorno al tratto (scelta sulla validazione): val", migliore_finestra)
+    print("    test:", test)
