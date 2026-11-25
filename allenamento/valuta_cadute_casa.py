@@ -22,7 +22,10 @@ pose); i numeri finali sono sul test.
 
 Uso (con il python del worktree casa, che ha torch e pydantic):
   ../casa/.venv/bin/python allenamento/valuta_cadute_casa.py ../casa runs/kaggle/etichette_cadute/etichette_cadute.json
-Con --solo-casa valuta solo il codice di casa com'è (dopo che casa ha messo le regole in caduta.py).
+Con --solo-casa valuta solo il codice di casa com'è, con soglia e finestre di principale.py (dopo che casa ha messo
+le regole in caduta.py). Il modo normale (scelta di regole e isteresi) va fatto girare con casa a67435c: da ad1a952
+l'isteresi è già dentro caduta.py e qui si aggiungerebbe una seconda volta (con ad1a952 --solo-casa dà gli stessi
+numeri di "isteresi + regole scelte", 25/11).
 """
 import datetime
 import json
@@ -38,7 +41,9 @@ sys.path.insert(0, str(CARTELLA_CASA / "casa"))
 sys.path.insert(0, str(CARTELLA_CASA / "contratti"))
 from contratti.configurazione import TelecameraLocale  # noqa: E402
 
-from casa.caduta import SECONDI_A_TERRA_SENZA_CONFERMA, SECONDI_CADUTA_RAPIDA, AnalizzatoreCaduta  # noqa: E402
+import casa.caduta  # noqa: E402
+from casa.caduta import (RAPPORTO_A_TERRA_SENZA_BUSTO, SECONDI_A_TERRA, SECONDI_A_TERRA_SENZA_CONFERMA,  # noqa: E402
+                         SECONDI_CADUTA_RAPIDA, AnalizzatoreCaduta, rapporto_del_box)
 from casa.classificatore_cadute import ClassificatoreCadute  # noqa: E402
 from casa.percezione import Osservazione, Persona  # noqa: E402
 from casa.scheletro import angolo_del_busto  # noqa: E402
@@ -83,14 +88,68 @@ VALORI_REGOLE = {
 }
 SOGLIE_CLASSIFICATORE = [0.9, 0.94, 0.97, 0.99]
 FINESTRE_DI_FILA = [1, 2, 3, 4]
+# Isteresi di "a terra" (coordinatore, 25/11): si esce solo dopo N secondi di fila chiaramente in piedi. A pari
+# risultati vince la prima provata: 1 s con le soglie di in_piedi di casa (30°, box più alto che largo), perché un
+# fotogramma solo "in piedi" può essere un errore della posa
+ISTERESI_PREFERITA = (1, 30, 1.0)
+SECONDI_USCITA = [0, 1, 2, 3]
+ANGOLI_USCITA = [30, 20]
+RAPPORTI_USCITA = [1.0, 0.8]
+# Solo per Marco (non da mettere a casa): un classificatore molto sicuro che fa partire l'allarme senza la geometria.
+# Conferme della stessa persona a meno di SECONDI_STESSO_ALLARME dalla precedente sono lo stesso allarme
+SOLO_CLASSIFICATORE = [(0.98, 3), (0.99, 3), (0.99, 4)]
+SECONDI_STESSO_ALLARME = 10.0
+A_TERRA_DI_CASA = casa.caduta.a_terra
+
+
+class Isteresi:
+    """"A terra" con isteresi (coordinatore, 25/11): si entra con la regola di oggi (a_terra di caduta.py), si esce
+    solo dopo `secondi_uscita` secondi di fila chiaramente in piedi (busto sotto `angolo_uscita` gradi e box più alto
+    che largo, larghezza / altezza sotto `rapporto_uscita`; se la posa non vede il busto conta solo il box, come
+    in_piedi di casa). Se la persona sparisce per un po' lo stato resta. Nella prova sostituisce caduta.a_terra (una
+    nuova per ogni video); a casa andrà dentro caduta.py."""
+
+    def __init__(self, secondi_uscita: float, angolo_uscita: float, rapporto_uscita: float):
+        self.secondi_uscita = secondi_uscita
+        self.angolo_uscita = angolo_uscita
+        self.rapporto_uscita = rapporto_uscita
+        self.a_terra_per_traccia = {}
+        self.in_piedi_da = {}
+        self.secondi = 0.0   # il momento del fotogramma, lo scrive AnalizzatoreRegistrato
+
+    def chiaramente_in_piedi(self, persona: Persona) -> bool:
+        angolo = angolo_del_busto(persona)
+        rapporto = rapporto_del_box(persona)
+        if angolo is None:
+            return rapporto <= 1 / RAPPORTO_A_TERRA_SENZA_BUSTO
+        return angolo <= self.angolo_uscita and rapporto < self.rapporto_uscita
+
+    def a_terra(self, persona: Persona) -> bool:
+        traccia = persona.id_traccia
+        if not self.a_terra_per_traccia.get(traccia, False):
+            if A_TERRA_DI_CASA(persona):
+                self.a_terra_per_traccia[traccia] = True
+                self.in_piedi_da[traccia] = None
+                return True
+            return False
+        if not self.chiaramente_in_piedi(persona):
+            self.in_piedi_da[traccia] = None
+            return True
+        if self.in_piedi_da[traccia] is None:
+            self.in_piedi_da[traccia] = self.secondi
+        if self.secondi - self.in_piedi_da[traccia] >= self.secondi_uscita:
+            self.a_terra_per_traccia[traccia] = False
+            return False
+        return True
 
 
 class AnalizzatoreRegistrato(AnalizzatoreCaduta):
     """L'analizzatore di casa che non manda allarmi: registra le probabilità del classificatore, gli scheletri e i
     fotogrammi in cui casa chiederebbe la conferma (a terra da almeno SECONDI_A_TERRA, caduta rapida)."""
 
-    def __init__(self, telecamera: TelecameraLocale, classificatore: ClassificatoreCadute):
+    def __init__(self, telecamera: TelecameraLocale, classificatore: ClassificatoreCadute, isteresi):
         super().__init__(telecamera, classificatore)
+        self.isteresi = isteresi
         self.probabilita = []   # (numero dello stato, secondi, probabilità)
         self.candidati = []     # (id traccia, numero dello stato, secondi, a terra da, secondi a terra)
         self.storia = {}        # id traccia → [(secondi, Persona)]
@@ -105,6 +164,8 @@ class AnalizzatoreRegistrato(AnalizzatoreCaduta):
 
     def elabora(self, osservazione: Osservazione) -> list:
         secondi = (osservazione.ora - INIZIO_VIDEO).total_seconds()
+        if self.isteresi is not None:
+            self.isteresi.secondi = secondi
         for persona in osservazione.persone:
             if persona.id_traccia not in self.storia:
                 self.storia[persona.id_traccia] = []
@@ -118,7 +179,7 @@ class AnalizzatoreRegistrato(AnalizzatoreCaduta):
             secondi = (ora - INIZIO_VIDEO).total_seconds()
             self.probabilita.append((self.numero_dello_stato(stato), secondi, stato.probabilita_recenti[-1]))
 
-    def confermata(self, stato, secondi_a_terra: float) -> bool:
+    def confermata(self, stato, persona: Persona, secondi_a_terra: float) -> bool:
         id_traccia = None
         for identificativo in self.persone:
             if self.persone[identificativo] is stato:
@@ -252,19 +313,37 @@ def rispetta_le_regole(misure: dict, regole: dict) -> bool:
     return True
 
 
-def registra_video(percorso: Path, classificatore: ClassificatoreCadute) -> dict:
-    analizzatore = AnalizzatoreRegistrato(TELECAMERA, classificatore)
+def registra_video(percorso: Path, classificatore: ClassificatoreCadute, isteresi_scelta) -> dict:
+    """isteresi_scelta: None (casa di oggi) o (secondi, angolo, rapporto) di uscita."""
+    isteresi = None
+    casa.caduta.a_terra = A_TERRA_DI_CASA
+    if isteresi_scelta is not None:
+        isteresi = Isteresi(isteresi_scelta[0], isteresi_scelta[1], isteresi_scelta[2])
+        casa.caduta.a_terra = isteresi.a_terra
+    analizzatore = AnalizzatoreRegistrato(TELECAMERA, classificatore, isteresi)
     osservazioni = osservazioni_del_video(percorso)
     for osservazione in osservazioni:
         analizzatore.elabora(osservazione)
+    casa.caduta.a_terra = A_TERRA_DI_CASA
     altezza_immagine = osservazioni[0].immagine.shape[0]
+    # i momenti in cui le regole di oggi vedono qualcuno a terra o in piedi, per dividere le cadute perse per causa
+    a_terra_visti = []
+    in_piedi_visti = []
+    for osservazione in osservazioni:
+        for persona in osservazione.persone:
+            secondi = (osservazione.ora - INIZIO_VIDEO).total_seconds()
+            if A_TERRA_DI_CASA(persona):
+                a_terra_visti.append((secondi, persona.id_traccia))
+            if casa.caduta.in_piedi(persona):
+                in_piedi_visti.append((secondi, persona.id_traccia))
     candidati = []
     for id_traccia, numero_stato, secondi, a_terra_da, secondi_a_terra in analizzatore.candidati:
         misure = misure_del_candidato(analizzatore.storia[id_traccia], secondi, a_terra_da, secondi_a_terra,
                                       altezza_immagine)
         candidati.append({"stato": numero_stato, "secondi": secondi, "a_terra_da": a_terra_da,
                           "secondi_a_terra": secondi_a_terra, "misure": misure})
-    return {"probabilita": analizzatore.probabilita, "candidati": candidati}
+    return {"probabilita": analizzatore.probabilita, "candidati": candidati, "a_terra_visti": a_terra_visti,
+            "in_piedi_visti": in_piedi_visti}
 
 
 def decidi_allarmi(registro: dict, soglia: float, finestre_di_fila: int, regole: dict) -> list:
@@ -362,6 +441,158 @@ def somma(prima: dict, seconda: dict) -> dict:
             "f1": round((prima["f1"] + seconda["f1"]) / 2, 3)}
 
 
+def causa_della_persa(registro: dict, inizio: float, fine: float, durata: float, scelta: dict) -> str:
+    """Perché una caduta non ha avuto l'allarme, nell'ordine in cui casa decide."""
+    if durata - inizio < SECONDI_VALUTABILE:
+        return "clip finita prima che casa possa decidere"
+    # prima volta a terra di ogni traccia nella caduta
+    prima_a_terra = {}
+    for secondi, traccia in registro["a_terra_visti"]:
+        if inizio - SECONDI_PRIMA <= secondi <= fine + SECONDI_DOPO and traccia not in prima_a_terra:
+            prima_a_terra[traccia] = secondi
+    if len(prima_a_terra) == 0:
+        return "mai a terra per la geometria"
+    if durata - min(prima_a_terra.values()) < SECONDI_A_TERRA:
+        return "clip finita prima che casa possa decidere"
+    candidati = []
+    for candidato in registro["candidati"]:
+        if inizio - SECONDI_PRIMA <= candidato["secondi"] <= fine + SECONDI_DOPO:
+            candidati.append(candidato)
+    if len(candidati) == 0:
+        in_piedi_qualcuno = False
+        in_piedi_stessa_traccia = False
+        for secondi, traccia in registro["in_piedi_visti"]:
+            for traccia_a_terra in prima_a_terra:
+                momento = prima_a_terra[traccia_a_terra]
+                if momento - SECONDI_CADUTA_RAPIDA <= secondi <= momento:
+                    in_piedi_qualcuno = True
+                    if traccia == traccia_a_terra:
+                        in_piedi_stessa_traccia = True
+        if not in_piedi_qualcuno:
+            return "non in piedi nei 3 s prima di finire a terra"
+        if not in_piedi_stessa_traccia:
+            return "il tracker cambia id nella caduta (in piedi era un'altra traccia)"
+        return "a terra che va e viene"
+    for allarme in decidi_allarmi(registro, scelta["soglia"], scelta["finestre"], {}):
+        if inizio - SECONDI_PRIMA <= allarme <= fine + SECONDI_DOPO:
+            return "tolta dalle regole"
+    return "il classificatore non conferma"
+
+
+def cause_delle_perse(registri: dict, video: list, scelta: dict) -> dict:
+    cause = {}
+    for identificativo in video:
+        voce = etichette[identificativo]
+        durata = voce["numero_frame"] / voce["fps"]
+        registro = registri[identificativo]
+        allarmi = decidi_allarmi(registro, scelta["soglia"], scelta["finestre"], scelta["regole"])
+        for inizio, fine in voce["eventi"]:
+            presa = False
+            for allarme in allarmi:
+                if inizio - SECONDI_PRIMA <= allarme <= fine + SECONDI_DOPO:
+                    presa = True
+            if presa:
+                continue
+            causa = causa_della_persa(registro, inizio, fine, durata, scelta)
+            if causa not in cause:
+                cause[causa] = 0
+            cause[causa] += 1
+    return cause
+
+
+def allarmi_solo_classificatore(registro: dict, soglia: float, finestre_di_fila: int) -> list:
+    """Secondi in cui k finestre di fila della stessa persona superano la soglia, senza la geometria; conferme a meno
+    di SECONDI_STESSO_ALLARME dalla precedente della stessa persona sono lo stesso allarme."""
+    recenti = {}
+    ultima_conferma = {}
+    allarmi = []
+    for numero_stato, secondi, probabilita in registro["probabilita"]:
+        if numero_stato not in recenti:
+            recenti[numero_stato] = []
+        recenti[numero_stato].append(probabilita)
+        ultime = recenti[numero_stato][-finestre_di_fila:]
+        if len(ultime) < finestre_di_fila or min(ultime) < soglia:
+            continue
+        nuovo = True
+        if numero_stato in ultima_conferma:
+            nuovo = secondi - ultima_conferma[numero_stato] > SECONDI_STESSO_ALLARME
+        if nuovo:
+            allarmi.append(secondi)
+        ultima_conferma[numero_stato] = secondi
+    return allarmi
+
+
+def unisci_allarmi(allarmi_casa: list, altri: list) -> list:
+    """Gli allarmi di casa più quelli del solo classificatore lontani da tutti quelli di casa."""
+    tutti = list(allarmi_casa)
+    for allarme in altri:
+        lontano = True
+        for allarme_casa in allarmi_casa:
+            if abs(allarme - allarme_casa) <= SECONDI_STESSO_ALLARME:
+                lontano = False
+        if lontano:
+            tutti.append(allarme)
+    return sorted(tutti)
+
+
+def scegli_regole(registri_val: dict, stampa: bool) -> tuple:
+    """Sulla validazione, un passo alla volta: si aggiunge la regola (o si cambia soglia o finestre di fila) che toglie
+    più falsi allarmi senza perdere cadute rispetto a casa senza regole (né con la n né con la s); ci si ferma quando
+    nessuna toglie altro. registri_val: posa → id del video → registro."""
+    base = valuta_su_val(registri_val, SOGLIA_CASA, FINESTRE_CASA, {})
+    scelta = {"soglia": SOGLIA_CASA, "finestre": FINESTRE_CASA, "regole": {}}
+    attuale = base
+    while True:
+        prove = []
+        for soglia in SOGLIE_CLASSIFICATORE:
+            for finestre_di_fila in FINESTRE_DI_FILA:
+                prove.append({"soglia": soglia, "finestre": finestre_di_fila, "regole": dict(scelta["regole"])})
+        for nome in VALORI_REGOLE:
+            for valore in VALORI_REGOLE[nome]:
+                regole = dict(scelta["regole"])
+                regole[nome] = valore
+                prove.append({"soglia": scelta["soglia"], "finestre": scelta["finestre"], "regole": regole})
+        migliore = None
+        migliore_risultato = None
+        for prova in prove:
+            risultato = valuta_su_val(registri_val, prova["soglia"], prova["finestre"], prova["regole"])
+            if risultato["prese_n"] < base["prese_n"] or risultato["prese_s"] < base["prese_s"]:
+                continue
+            if risultato["falsi"] >= attuale["falsi"]:
+                continue
+            if migliore is None or risultato["falsi"] < migliore_risultato["falsi"]:
+                migliore = prova
+                migliore_risultato = risultato
+        if migliore is None:
+            break
+        scelta = migliore
+        attuale = migliore_risultato
+        if stampa:
+            print("    passo:", scelta, attuale, flush=True)
+    return base, scelta, attuale
+
+
+def valuta_su_val(registri_val: dict, soglia: float, finestre_di_fila: int, regole: dict) -> dict:
+    risultato_n = metriche_del_registro(registri_val["n"], video_per_divisione["val"], soglia, finestre_di_fila,
+                                        regole)
+    risultato_s = metriche_del_registro(registri_val["s"], video_per_divisione["val"], soglia, finestre_di_fila,
+                                        regole)
+    return somma(risultato_n, risultato_s)
+
+
+def registra(divisioni: list, isteresi_scelta) -> dict:
+    """posa → id del video → registro, per i video delle divisioni date."""
+    registri = {}
+    for posa in CARTELLE_SCHELETRI:
+        classificatore = ClassificatoreCadute(str(CARTELLA_CASA / PESI[posa]), SOGLIA_CASA, FINESTRE_CASA)
+        registri[posa] = {}
+        for divisione in divisioni:
+            for identificativo in video_per_divisione[divisione]:
+                percorso = CARTELLE_SCHELETRI[posa] / (identificativo + ".npz")
+                registri[posa][identificativo] = registra_video(percorso, classificatore, isteresi_scelta)
+    return registri
+
+
 def riga(nome: str, risultato: dict) -> str:
     return (f"| {nome} | {risultato['prese']}/{risultato['cadute']} | "
             f"{risultato['prese_valutabili']}/{risultato['valutabili']} | {risultato['falsi_ora']} | "
@@ -388,91 +619,92 @@ for identificativo in sorted(etichette):
 print(f"video: val {len(video_per_divisione['val'])}, test {len(video_per_divisione['test'])}", flush=True)
 
 if SOLO_CASA:
-    # il codice di casa com'è, senza registro: gli allarmi veri dell'analizzatore
+    # il codice di casa com'è, senza registro: gli allarmi veri dell'analizzatore, con soglia e finestre di principale.py
+    from casa.principale import PESI_CADUTE
+    pesi_della_posa = {"n": PESI_CADUTE["pesi/yolo26n-pose.pt"], "s": PESI_CADUTE["pesi/yolo26s-pose.pt"]}
     for posa in CARTELLE_SCHELETRI:
-        classificatore = ClassificatoreCadute(str(CARTELLA_CASA / PESI[posa]), SOGLIA_CASA, FINESTRE_CASA)
+        pesi = pesi_della_posa[posa]
+        classificatore = ClassificatoreCadute(str(CARTELLA_CASA / pesi.percorso), pesi.soglia, pesi.finestre_di_fila)
         for divisione in ["val", "test"]:
             allarmi_per_video = {}
             for identificativo in video_per_divisione[divisione]:
                 percorso = CARTELLE_SCHELETRI[posa] / (identificativo + ".npz")
                 allarmi_per_video[identificativo] = allarmi_di_casa(percorso, classificatore)
             risultato = metriche(allarmi_per_video, etichette)
-            print(f"casa com'è, posa {posa}, {divisione}:", risultato, flush=True)
+            print(f"casa com'è (soglia {pesi.soglia}, {pesi.finestre_di_fila} finestre), posa {posa}, {divisione}:",
+                  risultato, flush=True)
     sys.exit(0)
 
-registri = {}   # posa → id del video → registro
-for posa in CARTELLE_SCHELETRI:
-    classificatore = ClassificatoreCadute(str(CARTELLA_CASA / PESI[posa]), SOGLIA_CASA, FINESTRE_CASA)
-    registri[posa] = {}
-    for divisione in ["val", "test"]:
-        for identificativo in video_per_divisione[divisione]:
-            registri[posa][identificativo] = registra_video(CARTELLE_SCHELETRI[posa] / (identificativo + ".npz"),
-                                                            classificatore)
-    print(f"registrata la posa {posa}", flush=True)
-
-# controllo: con le soglie di casa e senza regole il registro dà gli stessi allarmi dell'analizzatore vero
-classificatore = ClassificatoreCadute(str(CARTELLA_CASA / PESI["n"]), SOGLIA_CASA, FINESTRE_CASA)
+# controllo: senza isteresi e con le regole che casa ha già (a67435c: 3 finestre di fila, busto 70°) il registro dà
+# gli stessi allarmi dell'analizzatore vero di casa
+solo_regole = {"soglia": SOGLIA_CASA, "finestre": 3, "regole": {"angolo": 70}}
+casa_com_era = {"soglia": SOGLIA_CASA, "finestre": FINESTRE_CASA, "regole": {}}
+registri_oggi = registra(["val", "test"], None)
+classificatore = ClassificatoreCadute(str(CARTELLA_CASA / PESI["n"]), solo_regole["soglia"], solo_regole["finestre"])
 diversi = 0
 for identificativo in video_per_divisione["val"]:
     veri = allarmi_di_casa(CARTELLE_SCHELETRI["n"] / (identificativo + ".npz"), classificatore)
-    dal_registro = decidi_allarmi(registri["n"][identificativo], SOGLIA_CASA, FINESTRE_CASA, {})
+    dal_registro = decidi_allarmi(registri_oggi["n"][identificativo], solo_regole["soglia"], solo_regole["finestre"],
+                                  solo_regole["regole"])
     if veri != dal_registro:
         diversi += 1
         print("diverso:", identificativo, veri, dal_registro, flush=True)
 print(f"controllo sulla validazione (posa n): {diversi} video con allarmi diversi da casa", flush=True)
 
-
-def valuta_su_val(soglia: float, finestre_di_fila: int, regole: dict) -> dict:
-    risultato_n = metriche_del_registro(registri["n"], video_per_divisione["val"], soglia, finestre_di_fila, regole)
-    risultato_s = metriche_del_registro(registri["s"], video_per_divisione["val"], soglia, finestre_di_fila, regole)
-    return somma(risultato_n, risultato_s)
-
-
-# scelta sulla validazione, un passo alla volta: si aggiunge la regola (o si cambia soglia o finestre di fila) che
-# toglie più falsi allarmi senza perdere cadute rispetto a casa com'è (né con la n né con la s); ci si ferma quando
-# nessuna toglie altro
-base = valuta_su_val(SOGLIA_CASA, FINESTRE_CASA, {})
-print("casa com'è, validazione n + s:", base, flush=True)
-scelta = {"soglia": SOGLIA_CASA, "finestre": FINESTRE_CASA, "regole": {}}
-attuale = base
-while True:
-    prove = []
-    for soglia in SOGLIE_CLASSIFICATORE:
-        for finestre_di_fila in FINESTRE_DI_FILA:
-            prove.append({"soglia": soglia, "finestre": finestre_di_fila, "regole": dict(scelta["regole"])})
-    for nome in VALORI_REGOLE:
-        for valore in VALORI_REGOLE[nome]:
-            regole = dict(scelta["regole"])
-            regole[nome] = valore
-            prove.append({"soglia": scelta["soglia"], "finestre": scelta["finestre"], "regole": regole})
-    migliore = None
-    migliore_risultato = None
-    for prova in prove:
-        risultato = valuta_su_val(prova["soglia"], prova["finestre"], prova["regole"])
-        print("  prova", prova, risultato, flush=True)
-        if risultato["prese_n"] < base["prese_n"] or risultato["prese_s"] < base["prese_s"]:
+# scelta sulla validazione: per ogni isteresi (e senza) le regole con scegli_regole; vince quella che prende più
+# cadute (n + s), a pari cadute quella con meno falsi allarmi, a pari ancora la più semplice (la prima dell'elenco)
+prove_isteresi = [None, ISTERESI_PREFERITA]
+for secondi_uscita in SECONDI_USCITA:
+    for angolo_uscita in ANGOLI_USCITA:
+        for rapporto_uscita in RAPPORTI_USCITA:
+            if (secondi_uscita, angolo_uscita, rapporto_uscita) != ISTERESI_PREFERITA:
+                prove_isteresi.append((secondi_uscita, angolo_uscita, rapporto_uscita))
+migliore = None
+for isteresi_scelta in prove_isteresi:
+    print("isteresi (secondi, angolo, rapporto di uscita):", isteresi_scelta, flush=True)
+    registri_val = registri_oggi
+    if isteresi_scelta is not None:
+        registri_val = registra(["val"], isteresi_scelta)
+    base, scelta, risultato = scegli_regole(registri_val, True)
+    print("    senza regole:", base, "| con le regole:", scelta, risultato, flush=True)
+    prese = risultato["prese_n"] + risultato["prese_s"]
+    if migliore is not None:
+        prese_migliore = migliore["risultato"]["prese_n"] + migliore["risultato"]["prese_s"]
+        if prese < prese_migliore:
             continue
-        if risultato["falsi"] >= attuale["falsi"]:
+        if prese == prese_migliore and risultato["falsi"] >= migliore["risultato"]["falsi"]:
             continue
-        if migliore is None or risultato["falsi"] < migliore_risultato["falsi"]:
-            migliore = prova
-            migliore_risultato = risultato
-    if migliore is None:
-        break
-    scelta = migliore
-    attuale = migliore_risultato
-    print("scelta:", scelta, attuale, flush=True)
+    migliore = {"isteresi": isteresi_scelta, "scelta": scelta, "risultato": risultato}
+print("scelta sulla validazione:", migliore, flush=True)
 
-print("regole scelte sulla validazione:", scelta, flush=True)
-righe = ["| posa | regole | divisione | cadute prese | prese con >= 4 s di video dopo | falsi allarmi/ora | F1 | "
+# numeri finali sul test: casa com'era, solo le regole del primo giro (3 finestre di fila, busto >= 70°), isteresi e
+# regole scelte
+registri_scelti = registra(["val", "test"], migliore["isteresi"])
+varianti = [("casa com'era", registri_oggi, casa_com_era), ("3 finestre + busto 70°", registri_oggi, solo_regole),
+            ("isteresi + regole scelte", registri_scelti, migliore["scelta"])]
+righe = ["| posa | variante | divisione | cadute prese | prese con >= 4 s di video dopo | falsi allarmi/ora | F1 | "
          "secondi tra caduta e allarme (mediana) |", "|---|---|---|---|---|---|---|---|"]
 for posa in CARTELLE_SCHELETRI:
     for divisione in ["val", "test"]:
-        for nome, soglia, finestre_di_fila, regole in [("casa com'è", SOGLIA_CASA, FINESTRE_CASA, {}),
-                                                       ("con le regole", scelta["soglia"], scelta["finestre"],
-                                                        scelta["regole"])]:
-            risultato = metriche_del_registro(registri[posa], video_per_divisione[divisione], soglia,
-                                              finestre_di_fila, regole)
-            print(f"posa {posa}, {divisione}, {nome}:", risultato, flush=True)
+        for nome, registri, scelta in varianti:
+            risultato = metriche_del_registro(registri[posa], video_per_divisione[divisione], scelta["soglia"],
+                                              scelta["finestre"], scelta["regole"])
+            cause = cause_delle_perse(registri[posa], video_per_divisione[divisione], scelta)
+            print(f"posa {posa}, {divisione}, {nome}:", risultato, "perse:", cause, flush=True)
             righe.append(riga(f"{posa} | {nome} | {divisione}", risultato))
 print("\n".join(righe), flush=True)
+
+# solo per Marco: il classificatore molto sicuro fa partire l'allarme anche senza la geometria
+for posa in CARTELLE_SCHELETRI:
+    for divisione in ["val", "test"]:
+        for soglia, finestre_di_fila in SOLO_CLASSIFICATORE:
+            allarmi_per_video = {}
+            for identificativo in video_per_divisione[divisione]:
+                registro = registri_scelti[posa][identificativo]
+                scelta = migliore["scelta"]
+                allarmi_casa = decidi_allarmi(registro, scelta["soglia"], scelta["finestre"], scelta["regole"])
+                altri = allarmi_solo_classificatore(registro, soglia, finestre_di_fila)
+                allarmi_per_video[identificativo] = unisci_allarmi(allarmi_casa, altri)
+            risultato = metriche(allarmi_per_video, etichette)
+            print(f"posa {posa}, {divisione}, isteresi + regole + solo classificatore {finestre_di_fila} finestre >= "
+                  f"{soglia}:", risultato, flush=True)
