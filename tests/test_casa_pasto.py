@@ -1,16 +1,20 @@
-"""Test dell'analizzatore pasto (regole provvisorie) con un tavolo sintetico: piatto bianco, cibo arancione."""
+"""Test dell'analizzatore pasto con un tavolo sintetico (piatto bianco, cibo arancione) e un modello del piatto finto
+che vede il cibo dai pixel colorati; una prova dei pesi veri se ci sono."""
 
 import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import cv2
 import numpy as np
 import pytest
 
 from contratti.configurazione import TelecameraLocale
 from contratti.eventi import LETTORE_EVENTO, leggi_evento
 
-from casa.pasto import AnalizzatorePasto, quanto_mangiato
+from casa.pasto import AnalizzatorePasto, ModelloPiatto, quanto_mangiato
 from casa.percezione import Oggetto, Osservazione, Persona
+from casa.principale import PESI_CIBO
 
 ROMA = ZoneInfo("Europe/Rome")
 INIZIO = datetime.datetime(2026, 12, 1, 12, 30, tzinfo=ROMA)
@@ -21,20 +25,38 @@ SALA = TelecameraLocale.model_validate({
 })
 PIATTO = Oggetto("bowl", np.array([80, 120, 120, 160], np.float32), 0.6)
 PIZZA = Oggetto("pizza", np.array([85, 122, 115, 140], np.float32), 0.5)
-SEDUTA = Persona(1, np.array([60, 40, 140, 140], np.float32), 0.85, np.zeros((17, 3), np.float32))
+# seduta dietro il tavolo: il suo box tocca la zona tavolo ma non copre il piatto
+SEDUTA = Persona(1, np.array([60, 40, 140, 115], np.float32), 0.85, np.zeros((17, 3), np.float32))
+SENZA_PIATTO = -1
+
+
+class ModelloPiattoFinto:
+    """Il cibo sono i pixel colorati (il piatto è bianco, il tavolo grigio); ricorda quante volte l'hanno chiamato."""
+
+    def __init__(self):
+        self.chiamate = 0
+
+    def maschera_cibo(self, ritaglio: np.ndarray) -> np.ndarray:
+        self.chiamate = self.chiamate + 1
+        hsv = cv2.cvtColor(ritaglio, cv2.COLOR_BGR2HSV)
+        return hsv[:, :, 1] >= 60
 
 
 def fotogramma(righe_di_cibo: int) -> np.ndarray:
     """Tavolo grigio con il piatto bianco (40×40 px) e il cibo arancione nelle prime righe del piatto."""
     immagine = np.full((200, 200, 3), 150, np.uint8)
+    if righe_di_cibo == SENZA_PIATTO:
+        return immagine
     immagine[120:160, 80:120] = 230
     immagine[120:120 + righe_di_cibo, 80:120] = (30, 120, 220)
     return immagine
 
 
-def scena(sequenza: list) -> list:
+def scena(sequenza: list, modello=None) -> list:
     """Un passo ogni 10 secondi: sequenza[i] = (persona seduta?, righe di cibo, oggetti visti)."""
-    analizzatore = AnalizzatorePasto(SALA)
+    if modello is None:
+        modello = ModelloPiattoFinto()
+    analizzatore = AnalizzatorePasto(SALA, modello)
     eventi = []
     for passo in range(len(sequenza)):
         seduta = sequenza[passo][0]
@@ -68,10 +90,13 @@ def test_quanto_mangiato_tre_categorie():
 
 
 def test_pasto_con_quanto_mangiato():
-    # piatto pieno al 60% (24 righe su 40) senza nessuno, 3 minuti a tavola, poi piatto al 15% (6 righe): 75%
-    sequenza = (ripeti(False, 24, 3, [PIATTO, PIZZA]) + ripeti(True, 20, 18, [PIATTO, PIZZA])
+    # a tavola il piatto è pieno al 60% (24 righe su 40), dopo 3 minuti si alza e lascia il piatto al 15%: 75%
+    sequenza = (ripeti(False, 24, 3, [PIATTO, PIZZA]) + ripeti(True, 24, 18, [PIATTO, PIZZA])
                 + ripeti(False, 6, 10, [PIATTO]))
-    eventi = scena(sequenza)
+    modello = ModelloPiattoFinto()
+    eventi = scena(sequenza, modello)
+    # il modello gira solo all'inizio (3 misure) e alla fine (3 misure)
+    assert modello.chiamate == 6
     assert len(eventi) == 1
     evento = eventi[0]
     assert evento.tipo == "pasto"
@@ -93,13 +118,56 @@ def test_seduta_poco_non_e_pasto():
 
 
 def test_pasto_ancora_in_corso_a_fine_video():
-    # niente "prima" senza nessuno: si usano le prime e le ultime misure durante il pasto
+    # nessun "dopo": la fine è l'ultimo momento a tavola (6 righe di 24)
     sequenza = ripeti(True, 24, 10, [PIATTO]) + ripeti(True, 6, 10, [PIATTO])
     eventi = scena(sequenza)
     assert len(eventi) == 1
     assert eventi[0].valori.cibi == []
-    # con la persona davanti si vedono solo le righe del piatto sotto il suo box (140-160): lì il cibo non c'è più
-    assert eventi[0].valori.quanto_mangiato in ["meno_di_meta", "meta", "tutto"]
+    assert eventi[0].valori.quanto_mangiato == "meta"
+
+
+def test_piatto_portato_via_alzandosi():
+    # finisce metà piatto (da 24 a 12 righe) e si porta via il piatto: conta l'ultimo momento a tavola, non "tutto"
+    sequenza = (ripeti(True, 24, 10, [PIATTO]) + ripeti(True, 12, 8, [PIATTO])
+                + ripeti(False, SENZA_PIATTO, 10, []))
+    eventi = scena(sequenza)
+    assert len(eventi) == 1
+    assert eventi[0].valori.quanto_mangiato == "meta"
+
+
+def test_cibo_visto_solo_dal_modello_del_piatto():
+    # il rilevatore COCO non vede né piatto né cibo (es. un piatto piano): il pasto lo dice il modello del piatto
+    # mangia tutto a tavola e lascia il piatto vuoto
+    sequenza = ripeti(True, 24, 10, []) + ripeti(True, 0, 8, []) + ripeti(False, 0, 10, [])
+    eventi = scena(sequenza)
+    assert len(eventi) == 1
+    assert eventi[0].valori.quanto_mangiato == "tutto"
+
+
+def test_senza_pesi_del_piatto_non_misurato():
+    analizzatore = AnalizzatorePasto(SALA, None)
+    sequenza = ripeti(True, 24, 18, [PIATTO]) + ripeti(False, 6, 10, [PIATTO])
+    eventi = []
+    for passo in range(len(sequenza)):
+        persone = []
+        if sequenza[passo][0]:
+            persone.append(SEDUTA)
+        ora = INIZIO + datetime.timedelta(seconds=passo * 10)
+        osservazione = Osservazione("sala", "dining room", ora, fotogramma(sequenza[passo][1]), persone, [PIATTO])
+        for evento in analizzatore.elabora(osservazione):
+            eventi.append(evento)
+    assert len(eventi) == 1
+    assert eventi[0].valori.quanto_mangiato is None
+
+
+@pytest.mark.skipif(not Path(PESI_CIBO).exists(), reason="pesi del cibo non presenti (fuori dal repo)")
+def test_modello_vero_del_piatto():
+    modello = ModelloPiatto(PESI_CIBO)
+    assert list(modello.modello.names.values()) == ["cibo"]
+    ritaglio = np.full((120, 160, 3), 128, np.uint8)
+    maschera = modello.maschera_cibo(ritaglio)
+    assert maschera.shape == (120, 160)
+    assert maschera.dtype == bool
 
 
 def test_piatto_non_misurato():

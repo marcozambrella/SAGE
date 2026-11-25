@@ -34,7 +34,7 @@ from casa.caduta import AnalizzatoreCaduta
 from casa.configurazione import leggi_configurazione
 from casa.farmaco import AnalizzatoreFarmaco
 from casa.invio import SECONDI_TRA_LOTTI, Backend, invia_in_sospeso
-from casa.pasto import AnalizzatorePasto
+from casa.pasto import AnalizzatorePasto, ModelloPiatto
 from casa.percezione import POSA_PREDEFINITA, RILEVATORE_PREDEFINITO, Percezione
 from casa.registro import RegistroLocale
 from casa.riconoscimento_farmaci import RiconoscitoreFarmaci, crea_riconoscitore
@@ -58,6 +58,7 @@ SECONDI_DOPO_IL_SEGNO = 3.0        # si resta a 10 al secondo fino a tanto dopo 
 # Modelli specialisti allenati (25/11), grandezza n come consiglia l'agente di allenamento: stessa precisione della s
 # a metà del tempo. Pesi copiati da runs/ del worktree allenamento (mai nel repo).
 PESI_PORTA = "pesi/porta_yolo26n.pt"
+PESI_CIBO = "pesi/cibo_yolo26n.pt"
 
 
 @dataclass
@@ -66,6 +67,7 @@ class Specialisti:
 
     riconoscitore: RiconoscitoreFarmaci | None = None
     porta: ModelloPorta | None = None
+    piatto: ModelloPiatto | None = None
 
 
 def carica_specialisti(configurazione: ConfigurazioneCasa) -> Specialisti:
@@ -83,6 +85,11 @@ def carica_specialisti(configurazione: ConfigurazioneCasa) -> Specialisti:
             specialisti.porta = ModelloPorta(PESI_PORTA)
         else:
             print("pesi della porta mancanti (" + PESI_PORTA + "): porta aperta dalla regola dell'aspetto")
+    if "pasto" in nomi:
+        if Path(PESI_CIBO).exists():
+            specialisti.piatto = ModelloPiatto(PESI_CIBO)
+        else:
+            print("pesi del cibo mancanti (" + PESI_CIBO + "): quanto ha mangiato non si misura")
     return specialisti
 
 
@@ -142,7 +149,7 @@ def crea_analizzatori(telecamera: TelecameraLocale, personalizzazione: Personali
         elif nome == "farmaco":
             analizzatori.append(AnalizzatoreFarmaco(telecamera, specialisti.riconoscitore))
         elif nome == "pasto":
-            analizzatori.append(AnalizzatorePasto(telecamera))
+            analizzatori.append(AnalizzatorePasto(telecamera, specialisti.piatto))
         elif nome == "alzata_notturna":
             notte = personalizzazione.regole.orari_notte
             # senza zona letto la telecamera dice solo che di notte qualcuno è passato di qui
