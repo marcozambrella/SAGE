@@ -1,17 +1,21 @@
-"""Test di zone, uscita e alzata notturna con osservazioni sintetiche (persone finte, nessun modello)."""
+"""Test di zone, uscita e alzata notturna con osservazioni sintetiche (persone finte; il modello della porta è finto,
+tranne una prova dei pesi veri se ci sono)."""
 
 import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import numpy as np
+import pytest
 
 from contratti.configurazione import FasciaOraria, TelecameraLocale
 from contratti.eventi import LETTORE_EVENTO, leggi_evento
 
 from casa.alzata_notturna import AnalizzatoreAlzataNotturna, AnalizzatorePresenzaNotturna
 from casa.percezione import Osservazione, Persona
-from casa.uscita import SECONDI_SPARIZIONE, AnalizzatoreUscita
-from casa.zone import dentro_zona, zona_della_persona
+from casa.principale import PESI_PORTA
+from casa.uscita import FATTORE_ZONA_PORTA, SECONDI_SPARIZIONE, AnalizzatoreUscita, ModelloPorta
+from casa.zone import dentro_zona, zona_allargata, zona_della_persona
 
 ROMA = ZoneInfo("Europe/Rome")
 LARGHEZZA = 200
@@ -276,3 +280,71 @@ def test_presenza_notturna_a_fine_video():
     eventi = presenza(passi([persona(4, 60)], 10), inizio)
     assert len(eventi) == 1
     assert eventi[0].fine == inizio + datetime.timedelta(seconds=9)
+
+
+class ModelloPortaFinto:
+    """Dice "aperta" dal secondo `da` in poi; ricorda quante volte l'hanno chiamato."""
+
+    def __init__(self, da: float):
+        self.da = da
+        self.ora = None
+        self.chiamate = 0
+
+    def aperta(self, ritaglio: np.ndarray) -> bool:
+        self.chiamate = self.chiamate + 1
+        return self.ora >= self.da
+
+
+def uscita_con_modello(modello: ModelloPortaFinto, posizioni: list, porta_che_cambia: bool, passo: float = 1.0):
+    """posizioni[i] = persone al passo i (un passo ogni `passo` secondi). porta_che_cambia: l'immagine della porta
+    cambia sempre aspetto (per vedere che la regola di riserva non conta quando c'è il modello)."""
+    analizzatore = AnalizzatoreUscita(INGRESSO, modello)
+    inizio = datetime.datetime(2026, 12, 1, 15, 0, tzinfo=ROMA)
+    eventi = []
+    for indice in range(len(posizioni)):
+        secondi = indice * passo
+        modello.ora = secondi
+        immagine = immagine_ingresso(porta_che_cambia and indice % 2 == 1)
+        ora = inizio + datetime.timedelta(seconds=secondi)
+        for evento in analizzatore.elabora(osservazione(ora, posizioni[indice], immagine)):
+            eventi.append(evento)
+    return eventi
+
+
+def test_uscita_con_il_modello_della_porta():
+    modello = ModelloPortaFinto(6)
+    posizioni = [[]] * 3 + [[persona(1, 150)]] * 2 + [[persona(1, 30)]] * 3 + [[]] * DOPO_LA_SPARIZIONE
+    assert len(uscita_con_modello(modello, posizioni, False)) == 1
+
+
+def test_porta_chiusa_per_il_modello_non_e_uscita_anche_se_cambia_aspetto():
+    modello = ModelloPortaFinto(1000)
+    posizioni = [[]] * 3 + [[persona(1, 30)]] * 3 + [[]] * DOPO_LA_SPARIZIONE
+    assert uscita_con_modello(modello, posizioni, True) == []
+
+
+def test_modello_della_porta_solo_con_qualcuno_alla_porta_e_ogni_mezzo_secondo():
+    # passi di 0,1 s: 2 s lontano dalla porta, 2 s alla porta, 2 s in mezzo alla stanza
+    modello = ModelloPortaFinto(1000)
+    posizioni = [[persona(1, 150)]] * 20 + [[persona(1, 30)]] * 20 + [[persona(1, 150)]] * 20
+    uscita_con_modello(modello, posizioni, False, 0.1)
+    assert modello.chiamate == 4
+
+
+def test_zona_porta_allargata_per_chi_e_coperto_a_meta():
+    # i piedi a 55 px sono fuori dalla zona (0-50 px) ma dentro quella allargata di un quarto per lato (0-62,5 px)
+    allargata = zona_allargata(INGRESSO.zone[0], FATTORE_ZONA_PORTA)
+    assert allargata.punti[0] == [0, 0]
+    assert allargata.punti[2] == [pytest.approx(0.3125), 1]
+    modello = ModelloPortaFinto(6)
+    posizioni = [[]] * 3 + [[persona(1, 55)]] * 5 + [[]] * DOPO_LA_SPARIZIONE
+    assert len(uscita_con_modello(modello, posizioni, False)) == 1
+
+
+@pytest.mark.skipif(not Path(PESI_PORTA).exists(), reason="pesi della porta non presenti (fuori dal repo)")
+def test_modello_vero_della_porta():
+    modello = ModelloPorta(PESI_PORTA)
+    nomi = list(modello.modello.names.values())
+    assert "porta_aperta" in nomi and "porta_chiusa" in nomi
+    # una parete grigia: nessuna porta
+    assert modello.aperta(np.full((200, 120, 3), 128, np.uint8)) is None

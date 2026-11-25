@@ -37,3 +37,11 @@ def zona_della_persona(persona: Persona, zone: list[Zona], larghezza: int, altez
         if dentro_zona(x, y, zona, larghezza, altezza):
             return zona
     return None
+
+
+def zona_allargata(zona: Zona, fattore: float) -> Zona:
+    """La zona ingrandita intorno al suo centro (es. 1,5: un quarto in più per lato), dentro l'immagine."""
+    punti = np.array(zona.punti, np.float32)
+    centro = punti.mean(axis=0)
+    allargati = np.clip(centro + (punti - centro) * fattore, 0, 1)
+    return zona.model_copy(update={"punti": allargati.tolist()})

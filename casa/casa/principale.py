@@ -19,6 +19,7 @@ import copy
 from dataclasses import dataclass, field
 import datetime
 import os
+from pathlib import Path
 import time
 from zoneinfo import ZoneInfo
 
@@ -39,7 +40,7 @@ from casa.registro import RegistroLocale
 from casa.riconoscimento_farmaci import RiconoscitoreFarmaci, crea_riconoscitore
 from casa.segni import RilevatoreSegni
 from casa.sorgenti import Fotogramma, apri_sorgente
-from casa.uscita import AnalizzatoreUscita
+from casa.uscita import AnalizzatoreUscita, ModelloPorta
 from casa.zone import zone_del_tipo
 
 # Fotogrammi al secondo (Marco, 25/11): le sorgenti si leggono a 10 al secondo e se ne analizza uno su due (5 al
@@ -53,6 +54,36 @@ SECONDI_TRA_ANALIZZATI = 1 / FPS_NORMALI - 0.5 / FPS_LETTURA
 PASSI_INDIETRO = 5
 FOTOGRAMMI_IN_MEMORIA = 11         # l'ultimo secondo letto a 10 al secondo, più quello di adesso
 SECONDI_DOPO_IL_SEGNO = 3.0        # si resta a 10 al secondo fino a tanto dopo l'ultimo segno
+
+# Modelli specialisti allenati (25/11), grandezza n come consiglia l'agente di allenamento: stessa precisione della s
+# a metà del tempo. Pesi copiati da runs/ del worktree allenamento (mai nel repo).
+PESI_PORTA = "pesi/porta_yolo26n.pt"
+
+
+@dataclass
+class Specialisti:
+    """Modelli che girano solo quando servono. None se mancano i pesi: allora resta la regola provvisoria."""
+
+    riconoscitore: RiconoscitoreFarmaci | None = None
+    porta: ModelloPorta | None = None
+
+
+def carica_specialisti(configurazione: ConfigurazioneCasa) -> Specialisti:
+    """Carica una volta sola i modelli che servono alle telecamere della configurazione."""
+    nomi = []
+    for telecamera_locale in configurazione.telecamere:
+        for nome in telecamera_locale.analizzatori:
+            nomi.append(nome)
+    specialisti = Specialisti()
+    if "farmaco" in nomi:
+        specialisti.riconoscitore = crea_riconoscitore(configurazione.personalizzazione,
+                                                       configurazione.cartella_foto_farmaci)
+    if "uscita" in nomi:
+        if Path(PESI_PORTA).exists():
+            specialisti.porta = ModelloPorta(PESI_PORTA)
+        else:
+            print("pesi della porta mancanti (" + PESI_PORTA + "): porta aperta dalla regola dell'aspetto")
+    return specialisti
 
 
 @dataclass
@@ -99,17 +130,17 @@ class Telecamera:
 
 
 def crea_analizzatori(telecamera: TelecameraLocale, personalizzazione: Personalizzazione,
-                      riconoscitore: RiconoscitoreFarmaci | None) -> list:
+                      specialisti: Specialisti) -> list:
     analizzatori = []
     for nome in telecamera.analizzatori:
         if nome == "uscita":
-            analizzatori.append(AnalizzatoreUscita(telecamera))
+            analizzatori.append(AnalizzatoreUscita(telecamera, specialisti.porta))
         elif nome == "caduta":
             analizzatori.append(AnalizzatoreCaduta(telecamera))
         elif nome == "bevuta":
             analizzatori.append(AnalizzatoreBevuta(telecamera, personalizzazione))
         elif nome == "farmaco":
-            analizzatori.append(AnalizzatoreFarmaco(telecamera, riconoscitore))
+            analizzatori.append(AnalizzatoreFarmaco(telecamera, specialisti.riconoscitore))
         elif nome == "pasto":
             analizzatori.append(AnalizzatorePasto(telecamera))
         elif nome == "alzata_notturna":
@@ -124,18 +155,10 @@ def crea_analizzatori(telecamera: TelecameraLocale, personalizzazione: Personali
     return analizzatori
 
 
-def prepara_telecamere(configurazione: ConfigurazioneCasa, fps: float) -> list:
-    # il riconoscimento dei farmaci (CLIP) si carica una volta sola, e solo se qualche telecamera ne ha bisogno
-    serve_riconoscitore = False
-    for telecamera_locale in configurazione.telecamere:
-        if "farmaco" in telecamera_locale.analizzatori:
-            serve_riconoscitore = True
-    riconoscitore = None
-    if serve_riconoscitore:
-        riconoscitore = crea_riconoscitore(configurazione.personalizzazione, configurazione.cartella_foto_farmaci)
+def prepara_telecamere(configurazione: ConfigurazioneCasa, fps: float, specialisti: Specialisti) -> list:
     telecamere = []
     for telecamera_locale in configurazione.telecamere:
-        analizzatori = crea_analizzatori(telecamera_locale, configurazione.personalizzazione, riconoscitore)
+        analizzatori = crea_analizzatori(telecamera_locale, configurazione.personalizzazione, specialisti)
         usa_oggetti = False
         for analizzatore in analizzatori:
             if analizzatore.usa_oggetti:
@@ -313,7 +336,7 @@ def main(argomenti: list | None = None) -> None:
         backend.invia_personalizzazione(configurazione.personalizzazione)
         invia_in_sospeso(registro, backend, False)  # quelli rimasti indietro dall'ultima volta
 
-    telecamere = prepara_telecamere(configurazione, scelte.fps)
+    telecamere = prepara_telecamere(configurazione, scelte.fps, carica_specialisti(configurazione))
     serve_rilevatore = False
     for telecamera in telecamere:
         if telecamera.usa_oggetti:

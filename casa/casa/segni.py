@@ -16,7 +16,8 @@ from contratti.configurazione import TelecameraLocale
 from casa.bevuta import TIPI_DA_CLASSE, in_mano
 from casa.percezione import Osservazione, Persona
 from casa.scheletro import angolo_del_busto, polsi
-from casa.zone import dentro_zona, zona_della_persona, zone_del_tipo
+from casa.uscita import FATTORE_ZONA_PORTA
+from casa.zone import dentro_zona, zona_allargata, zona_della_persona, zone_del_tipo
 
 GRADI_IN_FRETTA = 30.0   # il busto si inclina di almeno tanto...
 SECONDI_IN_FRETTA = 1.0  # ...in meno di così
@@ -38,7 +39,8 @@ class RilevatoreSegni:
             self.portapillole = zone_del_tipo(telecamera, "portapillole")
         self.porte = []
         if "uscita" in nomi:
-            self.porte = zone_del_tipo(telecamera, "porta")
+            for zona in zone_del_tipo(telecamera, "porta"):
+                self.porte.append(zona_allargata(zona, FATTORE_ZONA_PORTA))  # come l'analizzatore dell'uscita
         self.contenitori = "bevuta" in nomi
         self.cadute = "caduta" in nomi
         self.busti = {}  # id traccia → Busto dell'ultimo secondo

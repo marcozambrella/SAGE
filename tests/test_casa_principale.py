@@ -14,7 +14,7 @@ from contratti.eventi import leggi_evento
 
 from casa.invio import Backend
 from casa.percezione import Osservazione, Persona
-from casa.principale import elabora, leggi_backend, ora_di_inizio, prepara_telecamere
+from casa.principale import Specialisti, elabora, leggi_backend, ora_di_inizio, prepara_telecamere
 from casa.registro import RegistroLocale
 from test_casa_invio import BackendFinto, indirizzo_backend  # noqa: F401 (fixture del backend finto)
 from test_casa_sorgenti import scrivi_video
@@ -82,7 +82,7 @@ def configurazione(cartella) -> ConfigurazioneCasa:
 
 
 def test_dal_video_al_backend(tmp_path, indirizzo_backend):  # noqa: F811
-    telecamere = prepara_telecamere(configurazione(tmp_path), 5)
+    telecamere = prepara_telecamere(configurazione(tmp_path), 5, Specialisti())
     # camera da letto: alzata notturna e caduta (le persone finte sono sempre in piedi: nessuna caduta)
     assert len(telecamere[0].analizzatori) == 2
     assert not telecamere[0].usa_oggetti
@@ -138,7 +138,7 @@ def test_backend_dal_file_env(tmp_path, monkeypatch):
 
 def test_evento_nel_registro_e_json_dei_contratti(tmp_path, indirizzo_backend):  # noqa: F811
     # il corpo del POST è una lista JSON che il backend legge con i contratti
-    telecamere = prepara_telecamere(configurazione(tmp_path), 5)
+    telecamere = prepara_telecamere(configurazione(tmp_path), 5, Specialisti())
     registro = RegistroLocale(str(tmp_path / "registro.sqlite3"))
     elabora(telecamere, PercezioneFinta(), registro, None, INIZIO)
     assert BackendFinto.richieste == []  # senza backend niente rete
@@ -150,7 +150,7 @@ def test_evento_nel_registro_e_json_dei_contratti(tmp_path, indirizzo_backend): 
 
 @pytest.mark.parametrize("fps", [2, 10])
 def test_ore_dei_fotogrammi_seguono_il_video(tmp_path, fps):
-    telecamere = prepara_telecamere(configurazione(tmp_path), fps)
+    telecamere = prepara_telecamere(configurazione(tmp_path), fps, Specialisti())
     secondi = []
     while True:
         fotogramma = telecamere[1].sorgente.leggi()

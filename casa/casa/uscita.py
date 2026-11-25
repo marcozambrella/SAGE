@@ -1,9 +1,11 @@
-"""Analizzatore uscita (D16): la persona APRE IL PORTONE di casa ed esce (Marco, 24/11).
-
-Regola PROVVISORIA finché non arriva il modello porta aperta/chiusa: per ogni persona tracciata (id del tracker),
-- è nella zona porta (con i piedi) e la porta cambia aspetto rispetto al riferimento "porta chiusa"
-  (aspetto_zona.py), mentre la persona è lì o subito dopo che è sparita;
+"""Analizzatore uscita (D16): la persona APRE IL PORTONE di casa ed esce (Marco, 24/11). Per ogni persona tracciata
+(id del tracker):
+- è nella zona porta allargata (con i piedi: allargata per non perdere chi è coperto a metà dalla porta) e la porta
+  è aperta, mentre la persona è lì o subito dopo che è sparita;
 - poi la persona sparisce per SECONDI_SPARIZIONE.
+Porta aperta: il modello allenato porta_aperta/porta_chiusa (25/11) sul ritaglio della zona, solo quando qualcuno è
+alla porta e al massimo ogni mezzo secondo. Riserva se mancano i pesi: la zona cambia aspetto rispetto al
+riferimento "porta chiusa" (aspetto_zona.py).
 Chi apre la porta e poi torna nella stanza (es. a prendere la posta) non è uscito.
 Manda sempre l'evento: se l'uscita è in un orario vietato e se l'allarme è in pausa lo decide il backend.
 """
@@ -17,13 +19,49 @@ import numpy as np
 from contratti.configurazione import TelecameraLocale
 from contratti.eventi import EventoUscita, Fonte, ValoriUscita
 
-from casa.aspetto_zona import RiferimentoZona
+from casa.aspetto_zona import AreaZona, RiferimentoZona
 from casa.percezione import Osservazione, foto_prova
-from casa.zone import zona_della_persona, zone_del_tipo
+from casa.zone import zona_allargata, zona_della_persona, zone_del_tipo
 
 # Più del tempo in cui il tracker tiene in vita una traccia persa (30 fotogrammi: 6 s a 5 fotogrammi al secondo),
 # così una persona coperta un attimo dalla porta e ritrovata con lo stesso id non diventa un'uscita.
 SECONDI_SPARIZIONE = 8.0
+FATTORE_ZONA_PORTA = 1.5           # zona porta allargata di un quarto per lato
+CONFIDENZA_PORTA = 0.5             # proposta dell'agente di allenamento: da tarare sulle riprese (nessuna dall'alto)
+LATO_MODELLO_PORTA = 640           # come nell'allenamento
+SECONDI_TRA_CONTROLLI_PORTA = 0.5  # il modello costa ~85 ms: basta guardare la porta ogni mezzo secondo
+
+
+class ModelloPorta:
+    """Rilevatore allenato della porta (classi porta_aperta, anche socchiusa, e porta_chiusa)."""
+
+    def __init__(self, percorso: str):
+        from ultralytics import YOLO  # lento da importare: solo quando serve davvero
+
+        self.modello = YOLO(percorso)
+
+    def __deepcopy__(self, memo: dict) -> "ModelloPorta":
+        # il modello non è stato: le copie per tornare indietro di un secondo (principale.py) lo condividono
+        return self
+
+    def aperta(self, ritaglio: np.ndarray) -> bool | None:
+        """True se nel ritaglio c'è una porta aperta, False se c'è solo chiusa, None se il modello non vede porte."""
+        risultato = self.modello.predict(ritaglio, conf=CONFIDENZA_PORTA, imgsz=LATO_MODELLO_PORTA, device="cpu",
+                                         verbose=False)[0]
+        nomi = []
+        for classe in risultato.boxes.cls.int().cpu().numpy():
+            nomi.append(risultato.names[int(classe)])
+        if "porta_aperta" in nomi:
+            return True  # anche una porta socchiusa conta: meglio un allarme in più che un'uscita persa
+        if "porta_chiusa" in nomi:
+            return False
+        return None
+
+
+@dataclass
+class ControlloPorta:
+    ora: datetime.datetime
+    aperta: bool | None
 
 
 @dataclass
@@ -38,23 +76,37 @@ class Traccia:
 class AnalizzatoreUscita:
     usa_oggetti = False
 
-    def __init__(self, telecamera: TelecameraLocale):
+    def __init__(self, telecamera: TelecameraLocale, modello_porta: ModelloPorta | None = None):
         self.telecamera_id = telecamera.id
         self.stanza = telecamera.stanza
-        self.porte = zone_del_tipo(telecamera, "porta")
-        self.riferimenti = {}  # id zona → RiferimentoZona ("porta chiusa")
-        for zona in self.porte:
+        self.modello_porta = modello_porta
+        self.porte = []        # zone porta allargate
+        self.riferimenti = {}  # id zona → RiferimentoZona ("porta chiusa"), per la regola di riserva
+        for zona in zone_del_tipo(telecamera, "porta"):
+            self.porte.append(zona_allargata(zona, FATTORE_ZONA_PORTA))
             self.riferimenti[zona.id] = RiferimentoZona(zona)
+        self.controlli = {}    # id zona → ultimo ControlloPorta del modello
         self.tracce = {}       # id traccia → Traccia
 
-    def porte_aperte(self, osservazione: Osservazione) -> list:
-        """Id delle zone porta che adesso sembrano aperte."""
+    def porte_aperte(self, osservazione: Osservazione, zone_da_guardare: list) -> list:
+        """Id delle zone porta, tra quelle da guardare, che adesso sembrano aperte."""
         box_persone = []
         for persona in osservazione.persone:
             box_persone.append(persona.box)
         aperte = []
         for zona in self.porte:
-            if self.riferimenti[zona.id].cambiata(osservazione.immagine, box_persone):
+            if zona.id not in zone_da_guardare:
+                continue
+            if self.modello_porta is None:
+                if self.riferimenti[zona.id].cambiata(osservazione.immagine, box_persone):
+                    aperte.append(zona.id)
+                continue
+            controllo = self.controlli.get(zona.id)
+            if controllo is None or (osservazione.ora - controllo.ora).total_seconds() >= SECONDI_TRA_CONTROLLI_PORTA:
+                ritaglio = AreaZona(zona, osservazione.immagine).ritaglio(osservazione.immagine)
+                controllo = ControlloPorta(osservazione.ora, self.modello_porta.aperta(ritaglio))
+                self.controlli[zona.id] = controllo
+            if controllo.aperta:
                 aperte.append(zona.id)
         return aperte
 
@@ -62,11 +114,20 @@ class AnalizzatoreUscita:
         ora = osservazione.ora
         altezza = osservazione.immagine.shape[0]
         larghezza = osservazione.immagine.shape[1]
-        aperte = self.porte_aperte(osservazione)
-
+        # la porta si guarda solo dove qualcuno è davanti o è appena sparito: il modello costa
+        zone_da_guardare = []
         visti = []
         for persona in osservazione.persone:
             visti.append(persona.id_traccia)
+            zona = zona_della_persona(persona, self.porte, larghezza, altezza)
+            if zona is not None:
+                zone_da_guardare.append(zona.id)
+        for id_traccia in self.tracce:
+            if id_traccia not in visti and self.tracce[id_traccia].zona_id is not None:
+                zone_da_guardare.append(self.tracce[id_traccia].zona_id)
+        aperte = self.porte_aperte(osservazione, zone_da_guardare)
+
+        for persona in osservazione.persone:
             zona = zona_della_persona(persona, self.porte, larghezza, altezza)
             traccia = self.tracce.get(persona.id_traccia)
             if traccia is None:
@@ -105,10 +166,11 @@ class AnalizzatoreUscita:
             if traccia.zona_id is not None and traccia.porta_aperta:
                 eventi.append(self.evento(traccia))
 
-        # riferimento "porta chiusa": solo quando non c'è nessuno e nessuno è appena sparito dalla porta
-        if len(osservazione.persone) == 0 and not in_attesa_davanti_alla_porta:
-            for zona in self.porte:
-                self.riferimenti[zona.id].aggiorna(osservazione.immagine)
+        # riferimento "porta chiusa" della regola di riserva: solo quando non c'è nessuno e nessuno è appena sparito
+        # dalla porta
+        if self.modello_porta is None and len(osservazione.persone) == 0 and not in_attesa_davanti_alla_porta:
+            for riferimento in self.riferimenti.values():
+                riferimento.aggiorna(osservazione.immagine)
         return eventi
 
     def fine(self) -> list[EventoUscita]:
