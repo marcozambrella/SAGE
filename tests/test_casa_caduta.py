@@ -116,12 +116,15 @@ def test_senza_scheletro_conta_il_box():
 
 
 class ClassificatoreFinto:
-    """Vede una caduta se `vede_caduta`; ricorda le finestre ricevute."""
+    """Vede una caduta se `vede_caduta` (o dalla finestra numero `da_finestra` in poi); ricorda le finestre."""
 
     soglia = 0.5
 
-    def __init__(self, vede_caduta: bool, fps: float, secondi: float):
+    def __init__(self, vede_caduta: bool, fps: float, secondi: float, finestre_di_fila: int = 1,
+                 da_finestra: int = 0):
         self.vede_caduta = vede_caduta
+        self.finestre_di_fila = finestre_di_fila
+        self.da_finestra = da_finestra
         self.fps = fps
         self.secondi = secondi
         self.lunghezza = int(round(fps * secondi))
@@ -129,7 +132,7 @@ class ClassificatoreFinto:
 
     def probabilita_caduta(self, finestra: np.ndarray) -> float:
         self.finestre.append(finestra)
-        if self.vede_caduta:
+        if self.vede_caduta and len(self.finestre) > self.da_finestra:
             return 0.9
         return 0.1
 
@@ -174,3 +177,14 @@ def test_una_finestra_ogni_mezzo_secondo_della_lunghezza_giusta():
     scena_ibrida(classificatore, [IN_PIEDI] * 30, 0.1)
     assert len(classificatore.finestre) == 6
     assert classificatore.finestre[0].shape == (15, 17, 3)
+
+
+def test_conferma_solo_con_k_finestre_di_fila():
+    # una finestra al secondo; a terra dal secondo 3, la geometria è pronta al secondo 5; il classificatore vede la
+    # caduta dalla quinta finestra (secondo 4): con 1 finestra conferma al secondo 5, con 3 di fila al secondo 6
+    una = ClassificatoreFinto(True, 5, 3, finestre_di_fila=1, da_finestra=4)
+    assert len(scena_ibrida(una, [IN_PIEDI] * 3 + [A_TERRA] * 3)) == 1
+    tre = ClassificatoreFinto(True, 5, 3, finestre_di_fila=3, da_finestra=4)
+    assert scena_ibrida(tre, [IN_PIEDI] * 3 + [A_TERRA] * 3) == []
+    tre = ClassificatoreFinto(True, 5, 3, finestre_di_fila=3, da_finestra=4)
+    assert len(scena_ibrida(tre, [IN_PIEDI] * 3 + [A_TERRA] * 4)) == 1

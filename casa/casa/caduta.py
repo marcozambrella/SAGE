@@ -6,7 +6,7 @@ tracker):
 - caduta: era in piedi meno di 3 s prima di finire a terra (chi si sdraia piano non è caduto) e resta a terra
   almeno 2 s;
 - conferma: il classificatore (un passo solo, scheletri a 5 al secondo, una finestra ogni 0,5 s per persona) ha
-  visto una caduta da poco prima di finire a terra in poi. Le cadute non fanno passare a 10 fotogrammi al secondo:
+  visto una caduta, per k finestre di fila, da poco prima di finire a terra in poi. Le cadute non fanno passare a 10 fotogrammi al secondo:
   una volta caduta la persona resta a terra e si vede lo stesso (Marco, 25/11).
 - senza conferma l'allarme parte lo stesso se resta a terra 30 s; il classificatore da solo non fa partire niente
   (Marco, 25/11). Senza pesi del classificatore basta la geometria.
@@ -73,6 +73,7 @@ class StatoPersona:
     confidenza: float
     immagine: np.ndarray | None
     valutata: datetime.datetime | None          # ultima finestra data al classificatore
+    probabilita_recenti: list                   # probabilità delle ultime finestre_di_fila finestre
     confermata: datetime.datetime | None        # ultima volta che il classificatore ha visto una caduta
 
 
@@ -111,7 +112,11 @@ class AnalizzatoreCaduta:
         stato.valutata = ora
         finestra = finestra_della_traccia(self.fotogrammi, id_traccia, ora, self.classificatore.fps,
                                           self.classificatore.lunghezza)
-        if self.classificatore.probabilita_caduta(finestra) >= self.classificatore.soglia:
+        stato.probabilita_recenti.append(self.classificatore.probabilita_caduta(finestra))
+        stato.probabilita_recenti = stato.probabilita_recenti[-self.classificatore.finestre_di_fila:]
+        if len(stato.probabilita_recenti) < self.classificatore.finestre_di_fila:
+            return
+        if min(stato.probabilita_recenti) >= self.classificatore.soglia:
             stato.confermata = ora
 
     def confermata(self, stato: StatoPersona, secondi_a_terra: float) -> bool:
@@ -132,7 +137,7 @@ class AnalizzatoreCaduta:
         for persona in osservazione.persone:
             stato = self.persone.get(persona.id_traccia)
             if stato is None:
-                stato = StatoPersona(ora, None, None, None, False, 0.0, None, None, None)
+                stato = StatoPersona(ora, None, None, None, False, 0.0, None, None, [], None)
                 self.persone[persona.id_traccia] = stato
             stato.vista = ora
             if self.classificatore is not None:

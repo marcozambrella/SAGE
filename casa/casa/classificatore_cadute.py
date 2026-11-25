@@ -9,7 +9,8 @@ classificatore deve ricevere gli scheletri come li ha visti allenandosi:
   l'istante è prima del primo fotogramma: tutti zeri;
 - punti con confidenza ≤ 0,1: zeri; x, y meno il centro (media dei punti visibili della finestra) diviso per la
   mediana dell'altezza del box della persona; terzo canale la confidenza del punto;
-- uscita softmax [normale, caduta, a_terra]: caduta se p(caduta) + p(a_terra) ≥ soglia; una finestra ogni 0,5 s.
+- uscita softmax [normale, caduta, a_terra]: caduta se p(caduta) + p(a_terra) ≥ soglia per k finestre di fila
+  della stessa persona (finestre_di_fila, scelta insieme alla soglia nell'allenamento); una finestra ogni 0,5 s.
 Un passo solo, con il modello a 5 fotogrammi al secondo (Marco, 25/11: niente 10 al secondo per le cadute).
 """
 
@@ -196,9 +197,10 @@ def finestra_della_traccia(fotogrammi: list, id_traccia: int, fine: datetime.dat
 
 
 class ClassificatoreCadute:
-    """Un modello allenato (.pt dell'allenamento: pesi, classi, lunghezza, fps, secondi, posa) con la sua soglia."""
+    """Un modello allenato (.pt dell'allenamento: pesi, classi, lunghezza, fps, secondi, posa) con la sua soglia e
+    quante finestre di fila devono superarla."""
 
-    def __init__(self, percorso: str, soglia: float):
+    def __init__(self, percorso: str, soglia: float, finestre_di_fila: int):
         dati = torch.load(percorso, map_location="cpu")
         self.classi = dati["classi"]
         self.lunghezza = int(dati["lunghezza"])
@@ -206,6 +208,7 @@ class ClassificatoreCadute:
         self.fps = float(informazioni["fps"])
         self.secondi = float(informazioni["secondi"])
         self.soglia = soglia
+        self.finestre_di_fila = finestre_di_fila
         self.posa = informazioni["posa"]  # es. "yolo26n-pose": gli scheletri su cui è allenato
         self.modello = StGcn(len(self.classi))
         self.modello.load_state_dict(dati["stato"])  # strict: se il modello copiato non è identico si ferma qui

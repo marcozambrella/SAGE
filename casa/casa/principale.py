@@ -65,18 +65,20 @@ PESI_FARMACI = "pesi/farmaci_yolo26n.pt"
 
 @dataclass
 class PesiCadute:
-    """Classificatore delle cadute per una posa (un passo solo, scheletri a 5 al secondo) e la sua soglia."""
+    """Classificatore delle cadute per una posa (un passo solo, scheletri a 5 al secondo), la sua soglia e quante
+    finestre di fila la devono superare."""
 
     percorso: str
     soglia: float
+    finestre_di_fila: int
 
 
 # si usa quello allenato sugli scheletri della posa in uso (la posa la sceglie Marco). PROVVISORI finché l'agente di
 # allenamento non manda i modelli a un passo: quelli a 5 al secondo con la soglia scelta sulla validazione per il
 # modello usato da solo (scritta nel file)
 PESI_CADUTE = {
-    "pesi/yolo26n-pose.pt": PesiCadute("pesi/cadute_n_segno_5fps_3s.pt", 0.96),
-    "pesi/yolo26s-pose.pt": PesiCadute("pesi/cadute_s_segno_5fps_3s.pt", 0.7),
+    "pesi/yolo26n-pose.pt": PesiCadute("pesi/cadute_n_segno_5fps_3s.pt", 0.96, 1),
+    "pesi/yolo26s-pose.pt": PesiCadute("pesi/cadute_s_segno_5fps_3s.pt", 0.7, 1),
 }
 
 
@@ -118,7 +120,7 @@ def carica_specialisti(configurazione: ConfigurazioneCasa) -> Specialisti:
     if "caduta" in nomi:
         pesi = PESI_CADUTE[POSA_PREDEFINITA]
         if Path(pesi.percorso).exists():
-            classificatore = ClassificatoreCadute(pesi.percorso, pesi.soglia)
+            classificatore = ClassificatoreCadute(pesi.percorso, pesi.soglia, pesi.finestre_di_fila)
             if classificatore.posa == Path(POSA_PREDEFINITA).stem:
                 specialisti.cadute = classificatore
             else:
