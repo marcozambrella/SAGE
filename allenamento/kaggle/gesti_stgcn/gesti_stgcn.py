@@ -12,9 +12,12 @@ Una finestra prende la classe di un gesto se il gesto copre almeno metà della f
 parte da un gesto (o da c128) sono ambigue e non si usano per allenare né per le metriche per finestra.
 Divisione per soggetto (lezione di ARGO): test = divisione ufficiale di Charades (soggetti diversi da quelli di
 train), validazione = il 15% dei soggetti di train.
-Varianti (coordinatore, 24/11): 4, 6 e 12 fotogrammi al secondo, finestre di SECONDI_FINESTRA secondi. Per stare nei
-tempi della CPU (stima ~7 h per le tre varianti, 12 epoche) allenamento e validazione usano al massimo
-MASSIMO_PER_CLASSE e MASSIMO_PER_CLASSE_VAL finestre per classe; il kernel si ferma comunque a ORE_MASSIME.
+v2 (25/11): con 4 classi (v1) la macro-F1 restava a 0,36-0,39 e anche "gesto contro altro" a 0,62: le azioni di
+Charades sono intervalli larghi (tutto il tempo con la tazza in mano, non solo i sorsi) e bere, mangiare e prendere
+una medicina sono quasi lo stesso movimento senza dita né oggetti. Con BINARIO = True le tre classi diventano una,
+`mano_alla_bocca` (rete ibrida: l'oggetto lo dice il rilevatore), con finestre di 2 e 4 s a 6 e 12 fps.
+Per stare nei tempi della CPU allenamento e validazione usano al massimo MASSIMO_PER_CLASSE e
+MASSIMO_PER_CLASSE_VAL finestre per classe; il kernel si ferma comunque a ORE_MASSIME.
 Metriche sul test: per finestra (macro-F1, richiamo e precisione per classe) e per gesto: gesti presi (una finestra
 della classe giusta dentro il gesto o entro 2 s dalla fine) e gesti inventati all'ora (tratti di finestre di una
 classe lontani da ogni gesto di quella classe), su tutte le finestre dei video di test.
@@ -410,8 +413,12 @@ CLASSI = ["altro", "prende_farmaco", "beve", "mangia"]
 AZIONI = {"c129": 1, "c106": 2, "c065": 3, "c156": 3, "c128": -1}
 # ordine di scrittura: l'ultima scritta vince dove le azioni si sovrappongono (farmaco, poi bere, poi mangiare)
 ORDINE_SCRITTURA = [-1, 3, 2, 1]
-FPS_VARIANTI = [4, 6, 12]
-SECONDI_FINESTRA = 4
+BINARIO = True
+if BINARIO:
+    CLASSI = ["altro", "mano_alla_bocca"]
+    AZIONI = {"c129": 1, "c106": 1, "c065": 1, "c156": 1, "c128": -1}
+FPS_VARIANTI = [6, 12]
+SECONDI_VARIANTI = [2, 4]
 MASSIMO_PER_CLASSE = 6000
 # anche la validazione (si guarda a ogni epoca) è limitata: con tutte le finestre "altro" a 12 fps costava ~6 min
 # a epoca sulla CPU di Kaggle (stima dalla prova locale del 24/11)
@@ -461,7 +468,7 @@ def etichetta_gesto(etichette: np.ndarray) -> int:
     se c'è solo un pezzo di gesto o c128."""
     if len(etichette) == 0:
         return -1
-    for classe in [1, 2, 3]:
+    for classe in range(1, len(CLASSI)):
         if np.mean(etichette == classe) >= 0.5:
             return classe
     if np.any(etichette != 0):
@@ -495,7 +502,7 @@ def prepara_video(cartella_scheletri: Path) -> list:
     return video
 
 
-def costruisci_finestre(video: list, fps_finestra: float) -> dict:
+def costruisci_finestre(video: list, fps_finestra: float, secondi: float) -> dict:
     """train e val: solo finestre non ambigue, al massimo MASSIMO_PER_CLASSE (train) e MASSIMO_PER_CLASSE_VAL (val)
     per classe, scelte a caso; test: tutte, anche le ambigue (classe -1), per le metriche per gesto sul flusso
     intero."""
@@ -504,7 +511,7 @@ def costruisci_finestre(video: list, fps_finestra: float) -> dict:
         dati[nome] = {"finestre": [], "classi": [], "video": [], "fini": []}
     for voce in video:
         finestre, classi, fini = finestre_di_un_video(voce["scheletro"], voce["etichette"], fps_finestra,
-                                                      SECONDI_FINESTRA, etichetta_gesto)
+                                                      secondi, etichetta_gesto)
         parte = dati[voce["divisione"]]
         for indice in range(len(finestre)):
             if classi[indice] < 0 and voce["divisione"] != "test":
@@ -531,7 +538,7 @@ def costruisci_finestre(video: list, fps_finestra: float) -> dict:
             for indice in tenute:
                 valori.append(dati[nome][chiave][indice])
             dati[nome][chiave] = valori
-    lunghezza = int(round(SECONDI_FINESTRA * fps_finestra))
+    lunghezza = int(round(secondi * fps_finestra))
     for nome in dati:
         parte = dati[nome]
         if parte["finestre"]:
@@ -543,7 +550,7 @@ def costruisci_finestre(video: list, fps_finestra: float) -> dict:
     return dati
 
 
-def metriche_gesti(predette: np.ndarray, parte: dict, video_per_id: dict) -> dict:
+def metriche_gesti(predette: np.ndarray, parte: dict, video_per_id: dict, secondi: float) -> dict:
     """Per ogni classe di gesto: gesti presi (una finestra predetta di quella classe che finisce dentro il gesto o
     entro SECONDI_TOLLERANZA dopo) e gesti inventati (tratti di finestre predette di quella classe lontani da ogni
     gesto vero della stessa classe), all'ora di video."""
@@ -557,7 +564,7 @@ def metriche_gesti(predette: np.ndarray, parte: dict, video_per_id: dict) -> dic
     for identificativo in finestre_per_video:
         ore += video_per_id[identificativo]["durata"] / 3600
     risultato = {"ore_video": round(ore, 2)}
-    for classe in [1, 2, 3]:
+    for classe in range(1, len(CLASSI)):
         gesti = 0
         presi = 0
         inventati = 0
@@ -584,7 +591,7 @@ def metriche_gesti(predette: np.ndarray, parte: dict, video_per_id: dict) -> dic
             for inizio_tratto, fine_tratto in tratti:
                 vicino = False
                 for inizio, fine in veri:
-                    if inizio_tratto - SECONDI_FINESTRA <= fine + SECONDI_TOLLERANZA and fine_tratto >= inizio:
+                    if inizio_tratto - secondi <= fine + SECONDI_TOLLERANZA and fine_tratto >= inizio:
                         vicino = True
                 if not vicino:
                     inventati += 1
@@ -595,8 +602,9 @@ def metriche_gesti(predette: np.ndarray, parte: dict, video_per_id: dict) -> dic
 
 torch.set_num_threads(4)
 risultati = {}
-righe_confronto = ["| posa | fps | macro-F1 test | richiamo farmaco / beve / mangia (finestre) | gesti presi farmaco / "
-                   "beve / mangia | inventati all'ora farmaco / beve / mangia | ms CPU |", "|---|---|---|---|---|---|---|"]
+elenco_classi = " / ".join(CLASSI[1:])
+righe_confronto = [f"| posa | fps | secondi | macro-F1 test | richiamo {elenco_classi} (finestre) | precisione | "
+                   f"gesti presi | inventati all'ora | ms CPU |", "|---|---|---|---|---|---|---|---|---|"]
 cartelle = cartelle_scheletri()
 for modello_posa in cartelle:
     inizio = time.perf_counter()
@@ -610,47 +618,56 @@ for modello_posa in cartelle:
         conteggio[voce["divisione"]] += 1
     print(f"[{modello_posa}] video: {conteggio} ({time.perf_counter() - inizio:.0f} s)", flush=True)
     for fps_finestra in FPS_VARIANTI:
-        nome = f"gesti_stgcn_{modello_posa}_{fps_finestra}fps_{SECONDI_FINESTRA}s"
-        if tempo_scaduto():
-            print(f"[{nome}] saltata: tempo del kernel scaduto", flush=True)
-            continue
-        inizio = time.perf_counter()
-        dati = costruisci_finestre(video, fps_finestra)
-        numeri = {}
-        for parte in dati:
-            numeri[parte] = np.bincount(dati[parte]["classi"][dati[parte]["classi"] >= 0],
-                                        minlength=len(CLASSI)).tolist()
-        print(f"[{nome}] finestre per classe {CLASSI}: {numeri} ({time.perf_counter() - inizio:.0f} s)", flush=True)
-        coppie = {}
-        for parte in ["train", "val"]:
-            coppie[parte] = (dati[parte]["finestre"], dati[parte]["classi"])
-        modello, storia = addestra(coppie, CLASSI, epoche=12, pazienza=4)
-        uscita = {"finestre_per_classe": numeri, "storia": storia}
-        predette_val = probabilita(modello, dati["val"]["finestre"]).argmax(axis=1)
-        predette_test = probabilita(modello, dati["test"]["finestre"]).argmax(axis=1)
-        uscita["classi_val"] = metriche_classi(dati["val"]["classi"], predette_val, CLASSI)
-        chiare = dati["test"]["classi"] >= 0
-        uscita["classi_test"] = metriche_classi(dati["test"]["classi"][chiare], predette_test[chiare], CLASSI)
-        uscita["gesti_test"] = metriche_gesti(predette_test, dati["test"], video_per_id)
-        lunghezza = int(round(SECONDI_FINESTRA * fps_finestra))
-        uscita["ms_cpu_per_finestra"] = millisecondi_cpu(modello, lunghezza)
-        uscita["secondi_variante"] = round(time.perf_counter() - inizio, 1)
-        esporta(modello, CLASSI, lunghezza, nome, {"fps": fps_finestra, "secondi": SECONDI_FINESTRA,
-                                                   "posa": modello_posa})
-        risultati[nome] = uscita
-        classi_test = uscita["classi_test"]
-        gesti = uscita["gesti_test"]
-        richiami = []
-        presi = []
-        inventati = []
-        for classe in CLASSI[1:]:
-            richiami.append(str(classi_test[classe]["richiamo"]))
-            presi.append(f"{gesti[classe]['presi']}/{gesti[classe]['gesti']}")
-            inventati.append(str(gesti[classe]["inventati_ora"]))
-        righe_confronto.append(f"| {modello_posa} | {fps_finestra} | {classi_test['macro_f1']} | {' / '.join(richiami)} | "
-                               f"{' / '.join(presi)} | {' / '.join(inventati)} | {uscita['ms_cpu_per_finestra']} |")
-        print(f"[{nome}] test: {classi_test['macro_f1']} macro-F1, gesti {gesti}", flush=True)
-        # scritti dopo ogni variante: se la sessione finisce prima, quello che è fatto resta
-        (USCITA / "risultati.json").write_text(json.dumps(risultati, indent=1, ensure_ascii=False))
-        (USCITA / "confronto.md").write_text("\n".join(righe_confronto) + "\n")
+        for secondi in SECONDI_VARIANTI:
+            nome = f"gesti_stgcn_{modello_posa}_{fps_finestra}fps_{secondi}s"
+            if tempo_scaduto():
+                print(f"[{nome}] saltata: tempo del kernel scaduto", flush=True)
+                continue
+            inizio = time.perf_counter()
+            dati = costruisci_finestre(video, fps_finestra, secondi)
+            numeri = {}
+            for parte in dati:
+                numeri[parte] = np.bincount(dati[parte]["classi"][dati[parte]["classi"] >= 0],
+                                            minlength=len(CLASSI)).tolist()
+            secondi_preparazione = time.perf_counter() - inizio
+            print(f"[{nome}] finestre per classe {CLASSI}: {numeri} ({secondi_preparazione:.0f} s)", flush=True)
+            coppie = {}
+            for parte in ["train", "val"]:
+                coppie[parte] = (dati[parte]["finestre"], dati[parte]["classi"])
+            modello, storia = addestra(coppie, CLASSI, epoche=12, pazienza=4)
+            uscita = {"finestre_per_classe": numeri, "storia": storia}
+            predette_val = probabilita(modello, dati["val"]["finestre"]).argmax(axis=1)
+            predette_test = probabilita(modello, dati["test"]["finestre"]).argmax(axis=1)
+            uscita["classi_val"] = metriche_classi(dati["val"]["classi"], predette_val, CLASSI)
+            chiare = dati["test"]["classi"] >= 0
+            uscita["classi_test"] = metriche_classi(dati["test"]["classi"][chiare], predette_test[chiare], CLASSI)
+            uscita["gesti_test"] = metriche_gesti(predette_test, dati["test"], video_per_id, secondi)
+            # per analizzare gli errori dopo (soglie, video), senza rifare l'allenamento
+            np.savez(USCITA / f"predette_{nome}.npz", video_test=np.array(dati["test"]["video"]),
+                     fini_test=dati["test"]["fini"], classi_test=dati["test"]["classi"], predette_test=predette_test)
+            lunghezza = int(round(secondi * fps_finestra))
+            uscita["ms_cpu_per_finestra"] = millisecondi_cpu(modello, lunghezza)
+            uscita["secondi_variante"] = round(time.perf_counter() - inizio, 1)
+            esporta(modello, CLASSI, lunghezza, nome, {"fps": fps_finestra, "secondi": secondi,
+                                                       "posa": modello_posa})
+            risultati[nome] = uscita
+            classi_test = uscita["classi_test"]
+            gesti = uscita["gesti_test"]
+            richiami = []
+            precisioni = []
+            presi = []
+            inventati = []
+            for classe in CLASSI[1:]:
+                richiami.append(str(classi_test[classe]["richiamo"]))
+                precisioni.append(str(classi_test[classe]["precisione"]))
+                presi.append(f"{gesti[classe]['presi']}/{gesti[classe]['gesti']}")
+                inventati.append(str(gesti[classe]["inventati_ora"]))
+            righe_confronto.append(
+                f"| {modello_posa} | {fps_finestra} | {secondi} | {classi_test['macro_f1']} | {' / '.join(richiami)} | "
+                f"{' / '.join(precisioni)} | {' / '.join(presi)} | {' / '.join(inventati)} | "
+                f"{uscita['ms_cpu_per_finestra']} |")
+            print(f"[{nome}] test: {classi_test['macro_f1']} macro-F1, gesti {gesti}", flush=True)
+            # scritti dopo ogni variante: se la sessione finisce prima, quello che è fatto resta
+            (USCITA / "risultati.json").write_text(json.dumps(risultati, indent=1, ensure_ascii=False))
+            (USCITA / "confronto.md").write_text("\n".join(righe_confronto) + "\n")
 print("\n".join(righe_confronto), flush=True)
