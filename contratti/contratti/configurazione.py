@@ -66,6 +66,9 @@ class RegoleAllarmi(BaseModel):
     allarme_uscita_attivo: bool = True
     # Pausa dell'allarme uscita per N ore: fino a quando.
     pausa_fino_a: AwareDatetime | None = None
+    # Id della zona "porta" che è il portone di casa, scelto nell'app (Marco, 25/11): l'uscita si conta solo lì.
+    # None: valgono tutte le zone porta.
+    portone_zona_id: str | None = None
 
 
 class Personalizzazione(BaseModel):
