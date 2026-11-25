@@ -48,6 +48,10 @@ class IncorporatoreClip:
 
 
 class RiconoscitoreFarmaci:
+    def __deepcopy__(self, memo: dict) -> "RiconoscitoreFarmaci":
+        # il modello non è stato: le copie per tornare indietro di un secondo (principale.py) lo condividono
+        return self
+
     def __init__(self, incorporatore, personalizzazione: Personalizzazione, cartella_foto: str):
         """incorporatore: qualunque oggetto con incorpora(immagini) → vettori normalizzati (CLIP, o uno finto nei
         test). Le foto sono i file <foto_id>.jpg nella cartella delle foto dei farmaci."""
