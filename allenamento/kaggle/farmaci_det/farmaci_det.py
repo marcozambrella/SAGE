@@ -7,6 +7,9 @@ infrarosso e con la mano sopra. Molti dataset di pillole invece sono foto ravvic
 - per una parte delle immagini di allenamento si aggiunge una copia "come la nostra telecamera": scala di grigi
   (infrarosso), bassa risoluzione, rumore e a volte una mano (ellisse color pelle) sopra una parte di un oggetto;
 - nell'allenamento: oggetti rimpiccioliti (scale), qualsiasi rotazione e capovolgimento (vista dall'alto).
+v3 (25/11): anche i dataset Roboflow del gesto (`sage-roboflow-gesto`: medication-administration-action e
+medication-intake), solo per la classe pillola: ~700 pillole piccole tenute in mano, alcune viste dall'alto, il caso
+"mano sopra" che mancava. 8,5 h di allenamento (la v2 a 6 h migliorava ancora all'ultima epoca).
 Dati: tutti i dataset allegati in formato YOLO (Kaggle e Roboflow caricati come dataset privati) o VOC xml
 (`perfect9015/pillsdetectiondataset`); le classi si riconoscono dal nome (vedi classe_farmaci).
 Uscita: pesi, metriche, tempi e ONNX in /kaggle/working/farmaci/ (vedi il blocco comune).
@@ -297,6 +300,9 @@ QUOTA_COPIE_DEGRADATE = 0.3
 def classe_farmaci(nome: str):
     """Nome della classe di un dataset → indice in CLASSI, None se non serve (es. mouth, nomi ambigui)."""
     minuscolo = nome.lower().replace("_", " ").replace("-", " ")
+    # "pill-on-tongue" e "tongue-no-pill" (dataset del gesto) sono box della lingua, non della pillola
+    if "tongue" in minuscolo:
+        return None
     if "compartment" in minuscolo or "scomparto" in minuscolo or "slot" in minuscolo:
         return 4
     for parola in ["pillbox", "pill box", "organizer", "organiser", "portapillole", "pill case", "dispenser"]:
@@ -418,5 +424,5 @@ print("esempi per divisione e dataset:", conteggio, flush=True)
 print(f"preparazione: {time.perf_counter() - inizio_preparazione:.0f} s", flush=True)
 percorso_yaml = scrivi_yaml(CLASSI)
 # vista dall'alto: qualsiasi rotazione e capovolgimento; scale ampio per avere oggetti piccoli come da lontano
-addestra_n_e_s(percorso_yaml, "", "farmaci", 6.0, ["degrees=180", "flipud=0.5", "scale=0.9", "perspective=0.0003"])
+addestra_n_e_s(percorso_yaml, "", "farmaci", 8.5, ["degrees=180", "flipud=0.5", "scale=0.9", "perspective=0.0003"])
 riassumi(percorso_yaml, "farmaci", CLASSI, False)
