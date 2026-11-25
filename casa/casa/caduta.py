@@ -6,8 +6,8 @@ tracker):
 - caduta: era in piedi meno di 3 s prima di finire a terra (chi si sdraia piano non è caduto) e resta a terra
   almeno 2 s;
 - conferma: il classificatore (un passo solo, scheletri a 5 al secondo, una finestra ogni 0,5 s per persona) ha
-  visto una caduta, per k finestre di fila, da poco prima di finire a terra in poi. Le cadute non fanno passare a 10 fotogrammi al secondo:
-  una volta caduta la persona resta a terra e si vede lo stesso (Marco, 25/11).
+  visto una caduta, per k finestre di fila, da poco prima di finire a terra in poi. Le cadute non fanno passare a 10
+  fotogrammi al secondo: una volta caduta la persona resta a terra e si vede lo stesso (Marco, 25/11).
 - senza conferma l'allarme parte lo stesso se resta a terra 30 s; il classificatore da solo non fa partire niente
   (Marco, 25/11). Senza pesi del classificatore basta la geometria.
 L'evento parte subito (urgente, Telegram) con secondi_a_terra None. Quando la persona si rialza si manda un secondo
