@@ -1,0 +1,20 @@
+{
+  "id": "KAGGLE_UTENTE/sage-cadute-scheletri",
+  "title": "sage cadute scheletri",
+  "code_file": "cadute_scheletri.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": [
+    "thanhtung09t2/caucafall",
+    "nguynthnhquang/gmdcsa",
+    "shahliza27/ur-fall-detection-dataset",
+    "tuyenldvn/falldataset-imvia"
+  ],
+  "kernel_sources": [],
+  "competition_sources": [],
+  "model_sources": []
+}
