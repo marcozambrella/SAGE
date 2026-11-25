@@ -2,7 +2,8 @@
 sugli scheletri (classificatore_cadute.py) conferma, per avere meno falsi allarmi. Per ogni persona tracciata (id del
 tracker):
 - "a terra": busto inclinato di almeno 60° dalla verticale e box non più alto che largo (chi si china a raccogliere
-  qualcosa ha il busto inclinato ma il box alto), fuori dalla zona letto;
+  qualcosa ha il busto inclinato ma il box alto), fuori dalla zona letto. Con isteresi: si esce da "a terra" solo dopo
+  1 s chiaramente in piedi (un fotogramma "in piedi" può essere un errore della posa);
 - caduta: era in piedi meno di 3 s prima di finire a terra (chi si sdraia piano non è caduto) e resta a terra
   almeno 2 s;
 - conferma: il classificatore (un passo solo, scheletri a 5 al secondo, una finestra ogni 0,5 s per persona) ha
@@ -45,6 +46,8 @@ SECONDI_A_TERRA_SENZA_CONFERMA = 30.0
 # pubblico i falsi allarmi scendono da 16 a 8 all'ora con la posa n e da 20 a 8 con la s, perdendo una caduta su 39
 # con la s (agente di allenamento, 25/11, insieme alle 3 finestre di fila in principale.py)
 ANGOLO_A_TERRA_CONFERMATA = 70.0
+# isteresi su "a terra" (coordinatore, 25/11; valore dell'agente di allenamento sulla validazione pubblica)
+SECONDI_IN_PIEDI_PER_RIALZARSI = 1.0
 
 
 def rapporto_del_box(persona: Persona) -> float:
@@ -81,6 +84,8 @@ class StatoPersona:
     valutata: datetime.datetime | None          # ultima finestra data al classificatore
     probabilita_recenti: list                   # probabilità delle ultime finestre_di_fila finestre
     confermata: datetime.datetime | None        # ultima volta che il classificatore ha visto una caduta
+    considerata_a_terra: bool                   # "a terra" con l'isteresi
+    chiaramente_in_piedi_da: datetime.datetime | None  # da quando è in piedi mentre è considerata a terra
 
 
 class AnalizzatoreCaduta:
@@ -125,6 +130,23 @@ class AnalizzatoreCaduta:
         if min(stato.probabilita_recenti) >= self.classificatore.soglia:
             stato.confermata = ora
 
+    def a_terra_con_isteresi(self, stato: StatoPersona, persona: Persona, ora: datetime.datetime) -> bool:
+        """Si entra in "a terra" come con a_terra(); si esce solo dopo 1 s chiaramente in piedi (in_piedi())."""
+        if not stato.considerata_a_terra:
+            stato.considerata_a_terra = a_terra(persona)
+            stato.chiaramente_in_piedi_da = None
+            return stato.considerata_a_terra
+        if not in_piedi(persona):
+            stato.chiaramente_in_piedi_da = None
+            return True
+        if stato.chiaramente_in_piedi_da is None:
+            stato.chiaramente_in_piedi_da = ora
+        if (ora - stato.chiaramente_in_piedi_da).total_seconds() < SECONDI_IN_PIEDI_PER_RIALZARSI:
+            return True
+        stato.considerata_a_terra = False
+        stato.chiaramente_in_piedi_da = None
+        return False
+
     def confermata(self, stato: StatoPersona, persona: Persona, secondi_a_terra: float) -> bool:
         if self.classificatore is None or secondi_a_terra >= SECONDI_A_TERRA_SENZA_CONFERMA:
             return True
@@ -147,13 +169,14 @@ class AnalizzatoreCaduta:
         for persona in osservazione.persone:
             stato = self.persone.get(persona.id_traccia)
             if stato is None:
-                stato = StatoPersona(ora, None, None, None, False, 0.0, None, None, [], None)
+                stato = StatoPersona(ora, None, None, None, False, 0.0, None, None, [], None, False, None)
                 self.persone[persona.id_traccia] = stato
             stato.vista = ora
             if self.classificatore is not None:
                 self.valuta(stato, persona.id_traccia, ora)
             nel_letto = zona_della_persona(persona, self.letti, larghezza, altezza) is not None
-            if a_terra(persona) and not nel_letto:
+            # l'isteresi si aggiorna a ogni fotogramma, anche nel letto
+            if self.a_terra_con_isteresi(stato, persona, ora) and not nel_letto:
                 stato.non_a_terra_da = None
                 if stato.a_terra_da is None:
                     caduta_rapida = stato.in_piedi is not None

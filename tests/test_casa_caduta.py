@@ -80,11 +80,12 @@ def test_caduta_allarme_subito_poi_secondi_a_terra():
     assert allarme.foto_prova is not None
     assert allarme.confidenza == 0.8
     assert leggi_evento(LETTORE_EVENTO.dump_python(allarme, mode="json")) == allarme
-    # rialzata: stesso inizio (il backend lo coordina con l'allarme), fine e secondi a terra
+    # rialzata: stesso inizio (il backend lo coordina con l'allarme), fine e secondi a terra; in piedi dal secondo 9,
+    # per l'isteresi non è più a terra dal secondo 10
     rialzata = eventi[1]
     assert rialzata.inizio == allarme.inizio
-    assert rialzata.fine == INIZIO + datetime.timedelta(seconds=9)
-    assert rialzata.valori.secondi_a_terra == 6
+    assert rialzata.fine == INIZIO + datetime.timedelta(seconds=10)
+    assert rialzata.valori.secondi_a_terra == 7
 
 
 def test_ancora_a_terra_a_fine_video():
@@ -207,3 +208,11 @@ def test_busto_non_visto_non_blocca_la_conferma():
     in_piedi = persona([[0, 0], [0, 0]], [[0, 0], [0, 0]], [90, 20, 130, 180], visibile=0)
     a_terra = persona([[0, 0], [0, 0]], [[0, 0], [0, 0]], [20, 60, 160, 95], visibile=0)
     assert len(scena_ibrida(ClassificatoreFinto(True, 5, 3), [in_piedi] * 3 + [a_terra] * 3)) == 1
+
+
+def test_un_fotogramma_in_piedi_non_fa_uscire_da_a_terra():
+    # a terra ai secondi 3-4, al secondo 5 la posa sbaglia e la vede in piedi: è ancora a terra, l'allarme parte lì
+    eventi = scena(SOGGIORNO, ripeti(IN_PIEDI, 3) + ripeti(A_TERRA, 2) + ripeti(IN_PIEDI, 1))
+    assert len(eventi) == 1
+    # a terra solo al secondo 3, poi in piedi: esce da "a terra" al secondo 5 (1 s in piedi), a 2 s non ci arriva
+    assert scena(SOGGIORNO, ripeti(IN_PIEDI, 3) + ripeti(A_TERRA, 1) + ripeti(IN_PIEDI, 5)) == []
