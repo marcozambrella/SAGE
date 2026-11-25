@@ -1,0 +1,1 @@
+../oggetti_charades_1/oggetti_charades.py

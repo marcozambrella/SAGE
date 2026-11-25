@@ -26,4 +26,6 @@ fi
 copia="$(mktemp -d)"
 cp "$cartella_kernel"/*.py "$cartella_kernel"/kernel-metadata.json "$copia"/
 sed -i "s/KAGGLE_UTENTE/$utente/g" "$copia"/kernel-metadata.json
+# lo stesso codice in più kernel (es. oggetti_charades_1 e _2): lo script legge da NOME_KERNEL quale parte fare
+sed -i "s/NOME_KERNEL/$nome/g" "$copia"/*.py
 kaggle kernels push -p "$copia"
