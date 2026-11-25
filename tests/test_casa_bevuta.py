@@ -11,7 +11,7 @@ import pytest
 from contratti.configurazione import Personalizzazione, TelecameraLocale
 from contratti.eventi import LETTORE_EVENTO, leggi_evento
 
-from casa.bevuta import (AnalizzatoreBevuta, contenitore_della_personalizzazione, frazione_piena_dai_pixel,
+from casa.bevuta import (AnalizzatoreBevuta, alla_bocca, contenitore_della_personalizzazione, frazione_piena_dai_pixel,
                          percentuale_scesa, valori_bevuta)
 from casa.percezione import Oggetto, Osservazione, Persona
 
@@ -253,3 +253,12 @@ def test_contenitore_non_nella_personalizzazione():
     assert eventi[0].valori.contenitore_id is None
     assert eventi[0].valori.capienza_ml == 250
     assert eventi[0].valori.ml == pytest.approx(50)
+
+
+def test_regola_dei_gesti_polso_al_naso_e_contenitore_alla_testa():
+    bottiglia_alla_bocca = Oggetto("bottle", np.array([105, 30, 120, 90], np.float32), 0.7)
+    assert alla_bocca(persona_al_tavolo(True), bottiglia_alla_bocca)
+    # la bottiglia tocca il naso ma i polsi sono giù: non è un sorso
+    assert not alla_bocca(persona_al_tavolo(False), bottiglia_alla_bocca)
+    # polso al naso, bottiglia sul tavolo: nemmeno
+    assert not alla_bocca(persona_al_tavolo(True), Oggetto("bottle", BOX_SUL_TAVOLO, 0.7))

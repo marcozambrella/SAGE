@@ -1,5 +1,5 @@
-"""Geometria dello scheletro (17 punti COCO della posa YOLO) per le regole provvisorie di bevuta, farmaco e caduta,
-finché non arrivano i classificatori allenati sugli scheletri."""
+"""Geometria dello scheletro (17 punti COCO della posa YOLO) per la regola dei gesti (bevuta e farmaco) e per la
+geometria delle cadute."""
 
 import math
 
@@ -18,8 +18,14 @@ CAVIGLIA_SX = 15
 CAVIGLIA_DX = 16
 
 VISIBILITA_MINIMA = 0.3       # sotto questa confidenza il punto non si usa
-# "vicino alla bocca": entro questa parte della larghezza delle spalle (circa 40 cm → ~25 cm)
-FRAZIONE_SPALLE_BOCCA = 0.6
+
+# Regola dei gesti (Marco, 25/11: nessun modello del gesto): un polso vicino al naso, di fila, + l'oggetto del
+# rilevatore vicino alla testa (bicchiere o bottiglia: bevuta; scatola, blister o pillola: farmaco). Soglie del polso
+# dall'agente di allenamento, tarate su Charades (25/11).
+FRAZIONE_ALTEZZA_POLSO_NASO = 0.25   # polso dal naso, in altezze del box della persona
+# dal primo all'ultimo fotogramma del gesto: 5 fotogrammi di fila a 5 al secondo (1 s nella taratura)
+SECONDI_GESTO = 0.8
+FRAZIONE_SPALLE_OGGETTO_TESTA = 0.3  # box dell'oggetto dal naso, in larghezze di spalle: l'oggetto tocca la bocca
 
 
 def punto(persona: Persona, indice: int) -> np.ndarray | None:
@@ -64,19 +70,24 @@ def polsi(persona: Persona) -> list:
     return risultato
 
 
-def vicino_alla_bocca(persona: Persona, posizione: np.ndarray) -> bool:
-    """La posizione (es. un polso o un contenitore) è vicina alla bocca (il naso, il punto più vicino)?"""
+def mano_alla_bocca(persona: Persona) -> bool:
+    """Un polso vicino al naso (la bocca non è tra i punti della posa; il naso è il più vicino)."""
     naso = punto(persona, NASO)
     if naso is None:
         return False
-    return distanza(naso, posizione) <= FRAZIONE_SPALLE_BOCCA * misura(persona)
-
-
-def mano_alla_bocca(persona: Persona) -> bool:
+    altezza = float(persona.box[3] - persona.box[1])
     for polso in polsi(persona):
-        if vicino_alla_bocca(persona, polso):
+        if distanza(naso, polso) < FRAZIONE_ALTEZZA_POLSO_NASO * altezza:
             return True
     return False
+
+
+def oggetto_alla_testa(persona: Persona, box: np.ndarray) -> bool:
+    """Il box dell'oggetto (x1, y1, x2, y2 in pixel) tocca quasi il naso."""
+    naso = punto(persona, NASO)
+    if naso is None:
+        return False
+    return distanza_dal_box(naso, box) <= FRAZIONE_SPALLE_OGGETTO_TESTA * misura(persona)
 
 
 def angolo_del_busto(persona: Persona) -> float | None:

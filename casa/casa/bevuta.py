@@ -9,9 +9,9 @@ più vicino (Marco, 24/11). Se il contenitore è uno della personalizzazione si 
 backend ricalcola i ml con la sua capienza.
 
 Il contenitore viene dal rilevatore pre-allenato (COCO). Il livello si trova SOLO con un controllo sui pixel: non
-arriverà nessun modello del liquido (Marco, 24/11). Regola PROVVISORIA finché non arriva il modello del gesto:
-- sorso: un contenitore (bottiglia, bicchiere, tazza) tenuto in mano vicino alla bocca per almeno 1 s; sorsi vicini
-  della stessa persona (id del tracker) sono la stessa bevuta;
+arriverà nessun modello del liquido (Marco, 24/11). Il gesto è la regola dei gesti (scheletro.py, Marco 25/11):
+- sorso: un polso vicino al naso e un contenitore (bottiglia, bicchiere, tazza) vicino alla testa per almeno 1 s
+  (5 fotogrammi di fila a 5 al secondo); sorsi vicini della stessa persona (id del tracker) sono la stessa bevuta;
 - livello: la riga orizzontale che divide il contenitore in aria sopra e liquido sotto, mediana di qualche misura
   prima e dopo, solo quando il contenitore è appoggiato (in mano può essere inclinato o coperto dalle dita);
 - se il livello non si vede (tazza non trasparente, contenitore troppo lontano o sempre in mano) la bevuta si manda
@@ -30,7 +30,7 @@ from contratti.configurazione import Contenitore, Personalizzazione, TelecameraL
 from contratti.eventi import EventoBevuta, Fonte, ValoriBevuta
 
 from casa.percezione import Osservazione, Oggetto, Persona, foto_prova
-from casa.scheletro import NASO, distanza_dal_box, misura, polsi, punto
+from casa.scheletro import SECONDI_GESTO, distanza_dal_box, mano_alla_bocca, misura, oggetto_alla_testa, polsi
 
 # classe del rilevatore pre-allenato (COCO) → tipi di contenitore compatibili, nell'ordine in cui si cercano nella
 # personalizzazione ("cup" in COCO comprende anche i bicchieri d'acqua)
@@ -38,8 +38,7 @@ TIPI_DA_CLASSE = {"bottle": ["bottiglia"], "wine glass": ["bicchiere"], "cup": [
 # capienza se il contenitore non è nella personalizzazione (il backend tiene i ml del programma di casa)
 CAPIENZA_PREDEFINITA = {"bottiglia": 1500, "bicchiere": 250, "tazza": 300}
 
-FRAZIONE_SPALLE_CONTENITORE = 0.3  # bocca e mano a meno di così (× larghezza spalle) dal contenitore
-SECONDI_MINIMI_ALLA_BOCCA = 1.0
+FRAZIONE_SPALLE_CONTENITORE = 0.3  # mano a meno di così (× larghezza spalle) dal contenitore: lo tiene in mano
 SECONDI_FINE_SORSO = 2.0           # contenitore lontano dalla bocca da tanto: sorso finito
 SECONDI_ATTESA_DOPO = 60.0         # tempo massimo per misurare il livello dopo il sorso (si aspetta che lo appoggi)
 MISURE_PER_LIVELLO = 5             # mediana di tante misure, prima e dopo
@@ -203,14 +202,8 @@ def in_mano(persona: Persona, contenitore: Oggetto) -> bool:
 
 
 def alla_bocca(persona: Persona, contenitore: Oggetto) -> bool:
-    """Il contenitore tocca la bocca (naso) ed è tenuto in mano."""
-    naso = punto(persona, NASO)
-    if naso is None:
-        return False
-    vicino = FRAZIONE_SPALLE_CONTENITORE * misura(persona)
-    if distanza_dal_box(naso, contenitore.box) > vicino:
-        return False
-    return in_mano(persona, contenitore)
+    """La regola dei gesti in un fotogramma: un polso vicino al naso e il contenitore vicino alla testa."""
+    return mano_alla_bocca(persona) and oggetto_alla_testa(persona, contenitore.box)
 
 
 class AnalizzatoreBevuta:
@@ -270,7 +263,7 @@ class AnalizzatoreBevuta:
             lontano_da = (ora - sorso.ultima_alla_bocca).total_seconds()
             if not sorso.finito and lontano_da >= SECONDI_FINE_SORSO:
                 sorso.finito = True
-                if (sorso.ultima_alla_bocca - sorso.inizio).total_seconds() < SECONDI_MINIMI_ALLA_BOCCA:
+                if (sorso.ultima_alla_bocca - sorso.inizio).total_seconds() < SECONDI_GESTO:
                     chiusi.append(id_traccia)  # troppo breve: non era un sorso
                     continue
             if sorso.finito and (len(sorso.dopo) >= MISURE_PER_LIVELLO or lontano_da >= SECONDI_ATTESA_DOPO):
@@ -295,7 +288,7 @@ class AnalizzatoreBevuta:
     def fine(self) -> list[EventoBevuta]:
         eventi = []
         for sorso in self.sorsi.values():
-            if (sorso.ultima_alla_bocca - sorso.inizio).total_seconds() >= SECONDI_MINIMI_ALLA_BOCCA:
+            if (sorso.ultima_alla_bocca - sorso.inizio).total_seconds() >= SECONDI_GESTO:
                 eventi.append(self.evento(sorso))
         self.sorsi = {}
         return eventi

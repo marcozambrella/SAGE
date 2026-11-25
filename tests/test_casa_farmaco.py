@@ -122,13 +122,14 @@ def ripeti(mano: str, aperto: bool, quante: int, scatola: bool = False, oggetti:
 
 def test_presa_dal_portapillole_e_mano_alla_bocca(riconoscitore):
     sequenza = (ripeti("giu", False, 3) + ripeti("portapillole", True, 2, scatola=True) + ripeti("giu", True, 2)
-                + ripeti("bocca", True, 1) + ripeti("giu", True, 3))
+                + ripeti("bocca", True, 2) + ripeti("giu", True, 3))
     eventi = scena(sequenza, riconoscitore)
     assert len(eventi) == 1
     evento = eventi[0]
     assert evento.tipo == "farmaco"
     assert evento.inizio == INIZIO + datetime.timedelta(seconds=3)
-    assert evento.fine == INIZIO + datetime.timedelta(seconds=7)
+    # il gesto inizia al secondo 7 e conta dal secondo 8 (almeno 1 s di fila)
+    assert evento.fine == INIZIO + datetime.timedelta(seconds=8)
     assert evento.valori.portapillole_aperto
     assert evento.valori.mano_alla_bocca
     assert evento.valori.farmaco_id == "donepezil"
@@ -138,7 +139,7 @@ def test_presa_dal_portapillole_e_mano_alla_bocca(riconoscitore):
 
 
 def test_senza_riconoscitore_farmaco_non_riconosciuto():
-    sequenza = ripeti("giu", False, 3) + ripeti("portapillole", False, 2) + ripeti("bocca", False, 1)
+    sequenza = ripeti("giu", False, 3) + ripeti("portapillole", False, 2) + ripeti("bocca", False, 2)
     eventi = scena(sequenza)
     assert len(eventi) == 1
     assert eventi[0].valori.farmaco_id is None
@@ -162,20 +163,41 @@ def test_bere_non_e_la_pillola_alla_bocca():
                 + ripeti("bocca", False, 2, oggetti=bottiglia_alla_bocca))
     assert scena(sequenza) == []
     # dopo aver bevuto, la pillola alla bocca conta
-    assert len(scena(sequenza + ripeti("giu", False, 1) + ripeti("bocca", False, 1))) == 1
+    assert len(scena(sequenza + ripeti("giu", False, 1) + ripeti("bocca", False, 2))) == 1
+
+
+def test_il_gesto_deve_durare_un_secondo():
+    presa = ripeti("giu", False, 3) + ripeti("portapillole", False, 2)
+    # un fotogramma alla bocca, poi giù, poi un altro: due gesti brevi, nessuno dura
+    assert scena(presa + ripeti("bocca", False, 1) + ripeti("giu", False, 1) + ripeti("bocca", False, 1)) == []
+    assert len(scena(presa + ripeti("bocca", False, 2))) == 1
+
+
+# una pillola tra le dita alla bocca (naso in 110, 40) e una giù sul tavolo, lontana dalla testa
+PILLOLA_ALLA_BOCCA = np.array([108, 44, 116, 50], np.float32)
+PILLOLA_SUL_TAVOLO = np.array([120, 140, 128, 146], np.float32)
 
 
 class ModelloFarmaciFinto:
-    """Vede la scatola rossa del fotogramma (box 135-165 × 95-125) se c'è; ricorda le chiamate."""
+    """Vede la scatola rossa del fotogramma (box 135-165 × 95-125) se c'è; vicino alla testa vede i box dati.
+    Ricorda le chiamate."""
 
-    def __init__(self):
+    def __init__(self, box_vicino_alla_testa: list | None = None):
+        if box_vicino_alla_testa is None:
+            box_vicino_alla_testa = [PILLOLA_ALLA_BOCCA]
+        self.box_vicino_alla_testa = box_vicino_alla_testa
         self.chiamate = 0
+        self.chiamate_testa = 0
 
     def scatole_e_blister(self, immagine: np.ndarray, area) -> list:
         self.chiamate = self.chiamate + 1
         if immagine[110, 150, 2] != 200:
             return []
         return [np.array([135, 95, 165, 125], np.float32)]
+
+    def farmaci_nel_riquadro(self, immagine: np.ndarray, riquadro: np.ndarray) -> list:
+        self.chiamate_testa = self.chiamate_testa + 1
+        return self.box_vicino_alla_testa
 
 
 class RiconoscitoreCheRicorda:
@@ -204,11 +226,13 @@ def test_ritagli_dal_rilevatore_dei_farmaci():
     modello = ModelloFarmaciFinto()
     riconoscitore = RiconoscitoreCheRicorda()
     sequenza = (ripeti("giu", False, 3) + ripeti("portapillole", True, 2, scatola=True) + ripeti("giu", True, 2)
-                + ripeti("bocca", True, 1))
+                + ripeti("bocca", True, 2))
     eventi = scena_con_rilevatore(sequenza, modello, riconoscitore)
     assert len(eventi) == 1
-    # il rilevatore gira solo con il polso vicino al portapillole (2 s), non con la mano giù o alla bocca
+    # sul portapillole il rilevatore gira solo con il polso vicino (2 s); intorno alla testa solo durante il gesto,
+    # finché non vede il farmaco (subito)
     assert modello.chiamate == 2
+    assert modello.chiamate_testa == 1
     # al riconoscimento vanno i box della scatola con un decimo di bordo: 30 px + 3 px per lato
     assert len(riconoscitore.ritagli) == 2
     assert riconoscitore.ritagli[0].shape == (36, 36, 3)
@@ -217,10 +241,20 @@ def test_ritagli_dal_rilevatore_dei_farmaci():
 def test_senza_scatole_viste_i_ritagli_della_mano():
     modello = ModelloFarmaciFinto()
     riconoscitore = RiconoscitoreCheRicorda()
-    sequenza = ripeti("giu", False, 3) + ripeti("portapillole", True, 2) + ripeti("bocca", True, 1)
+    sequenza = ripeti("giu", False, 3) + ripeti("portapillole", True, 2) + ripeti("bocca", True, 2)
     scena_con_rilevatore(sequenza, modello, riconoscitore)
     assert len(riconoscitore.ritagli) == 2
     assert riconoscitore.ritagli[0].shape == (40, 40, 3)  # lato = larghezza delle spalle intorno al polso
+
+
+def test_con_il_rilevatore_serve_il_farmaco_vicino_alla_testa():
+    sequenza = ripeti("giu", False, 3) + ripeti("portapillole", True, 2) + ripeti("bocca", True, 3)
+    niente = ModelloFarmaciFinto([])
+    assert scena_con_rilevatore(sequenza, niente, None) == []
+    assert niente.chiamate_testa == 3
+    lontana = ModelloFarmaciFinto([PILLOLA_SUL_TAVOLO])
+    assert scena_con_rilevatore(sequenza, lontana, None) == []
+    assert len(scena_con_rilevatore(sequenza, ModelloFarmaciFinto(), None)) == 1
 
 
 @pytest.mark.skipif(not Path(PESI_FARMACI).exists(), reason="pesi dei farmaci non presenti (fuori dal repo)")
@@ -231,3 +265,5 @@ def test_modello_vero_dei_farmaci():
     immagine = np.full((200, 200, 3), 128, np.uint8)
     area = AreaZona(CUCINA.zone[0], immagine)
     assert modello.scatole_e_blister(immagine, area) == []
+    assert modello.farmaci_nel_riquadro(immagine, np.array([50, 50, 150, 150], np.float32)) == []
+    assert modello.farmaci_nel_riquadro(immagine, np.array([190, 190, 260, 260], np.float32)) == []  # 10 px: troppo
