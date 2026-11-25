@@ -103,6 +103,14 @@ class ValoriAlzataNotturna(BaseModel):
     stanze: list[str]
 
 
+class ValoriSonno(BaseModel):
+    """Sonno a letto (Marco, 25/11): inizio = si addormenta (sdraiato nella zona letto e quasi fermo), fine = si sveglia
+    (si siede, si alza o si muove a lungo). Una notte può avere più pezzi: le ore di sonno le somma il backend."""
+
+    # La zona "letto" dove dorme.
+    zona_id: str
+
+
 class EventoCaduta(EventoBase):
     tipo: Literal["caduta"]
     valori: ValoriCaduta
@@ -133,9 +141,14 @@ class EventoAlzataNotturna(EventoBase):
     valori: ValoriAlzataNotturna
 
 
+class EventoSonno(EventoBase):
+    tipo: Literal["sonno"]
+    valori: ValoriSonno
+
+
 # Un evento è uno di questi tipi: il campo "tipo" dice quale (e quindi che "valori" aspettarsi).
 Evento = Annotated[
-    EventoCaduta | EventoUscita | EventoBevuta | EventoFarmaco | EventoPasto | EventoAlzataNotturna,
+    EventoCaduta | EventoUscita | EventoBevuta | EventoFarmaco | EventoPasto | EventoAlzataNotturna | EventoSonno,
     Field(discriminator="tipo"),
 ]
 
