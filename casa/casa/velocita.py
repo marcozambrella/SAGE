@@ -4,9 +4,9 @@
    modelli, rilevatore di oggetti sì/no, lato dell'immagine).
        uv run python -m casa.velocita --video data/video/prova.mp4 --fotogrammi 60 --giri 2
 2. Ciclo intero (con --configurazione): il programma vero (lettura a 10 al secondo, analisi a 5 e a 10 durante gli
-   eventi, ritorni indietro, analizzatori, specialisti) su tutto il video, con posa n e con posa s; poi il costo di
-   ogni specialista da solo. I pesi delle cadute si danno a mano perché dipendono dalla posa.
-       uv run python -m casa.velocita --configurazione prova.json --cadute-n n.pt --cadute-s s.pt
+   eventi, ritorni indietro, analizzatori, specialisti) su tutto il video, con posa n e con posa s (ognuna con il
+   suo classificatore delle cadute); poi il costo di ogni specialista da solo.
+       uv run python -m casa.velocita --configurazione prova.json
 
 Le configurazioni si provano una dopo l'altra e per più giri: in ARGO i tempi sul portatile cambiavano del ±20% a
 seconda di cosa faceva Marco, quindi si confrontano solo misure fatte in fila.
@@ -27,7 +27,7 @@ from casa.configurazione import leggi_configurazione
 from casa.farmaco import ModelloFarmaci
 from casa.pasto import ModelloPiatto
 from casa.percezione import RILEVATORE_PREDEFINITO, Percezione
-from casa.principale import (FPS_LETTURA, PESI_CIBO, PESI_FARMACI, PESI_PORTA, Specialisti, elabora,
+from casa.principale import (FPS_LETTURA, PESI_CADUTE, PESI_CIBO, PESI_FARMACI, PESI_PORTA, Specialisti, elabora,
                              prepara_telecamere)
 from casa.registro import RegistroLocale
 from casa.riconoscimento_farmaci import crea_riconoscitore
@@ -100,20 +100,22 @@ class PercezioneContata(Percezione):
         return osservazione
 
 
-def carica_specialisti_per_la_prova(configurazione, percorso_cadute: str) -> Specialisti:
+def carica_specialisti_per_la_prova(configurazione, posa: str) -> Specialisti:
     specialisti = Specialisti()
     specialisti.riconoscitore = crea_riconoscitore(configurazione.personalizzazione,
                                                    configurazione.cartella_foto_farmaci)
     specialisti.porta = ModelloPorta(PESI_PORTA)
     specialisti.piatto = ModelloPiatto(PESI_CIBO)
     specialisti.farmaci = ModelloFarmaci(PESI_FARMACI)
-    specialisti.cadute = ClassificatoreCadute(percorso_cadute)
+    pesi = PESI_CADUTE[posa]
+    specialisti.cadute_segno = ClassificatoreCadute(pesi.segno, pesi.soglia_segno)
+    specialisti.cadute_allarme = ClassificatoreCadute(pesi.allarme, pesi.soglia_allarme)
     return specialisti
 
 
-def ciclo_intero(percorso_configurazione: str, posa: str, percorso_cadute: str, cartella: str) -> None:
+def ciclo_intero(percorso_configurazione: str, posa: str, cartella: str) -> None:
     configurazione = leggi_configurazione(percorso_configurazione)
-    specialisti = carica_specialisti_per_la_prova(configurazione, percorso_cadute)
+    specialisti = carica_specialisti_per_la_prova(configurazione, posa)
     telecamere = prepara_telecamere(configurazione, FPS_LETTURA, specialisti)
     percezione = PercezioneContata(posa, RILEVATORE_PREDEFINITO)
     registro = RegistroLocale(cartella + "/velocita_" + str(time.time_ns()) + ".sqlite3")
@@ -143,11 +145,11 @@ def millisecondi(funzione, argomento, volte: int) -> float:
     return statistics.median(tempi)
 
 
-def specialisti_da_soli(percorso_configurazione: str, percorso_cadute: str) -> None:
+def specialisti_da_soli(percorso_configurazione: str) -> None:
     """Costo di una chiamata di ogni specialista su un fotogramma vero del video, ritagliato come nel programma."""
     configurazione = leggi_configurazione(percorso_configurazione)
     telecamera = configurazione.telecamere[0]
-    specialisti = carica_specialisti_per_la_prova(configurazione, percorso_cadute)
+    specialisti = carica_specialisti_per_la_prova(configurazione, "pesi/yolo26n-pose.pt")
     immagine = leggi_fotogrammi(telecamera.sorgente, 1, 1)[0]
     righe = []
     for tipo in ["porta", "tavolo", "portapillole"]:
@@ -171,9 +173,9 @@ def specialisti_da_soli(percorso_configurazione: str, percorso_cadute: str) -> N
                 tempi.append((time.perf_counter() - partenza) * 1000)
             tempo = statistics.median(tempi[1:])  # il primo è di riscaldamento
             righe.append("farmaci (ritaglio " + lato + ")  " + format(tempo, ".0f") + " ms")
-    finestra = np.zeros((specialisti.cadute.lunghezza, 17, 3), np.float32)
+    finestra = np.zeros((specialisti.cadute_allarme.lunghezza, 17, 3), np.float32)
     righe.append("classificatore cadute (una finestra)  " + format(
-        millisecondi(specialisti.cadute.probabilita_caduta, finestra, 50), ".1f") + " ms")
+        millisecondi(specialisti.cadute_allarme.probabilita_caduta, finestra, 50), ".1f") + " ms")
     if specialisti.riconoscitore is not None:
         ritagli = []
         for numero in range(8):
@@ -191,17 +193,15 @@ def main(argomenti: list | None = None) -> None:
     lettore.add_argument("--fps", type=float, default=5, help="fotogrammi al secondo presi dal video")
     lettore.add_argument("--giri", type=int, default=2)
     lettore.add_argument("--configurazione", help="ciclo intero: configurazione con tutti gli analizzatori")
-    lettore.add_argument("--cadute-n", help="pesi del classificatore delle cadute allenato sulla posa n")
-    lettore.add_argument("--cadute-s", help="pesi del classificatore delle cadute allenato sulla posa s")
     lettore.add_argument("--cartella", default="data", help="dove scrivere i registri di prova")
     scelte = lettore.parse_args(argomenti)
 
     if scelte.configurazione is not None:
         for giro in range(scelte.giri):
             print("giro " + str(giro + 1))
-            ciclo_intero(scelte.configurazione, "pesi/yolo26n-pose.pt", scelte.cadute_n, scelte.cartella)
-            ciclo_intero(scelte.configurazione, "pesi/yolo26s-pose.pt", scelte.cadute_s, scelte.cartella)
-        specialisti_da_soli(scelte.configurazione, scelte.cadute_n)
+            ciclo_intero(scelte.configurazione, "pesi/yolo26n-pose.pt", scelte.cartella)
+            ciclo_intero(scelte.configurazione, "pesi/yolo26s-pose.pt", scelte.cartella)
+        specialisti_da_soli(scelte.configurazione)
         return
 
     immagini = leggi_fotogrammi(scelte.video, scelte.fps, scelte.fotogrammi)

@@ -80,11 +80,12 @@ def salva_pesi_finti(percorso) -> None:
 def test_pesi_nel_formato_dell_allenamento(tmp_path):
     percorso = tmp_path / "cadute.pt"
     salva_pesi_finti(percorso)
-    classificatore = ClassificatoreCadute(str(percorso))
+    classificatore = ClassificatoreCadute(str(percorso), 0.9)  # la soglia dei due passi, non quella del file
     assert classificatore.fps == 10
     assert classificatore.secondi == 2
     assert classificatore.lunghezza == 20
     assert classificatore.soglia == 0.9
+    assert classificatore.posa == "yolo26n-pose"
     fotogrammi = fotogrammi_a_5_al_secondo(11)
     finestra = finestra_della_traccia(fotogrammi, 7, fotogrammi[-1].ora, 10, 20)
     probabilita = classificatore.probabilita_caduta(finestra)
@@ -96,6 +97,7 @@ def test_pesi_di_un_modello_diverso_si_fermano(tmp_path):
     stato = StGcn(3).state_dict()
     stato.pop("classificatore.weight")
     torch.save({"stato": stato, "classi": ["normale", "caduta", "a_terra"], "lunghezza": 20,
-                "informazioni": {"fps": 10, "secondi": 2, "soglia_allarme": 0.9}}, str(percorso))
+                "informazioni": {"fps": 10, "secondi": 2, "soglia_allarme": 0.9, "posa": "yolo26n-pose"}},
+               str(percorso))
     with pytest.raises(RuntimeError):
-        ClassificatoreCadute(str(percorso))
+        ClassificatoreCadute(str(percorso), 0.9)

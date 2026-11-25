@@ -10,6 +10,9 @@ classificatore deve ricevere gli scheletri come li ha visti allenandosi:
 - punti con confidenza ≤ 0,1: zeri; x, y meno il centro (media dei punti visibili della finestra) diviso per la
   mediana dell'altezza del box della persona; terzo canale la confidenza del punto;
 - uscita softmax [normale, caduta, a_terra]: caduta se p(caduta) + p(a_terra) ≥ soglia; una finestra ogni 0,5 s.
+Due passi (agente di allenamento, 25/11): il modello del "segno" (5 al secondo, 3 s) su tutti; quando supera la sua
+soglia si analizzano 10 fotogrammi al secondo per 5 s e il modello dell'"allarme" (10 al secondo, 2 s) decide. Le
+soglie dei due passi non sono quelle scritte nel file (valgono per un modello usato da solo).
 """
 
 from dataclasses import dataclass
@@ -195,16 +198,17 @@ def finestra_della_traccia(fotogrammi: list, id_traccia: int, fine: datetime.dat
 
 
 class ClassificatoreCadute:
-    """Un modello allenato (.pt dell'allenamento: pesi, classi, lunghezza, fps, secondi, soglia)."""
+    """Un modello allenato (.pt dell'allenamento: pesi, classi, lunghezza, fps, secondi, posa) con la sua soglia."""
 
-    def __init__(self, percorso: str):
+    def __init__(self, percorso: str, soglia: float):
         dati = torch.load(percorso, map_location="cpu")
         self.classi = dati["classi"]
         self.lunghezza = int(dati["lunghezza"])
         informazioni = dati["informazioni"]
         self.fps = float(informazioni["fps"])
         self.secondi = float(informazioni["secondi"])
-        self.soglia = float(informazioni["soglia_allarme"])
+        self.soglia = soglia
+        self.posa = informazioni["posa"]  # es. "yolo26n-pose": gli scheletri su cui è allenato
         self.modello = StGcn(len(self.classi))
         self.modello.load_state_dict(dati["stato"])  # strict: se il modello copiato non è identico si ferma qui
         self.modello.eval()
