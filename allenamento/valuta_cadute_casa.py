@@ -56,6 +56,9 @@ CARTELLE_SCHELETRI = {"n": Path("runs/dataset_scheletri_n/scheletri/yolo26n-pose
 PESI = {"n": "pesi/cadute_n_5fps_2s.pt", "s": "pesi/cadute_s_5fps_2s.pt"}
 SOGLIA_CASA = 0.94
 FINESTRE_CASA = 1
+# da f9bc175 ClassificatoreCadute vuole anche soglia e finestre "molto sicure": una soglia sopra 1 non si supera mai,
+# così casa dà solo gli allarmi della geometria (quelli che il registro riproduce)
+MAI_SICURA = 1.1
 FPS_CASA = 5
 INIZIO_VIDEO = datetime.datetime(2026, 12, 1, 10, 0, tzinfo=ZoneInfo("Europe/Rome"))
 SECONDI_PRIMA = 1.0
@@ -177,12 +180,14 @@ class AnalizzatoreRegistrato(AnalizzatoreCaduta):
             self.storia[persona.id_traccia].append((secondi, persona))
         return super().elabora(osservazione)
 
-    def valuta(self, stato, id_traccia: int, ora: datetime.datetime) -> None:
+    def valuta(self, stato, id_traccia: int, ora: datetime.datetime) -> bool:
         prima = stato.valutata
         super().valuta(stato, id_traccia, ora)
         if stato.valutata is not prima:
             secondi = (ora - INIZIO_VIDEO).total_seconds()
             self.probabilita.append((self.numero_dello_stato(stato), secondi, stato.probabilita_recenti[-1]))
+        # gli allarmi del solo classificatore sicuro li decide allarmi_con_classificatore_sicuro, non casa
+        return False
 
     def confermata(self, stato, persona: Persona, secondi_a_terra: float) -> bool:
         id_traccia = None
@@ -602,7 +607,8 @@ def registra(divisioni: list, isteresi_scelta) -> dict:
     """posa → id del video → registro, per i video delle divisioni date."""
     registri = {}
     for posa in CARTELLE_SCHELETRI:
-        classificatore = ClassificatoreCadute(str(CARTELLA_CASA / PESI[posa]), SOGLIA_CASA, FINESTRE_CASA)
+        classificatore = ClassificatoreCadute(str(CARTELLA_CASA / PESI[posa]), SOGLIA_CASA, FINESTRE_CASA, MAI_SICURA,
+                                              1)
         registri[posa] = {}
         for divisione in divisioni:
             for identificativo in video_per_divisione[divisione]:
@@ -646,7 +652,8 @@ if ALLARME_CLASSIFICATORE:
     for posa in ["s", "n"]:
         pesi = pesi_della_posa[posa]
         scelta_casa = {"soglia": pesi.soglia, "finestre": pesi.finestre_di_fila, "regole": regole_di_casa}
-        classificatore = ClassificatoreCadute(str(CARTELLA_CASA / pesi.percorso), pesi.soglia, pesi.finestre_di_fila)
+        classificatore = ClassificatoreCadute(str(CARTELLA_CASA / pesi.percorso), pesi.soglia, pesi.finestre_di_fila,
+                                              MAI_SICURA, 1)
         diversi = 0
         for divisione in ["val", "test"]:
             for identificativo in video_per_divisione[divisione]:
@@ -699,15 +706,16 @@ if SOLO_CASA:
     pesi_della_posa = {"n": PESI_CADUTE["pesi/yolo26n-pose.pt"], "s": PESI_CADUTE["pesi/yolo26s-pose.pt"]}
     for posa in CARTELLE_SCHELETRI:
         pesi = pesi_della_posa[posa]
-        classificatore = ClassificatoreCadute(str(CARTELLA_CASA / pesi.percorso), pesi.soglia, pesi.finestre_di_fila)
+        classificatore = ClassificatoreCadute(str(CARTELLA_CASA / pesi.percorso), pesi.soglia, pesi.finestre_di_fila,
+                                              pesi.soglia_sicura, pesi.finestre_sicure)
         for divisione in ["val", "test"]:
             allarmi_per_video = {}
             for identificativo in video_per_divisione[divisione]:
                 percorso = CARTELLE_SCHELETRI[posa] / (identificativo + ".npz")
                 allarmi_per_video[identificativo] = allarmi_di_casa(percorso, classificatore)
             risultato = metriche(allarmi_per_video, etichette)
-            print(f"casa com'è (soglia {pesi.soglia}, {pesi.finestre_di_fila} finestre), posa {posa}, {divisione}:",
-                  risultato, flush=True)
+            print(f"casa com'è (soglia {pesi.soglia}, {pesi.finestre_di_fila} finestre, sicura {pesi.soglia_sicura} con "
+                  f"{pesi.finestre_sicure}), posa {posa}, {divisione}:", risultato, flush=True)
     sys.exit(0)
 
 # controllo: senza isteresi e con le regole che casa ha già (a67435c: 3 finestre di fila, busto 70°) il registro dà
@@ -715,7 +723,8 @@ if SOLO_CASA:
 solo_regole = {"soglia": SOGLIA_CASA, "finestre": 3, "regole": {"angolo": 70}}
 casa_com_era = {"soglia": SOGLIA_CASA, "finestre": FINESTRE_CASA, "regole": {}}
 registri_oggi = registra(["val", "test"], None)
-classificatore = ClassificatoreCadute(str(CARTELLA_CASA / PESI["n"]), solo_regole["soglia"], solo_regole["finestre"])
+classificatore = ClassificatoreCadute(str(CARTELLA_CASA / PESI["n"]), solo_regole["soglia"], solo_regole["finestre"],
+                                      MAI_SICURA, 1)
 diversi = 0
 for identificativo in video_per_divisione["val"]:
     veri = allarmi_di_casa(CARTELLE_SCHELETRI["n"] / (identificativo + ".npz"), classificatore)
