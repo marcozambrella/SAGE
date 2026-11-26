@@ -29,6 +29,16 @@ function nomeFarmaco(farmacoId: string, personalizzazione: Personalizzazione): s
 }
 
 // Minuti tra inizio e fine dell'evento (0 se non c'è la fine).
+// La stanza di una telecamera della personalizzazione; se non c'è, quella scritta nell'evento.
+function stanzaDellaTelecamera(telecameraId: string, personalizzazione: Personalizzazione, riserva: string): string {
+  for (const telecamera of personalizzazione.telecamere) {
+    if (telecamera.id === telecameraId && telecamera.stanza !== "") {
+      return telecamera.stanza;
+    }
+  }
+  return riserva;
+}
+
 function minutiTra(inizio: string, fine: string | null): number {
   if (fine === null) {
     return 0;
@@ -129,6 +139,37 @@ export function descriviEvento(evento: Evento, personalizzazione: Personalizzazi
     const sveglio = oraDellaCasa(evento.fine, personalizzazione.fuso_orario);
     const dettaglioSonno = "Slept " + durata(minutiTra(evento.inizio, evento.fine)) + " · woke at " + sveglio;
     return { icona: "letto", titolo: "Asleep", dettaglio: dettaglioSonno, gravita: "neutro" };
+  }
+  if (evento.tipo === "agitazione") {
+    let dettaglio = "Walking back and forth";
+    if (evento.fine !== null) {
+      dettaglio = "Walked back and forth for " + durata(minutiTra(evento.inizio, evento.fine));
+    }
+    dettaglio = dettaglio + " · turned around " + evento.valori.inversioni + " times";
+    return { icona: "passi", titolo: "Restless pacing", dettaglio: dettaglio, gravita: "attenzione" };
+  }
+  if (evento.tipo === "inattivita") {
+    // Urgente come cadute e uscite: l'inizio è l'ultima volta che si è vista una persona.
+    const ultimaVolta = oraDellaCasa(evento.inizio, personalizzazione.fuso_orario);
+    const stanza = stanzaDellaTelecamera(evento.valori.ultima_telecamera_id, personalizzazione, evento.stanza);
+    const dettaglio = "Last seen at " + ultimaVolta + " in the " + stanza.toLowerCase();
+    if (evento.fine === null) {
+      return {
+        icona: "clessidra",
+        titolo: "No one seen since " + ultimaVolta,
+        dettaglio: dettaglio,
+        gravita: "critico",
+      };
+    }
+    const titolo = "No one seen for " + durata(minutiTra(evento.inizio, evento.fine));
+    return { icona: "clessidra", titolo: titolo, dettaglio: dettaglio, gravita: "critico" };
+  }
+  if (evento.tipo === "visita_bagno") {
+    let dettaglio = "Went into the bathroom";
+    if (evento.fine !== null) {
+      dettaglio = "In the bathroom for " + durata(minutiTra(evento.inizio, evento.fine));
+    }
+    return { icona: "bagno", titolo: "Bathroom visit", dettaglio: dettaglio, gravita: "neutro" };
   }
   // alzata_notturna
   const minuti = minutiTra(evento.inizio, evento.fine);

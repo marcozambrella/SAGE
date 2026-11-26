@@ -19,6 +19,9 @@ export function personalizzazioneVuota(): Personalizzazione {
       allarme_uscita_attivo: true,
       pausa_fino_a: null,
       portone_zona_id: null,
+      ore_inattivita: 3,
+      visite_bagno_attive: false,
+      promemoria_acqua_attivo: true,
     },
     fuso_orario: "Europe/Rome",
   };
@@ -36,11 +39,16 @@ export function leggiPersonalizzazione(): Personalizzazione | null {
   if (testo === null) {
     return null;
   }
+  let letta: Personalizzazione;
   try {
-    return JSON.parse(testo) as Personalizzazione;
+    letta = JSON.parse(testo) as Personalizzazione;
   } catch {
     return null;
   }
+  // Una personalizzazione salvata prima che arrivasse una regola nuova non ce l'ha: si completa con i valori
+  // predefiniti (quelli salvati vincono).
+  letta.regole = { ...personalizzazioneVuota().regole, ...letta.regole };
+  return letta;
 }
 
 // false se il browser non ha permesso di salvare.

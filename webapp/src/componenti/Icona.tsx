@@ -16,6 +16,9 @@ export type NomeIcona =
   | "pasto"
   | "luna"
   | "letto"
+  | "passi"
+  | "clessidra"
+  | "bagno"
   | "avviso"
   | "porta"
   | "casa"
@@ -101,6 +104,16 @@ const DISEGNI: Record<NomeIcona, ReactNode> = {
     </>
   ),
   luna: <path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" />,
+  // Avanti e indietro: due frecce opposte (agitazione).
+  passi: <path d="M4 8h14M14 4l4 4-4 4M20 16H6M10 12l-4 4 4 4" />,
+  clessidra: <path d="M7 3h10M7 21h10M8 3c0 5 8 5 8 9s-8 4-8 9M16 3c0 5-8 5-8 9s8 4 8 9" />,
+  // La porta del bagno con la goccia.
+  bagno: (
+    <>
+      <path d="M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16M4 21h16" />
+      <path d="M12 8c-1.5 2-2.2 3.2-2.2 4.2a2.2 2.2 0 0 0 4.4 0c0-1-.7-2.2-2.2-4.2z" />
+    </>
+  ),
   letto: (
     <>
       <path d="M3 6v13M3 15h18v4M21 15v-2a3 3 0 0 0-3-3h-7v5" />

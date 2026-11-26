@@ -7,6 +7,7 @@
 //  e si dorme meno.
 // ==========================================================================================================
 import type {
+  CambiamentoRoutine,
   DoseFarmaco,
   QuantoMangiato,
   Evento,
@@ -63,6 +64,10 @@ export const PERSONALIZZAZIONE_DEMO: Personalizzazione = {
     allarme_uscita_attivo: true,
     pausa_fino_a: null,
     portone_zona_id: null,
+    ore_inattivita: 3,
+    // Nella casa demo le visite al bagno sono accese, così la sezione si vede.
+    visite_bagno_attive: true,
+    promemoria_acqua_attivo: true,
   },
   fuso_orario: "Europe/Rome",
 };
@@ -100,7 +105,8 @@ type PezzoDiSonno = {
   fine: string;
 };
 
-function minutiDiSonno(pezzi: PezzoDiSonno[]): number {
+// Minuti in tutto di una lista di pezzi con inizio e fine (sonno, episodi di agitazione...).
+function minutiDeiPezzi(pezzi: PezzoDiSonno[]): number {
   let minuti = 0;
   for (const pezzo of pezzi) {
     minuti = minuti + (new Date(pezzo.fine).getTime() - new Date(pezzo.inizio).getTime()) / 60000;
@@ -188,6 +194,147 @@ function bevutaNonMisurata(
   };
 }
 
+// ---------- Agitazione, inattività, visite al bagno (Marco, 25/11) ----------
+
+// Numero da usare come seme di caso(): sempre uguale per lo stesso giorno.
+function semeDelGiorno(giorno: string): number {
+  return Number(giorno.slice(5, 7)) * 31 + Number(giorno.slice(8, 10));
+}
+
+type Episodio = {
+  inizio: string;
+  fine: string;
+  inversioni: number;
+};
+
+// Episodi di agitazione (cammina avanti e indietro): nel tardo pomeriggio e la sera (sundowning), più spesso
+// nell'ultima settimana. Ogni tanto anche uno breve nel primo pomeriggio.
+function episodiAgitazione(giorno: string): Episodio[] {
+  if (giorno === GIORNO_VERO) {
+    return [
+      { inizio: ora(giorno, "17:05"), fine: ora(giorno, "17:32"), inversioni: 18 },
+      { inizio: ora(giorno, "18:45"), fine: ora(giorno, "19:02"), inversioni: 11 },
+    ];
+  }
+  const seme = semeDelGiorno(giorno);
+  let probabilita = 0.35;
+  if (giorno >= spostaGiorno(GIORNO_VERO, -7)) {
+    probabilita = 0.8;
+  }
+  const episodi: Episodio[] = [];
+  if (caso(seme, 11) < probabilita / 3) {
+    const minuti = 8 + Math.round(caso(seme, 12) * 10);
+    episodi.push({ inizio: ora(giorno, "14:20"), fine: ora(giorno, aggiungiMinuti("14:20", minuti)), inversioni: 6 });
+  }
+  if (caso(seme, 8) < probabilita) {
+    const minuti = 10 + Math.round(caso(seme, 9) * 25);
+    const inizio = aggiungiMinuti("16:30", Math.round(caso(seme, 10) * 150));
+    const fine = aggiungiMinuti(inizio, minuti);
+    episodi.push({ inizio: ora(giorno, inizio), fine: ora(giorno, fine), inversioni: Math.round(minuti * 0.6) });
+  }
+  return episodi;
+}
+
+// Un pomeriggio in cui nessuno si è visto per più di 3 ore: allarme urgente di inattività (una volta sola).
+const INATTIVITA = { giorno: "2026-12-06", ultimaVolta: "13:20", ricompare: "16:45" };
+
+// Durante l'inattività nessuna telecamera ha visto nessuno: in quelle ore restano solo l'evento di inattività
+// e niente altro (bevute, visite al bagno, agitazione...).
+function senzaEventiDuranteInattivita(eventi: Evento[]): Evento[] {
+  const rimasti: Evento[] = [];
+  for (const evento of eventi) {
+    const hhmm = evento.inizio.slice(11, 16);
+    const durante = hhmm >= INATTIVITA.ultimaVolta && hhmm < INATTIVITA.ricompare;
+    if (evento.tipo === "inattivita" || !durante) {
+      rimasti.push(evento);
+    }
+  }
+  return rimasti;
+}
+
+function allarmiInattivita(giorno: string): number {
+  if (giorno === INATTIVITA.giorno) {
+    return 1;
+  }
+  return 0;
+}
+
+// Visite al bagno: cinque di giorno e una per ogni alzata notturna (si alza per andare in bagno), 4 minuti l'una.
+const ORE_BAGNO_GIORNO = ["07:20", "10:45", "13:35", "16:55", "21:25"];
+
+function visiteBagno(giorno: string, oreAlzate: string[]): PezzoDiSonno[] {
+  const visite: PezzoDiSonno[] = [];
+  for (const alzata of oreAlzate) {
+    const inizio = aggiungiMinuti(alzata, 2);
+    visite.push({ inizio: ora(giorno, inizio), fine: ora(giorno, aggiungiMinuti(inizio, 4)) });
+  }
+  for (const inizio of ORE_BAGNO_GIORNO) {
+    visite.push({ inizio: ora(giorno, inizio), fine: ora(giorno, aggiungiMinuti(inizio, 4)) });
+  }
+  return visite;
+}
+
+function eventiRicercaAlzheimer(giorno: string, oreAlzate: string[], simulato: boolean): Evento[] {
+  const eventi: Evento[] = [];
+  const prefisso = "dev-" + giorno;
+  const episodi = episodiAgitazione(giorno);
+  for (let i = 0; i < episodi.length; i++) {
+    const episodio = episodi[i];
+    eventi.push({
+      ...base(
+        prefisso + "-agitazione-" + i,
+        episodio.inizio,
+        episodio.fine,
+        "Living room",
+        "t-soggiorno",
+        "agitazione",
+        0.82,
+        simulato,
+      ),
+      tipo: "agitazione",
+      valori: { inversioni: episodio.inversioni },
+    });
+  }
+  const visite = visiteBagno(giorno, oreAlzate);
+  for (let i = 0; i < visite.length; i++) {
+    eventi.push({
+      ...base(
+        prefisso + "-bagno-" + i,
+        visite[i].inizio,
+        visite[i].fine,
+        "Hallway",
+        "t-ingresso",
+        "bagno",
+        0.88,
+        simulato,
+      ),
+      tipo: "visita_bagno",
+      valori: { zona_id: "z-bagno" },
+    });
+  }
+  if (allarmiInattivita(giorno) > 0) {
+    const inizio = ora(giorno, INATTIVITA.ultimaVolta);
+    const fine = ora(giorno, INATTIVITA.ricompare);
+    eventi.push({
+      ...base(prefisso + "-inattivita", inizio, fine, "Living room", "t-soggiorno", "inattivita", 0.95, simulato),
+      tipo: "inattivita",
+      valori: { ultima_telecamera_id: "t-soggiorno" },
+    });
+  }
+  return eventi;
+}
+
+// Cambi di routine rispetto alle 4 settimane prima. Nei dati finti solo i periodi che toccano l'ultima settimana,
+// quella della piccola storia; negli altri non è cambiato niente ("No big changes").
+const CAMBIAMENTI_ULTIMA_SETTIMANA: CambiamentoRoutine[] = [
+  { cosa: "sonno", testo: "Sleeps about 1 hour less than usual" },
+  { cosa: "sveglia", testo: "Wakes up about 20 minutes earlier than usual" },
+  { cosa: "acqua", testo: "Drinks about 200 ml less water a day than usual" },
+  { cosa: "pasti", testo: "More meals with less than half eaten" },
+  { cosa: "agitazione", testo: "More restless pacing in the late afternoon and evening" },
+  { cosa: "bagno", testo: "Goes to the bathroom more often at night" },
+];
+
 // ---------- Il giorno "vero" (imita i risultati dei modelli sui video registrati) ----------
 
 const G = GIORNO_VERO;
@@ -274,9 +421,15 @@ function eventiGiornoVero(): Evento[] {
   for (const evento of eventiSonno(NOTTE_GIORNO_VERO, "ev", false)) {
     eventi.push(evento);
   }
+  for (const evento of eventiRicercaAlzheimer(G, ORE_ALZATE_GIORNO_VERO, false)) {
+    eventi.push(evento);
+  }
   eventi.sort(confrontaInizio);
   return eventi;
 }
+
+// Le due alzate della notte vera: ogni volta anche una visita al bagno.
+const ORE_ALZATE_GIORNO_VERO = ["02:14", "05:40"];
 
 // La notte tra il 13 e il 14: a letto alle 22:40, due alzate (02:14 e 05:40), sveglia alle 06:55.
 const NOTTE_GIORNO_VERO: PezzoDiSonno[] = [
@@ -335,9 +488,13 @@ const REPORT_GIORNO_VERO: ReportGiornaliero = {
   ],
   alzate_notturne: 2,
   minuti_fuori_letto_notte: 18,
-  sonno_minuti: minutiDiSonno(NOTTE_GIORNO_VERO),
+  sonno_minuti: minutiDeiPezzi(NOTTE_GIORNO_VERO),
   addormentato_alle: NOTTE_GIORNO_VERO[0].inizio,
   sveglio_alle: NOTTE_GIORNO_VERO[2].fine,
+  agitazione_minuti: minutiDeiPezzi(episodiAgitazione(G)),
+  allarmi_inattivita: 0,
+  visite_bagno: visiteBagno(G, ORE_ALZATE_GIORNO_VERO).length,
+  visite_bagno_notte: ORE_ALZATE_GIORNO_VERO.length,
   cadute: 1,
   uscite: 1,
   uscite_in_orario_vietato: 1,
@@ -365,7 +522,7 @@ function notteSimulata(giorno: string, alzate: number): PezzoDiSonno[] | null {
   if (NOTTI_NON_VISTE.includes(giorno)) {
     return null;
   }
-  const seme = Number(giorno.slice(5, 7)) * 31 + Number(giorno.slice(8, 10));
+  const seme = semeDelGiorno(giorno);
   // A letto tra le 22:20 e le 23:00, sveglia tra le 06:30 e le 07:10.
   let minutiDopoLe22 = 20 + Math.round(caso(seme, 6) * 40);
   let minutiDopoLe6 = 30 + Math.round(caso(seme, 7) * 40);
@@ -388,7 +545,7 @@ function sonnoDellaNotte(notte: PezzoDiSonno[] | null): number | null {
   if (notte === null) {
     return null;
   }
-  return minutiDiSonno(notte);
+  return minutiDeiPezzi(notte);
 }
 
 function riassuntoSimulato(giorno: string, indice: number): RiassuntoGiorno {
@@ -436,6 +593,8 @@ function riassuntoSimulato(giorno: string, indice: number): RiassuntoGiorno {
     pasti_meno_di_meta: pastiMenoDiMeta,
     alzate_notturne: alzate,
     sonno_minuti: sonnoDellaNotte(notteSimulata(giorno, alzate)),
+    agitazione_minuti: minutiDeiPezzi(episodiAgitazione(giorno)),
+    visite_bagno: visiteBagno(giorno, ORE_ALZATE.slice(0, alzate)).length,
     cadute: cadute,
     uscite_in_orario_vietato: usciteVietate,
     simulato: true,
@@ -453,7 +612,9 @@ function riassuntoGiornoVero(): RiassuntoGiorno {
     pasti: 3,
     pasti_meno_di_meta: 1,
     alzate_notturne: 2,
-    sonno_minuti: minutiDiSonno(NOTTE_GIORNO_VERO),
+    sonno_minuti: minutiDeiPezzi(NOTTE_GIORNO_VERO),
+    agitazione_minuti: REPORT_GIORNO_VERO.agitazione_minuti,
+    visite_bagno: REPORT_GIORNO_VERO.visite_bagno,
     cadute: 1,
     uscite_in_orario_vietato: 1,
     simulato: false,
@@ -576,6 +737,10 @@ function reportSimulato(riassunto: RiassuntoGiorno): ReportGiornaliero {
     sonno_minuti: riassunto.sonno_minuti,
     addormentato_alle: addormentato,
     sveglio_alle: sveglio,
+    agitazione_minuti: riassunto.agitazione_minuti,
+    allarmi_inattivita: allarmiInattivita(giorno),
+    visite_bagno: riassunto.visite_bagno,
+    visite_bagno_notte: riassunto.alzate_notturne,
     cadute: riassunto.cadute,
     uscite: riassunto.uscite_in_orario_vietato,
     uscite_in_orario_vietato: riassunto.uscite_in_orario_vietato,
@@ -688,6 +853,9 @@ function eventiSimulati(report: ReportGiornaliero): Evento[] {
       eventi.push(evento);
     }
   }
+  for (const evento of eventiRicercaAlzheimer(giorno, ORE_ALZATE.slice(0, report.alzate_notturne), true)) {
+    eventi.push(evento);
+  }
   // In ordine di inizio, come risponde il backend.
   eventi.sort(confrontaInizio);
   return eventi;
@@ -736,6 +904,9 @@ export function eventiSviluppo(dal: string, al: string, tipo: TipoEvento | null)
         delGiorno = eventiSimulati(report);
       }
     }
+    if (giorno === INATTIVITA.giorno) {
+      delGiorno = senzaEventiDuranteInattivita(delGiorno);
+    }
     for (const evento of delGiorno) {
       const giornoEvento = evento.inizio.slice(0, 10);
       const nelPeriodo = giornoEvento >= dal && giornoEvento <= al;
@@ -778,6 +949,10 @@ function reportPeriodo(tipo: "settimanale" | "mensile", dal: string, al: string)
       nottiConSonno = nottiConSonno + 1;
     }
   }
+  let cambiamenti: CambiamentoRoutine[] = [];
+  if (al >= spostaGiorno(G, -6) && dal <= G) {
+    cambiamenti = CAMBIAMENTI_ULTIMA_SETTIMANA;
+  }
   // Media sulle notti in cui si è visto dormire (API.md).
   let sonnoMedio: number | null = null;
   if (nottiConSonno > 0) {
@@ -800,6 +975,7 @@ function reportPeriodo(tipo: "settimanale" | "mensile", dal: string, al: string)
     uscite_in_orario_vietato: usciteVietate,
     alzate_notturne_medie: alzate / numeroGiorni,
     sonno_medio_minuti: sonnoMedio,
+    cambiamenti: cambiamenti,
   };
 }
 
