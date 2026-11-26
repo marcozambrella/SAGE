@@ -26,6 +26,11 @@ export function giornoDellaCasa(iso: string, fusoOrario: string): string {
   return formato.format(new Date(iso));
 }
 
+// Il giorno di adesso nel fuso della casa (cambia solo a mezzanotte: va bene leggerlo mentre si disegna la pagina).
+export function oggiNellaCasa(fusoOrario: string): string {
+  return giornoDellaCasa(new Date().toISOString(), fusoOrario);
+}
+
 // I giorni "AAAA-MM-GG" si leggono a mezzogiorno UTC: così nessun fuso orario li sposta al giorno prima o dopo.
 function giornoComeData(giorno: string): Date {
   return new Date(giorno + "T12:00:00Z");

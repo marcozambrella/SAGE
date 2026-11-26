@@ -1,6 +1,7 @@
 // Come si racconta un evento a una famiglia: icona, titolo, dettaglio e gravità (per il colore e l'etichetta).
 import type { NomeIcona } from "./componenti/Icona";
-import type { DoseFarmaco, Evento, Personalizzazione, QuantoMangiato, TipoContenitore } from "./contratti";
+import type { DoseFarmaco, Evento, Personalizzazione, TipoContenitore } from "./contratti";
+import type { QuantoMangiatoAMano } from "./inserimenti";
 import { durata, maiuscola, millilitri, oraDellaCasa } from "./formato";
 
 export type Gravita = "critico" | "attenzione" | "buono" | "neutro";
@@ -36,7 +37,11 @@ function minutiTra(inizio: string, fine: string | null): number {
 }
 
 // Quanto ha mangiato, a parole: niente numeri, il modello del piatto non è abbastanza preciso per una percentuale.
-export function testoQuantoMangiato(quanto: QuantoMangiato | null): string {
+export function testoQuantoMangiato(quanto: QuantoMangiatoAMano | null): string {
+  // Solo un familiare può segnare un pasto saltato (inserimenti a mano).
+  if (quanto === "niente") {
+    return "Skipped the meal";
+  }
   if (quanto === "meno_di_meta") {
     return "Ate less than half";
   }

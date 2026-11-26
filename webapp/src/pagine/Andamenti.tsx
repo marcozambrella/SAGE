@@ -15,6 +15,7 @@ import {
   giornoDellaCasa,
   giornoEMese,
   millilitri,
+  oraDellaCasa,
   percentuale,
   quanti,
   spostaGiorno,
@@ -22,6 +23,7 @@ import {
 import Caricamento from "../componenti/Caricamento";
 import { GraficoAcqua, GraficoDosi, GraficoNotti, GraficoSonno } from "../componenti/Grafici";
 import GraficoPasti, { type PastiDelGiorno } from "../componenti/GraficoPasti";
+import { aggiungiAlPeriodo, leggiInserimenti, pastiAMano, type QuantoMangiatoAMano } from "../inserimenti";
 import Icona from "../componenti/Icona";
 import InAttesaTelecamere from "../componenti/InAttesaTelecamere";
 import Scheda from "../componenti/Scheda";
@@ -64,15 +66,40 @@ function contaPasti(giorni: RiassuntoGiorno[]): { pasti: number; menoDiMeta: num
 }
 
 // Per il grafico dei pasti serve quanto ha mangiato a ogni pasto: il riassunto del giorno ha solo i conti,
-// perciò si prendono gli eventi "pasto" del periodo e si mettono sotto il loro giorno (nel fuso della casa).
+// perciò si prendono gli eventi "pasto" del periodo e si mettono sotto il loro giorno (nel fuso della casa),
+// insieme ai pasti segnati a mano, tutti in ordine di ora.
+type PastoConOra = {
+  ora: string;
+  quanto: QuantoMangiatoAMano | null;
+};
+
+function confrontaOra(a: PastoConOra, b: PastoConOra): number {
+  if (a.ora < b.ora) {
+    return -1;
+  }
+  if (a.ora > b.ora) {
+    return 1;
+  }
+  return 0;
+}
+
 function pastiPerGiorno(giorni: RiassuntoGiorno[], eventiPasti: Evento[], fusoOrario: string): PastiDelGiorno[] {
+  const inserimenti = leggiInserimenti(true);
   const risultato: PastiDelGiorno[] = [];
   for (const riga of giorni) {
-    const pastiDelGiorno: PastiDelGiorno = { data: riga.data, pasti: [] };
+    const conOra: PastoConOra[] = [];
     for (const evento of eventiPasti) {
       if (evento.tipo === "pasto" && giornoDellaCasa(evento.inizio, fusoOrario) === riga.data) {
-        pastiDelGiorno.pasti.push(evento.valori.quanto_mangiato);
+        conOra.push({ ora: oraDellaCasa(evento.inizio, fusoOrario), quanto: evento.valori.quanto_mangiato });
       }
+    }
+    for (const pasto of pastiAMano(inserimenti, riga.data)) {
+      conOra.push({ ora: pasto.ora, quanto: pasto.quanto });
+    }
+    conOra.sort(confrontaOra);
+    const pastiDelGiorno: PastiDelGiorno = { data: riga.data, pasti: [] };
+    for (const pasto of conOra) {
+      pastiDelGiorno.pasti.push(pasto.quanto);
     }
     risultato.push(pastiDelGiorno);
   }
@@ -101,7 +128,8 @@ function AndamentiCasaDemo() {
           nuovoReport = await leggiReportSettimanale(spostaGiorno(ultimo, -6));
         }
         setEventiPasti(await leggiEventiDemo(nuovoReport.dal, nuovoReport.al, "pasto"));
-        setReport(nuovoReport);
+        // Il backend non conosce gli inserimenti a mano: si aggiungono ai giorni qui nel browser.
+        setReport(aggiungiAlPeriodo(nuovoReport, leggiInserimenti(true)));
       } catch (problema) {
         setErrore(messaggioErrore(problema));
       }

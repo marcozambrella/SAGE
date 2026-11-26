@@ -1,14 +1,14 @@
 // Pasti nei Trends (Marco, 25/11): per ogni giorno una barra di completamento per pasto, in ordine di ora.
 // Niente Recharts qui: sono barre di completamento, non quantità su un asse. I giorni vanno a capo ogni 7,
 // così anche un mese intero si legge sul telefono.
-import type { QuantoMangiato } from "../contratti";
 import { testoQuantoMangiato } from "../descrizioni";
+import type { QuantoMangiatoAMano } from "../inserimenti";
 import { giornoBreve, giornoDelMese, giornoSettimana } from "../formato";
 import BarraPasto from "./BarraPasto";
 
 export type PastiDelGiorno = {
   data: string;
-  pasti: (QuantoMangiato | null)[];
+  pasti: (QuantoMangiatoAMano | null)[];
 };
 
 export default function GraficoPasti({ giorni }: { giorni: PastiDelGiorno[] }) {
@@ -17,12 +17,17 @@ export default function GraficoPasti({ giorni }: { giorni: PastiDelGiorno[] }) {
     classe = classe + " grafico-pasti-mese";
   }
 
+  // "Skipped" nella legenda solo se un familiare ha segnato un pasto saltato.
+  let ciSonoSaltati = false;
   const celle = [];
   for (const giorno of giorni) {
     const barre = [];
     const testi: string[] = [];
     for (let indice = 0; indice < giorno.pasti.length; indice++) {
       const quanto = giorno.pasti[indice];
+      if (quanto === "niente") {
+        ciSonoSaltati = true;
+      }
       barre.push(<BarraPasto key={indice} quanto={quanto} verticale />);
       testi.push(testoQuantoMangiato(quanto).toLowerCase());
     }
@@ -58,6 +63,11 @@ export default function GraficoPasti({ giorni }: { giorni: PastiDelGiorno[] }) {
         <span>
           <span className="legenda-segno legenda-non-misurato" /> Not measured
         </span>
+        {ciSonoSaltati && (
+          <span>
+            <span className="legenda-segno legenda-saltato" /> Skipped
+          </span>
+        )}
       </figcaption>
     </figure>
   );

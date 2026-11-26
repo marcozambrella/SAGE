@@ -11,24 +11,16 @@ import {
   messaggioErrore,
   type GiorniDemo,
 } from "../api";
-import {
-  durata,
-  giornoEMese,
-  giornoLungo,
-  maiuscola,
-  meseLungo,
-  millilitri,
-  oraDellaCasa,
-  percentuale,
-  spostaGiorno,
-} from "../formato";
+import { durata, giornoEMese, giornoLungo, meseLungo, millilitri, percentuale, spostaGiorno } from "../formato";
 import Caricamento from "../componenti/Caricamento";
 import { bevuteNonMisurate, orariDose, testoNonMisurate } from "../descrizioni";
 import EtichettaDose from "../componenti/EtichettaDose";
-import EtichettaPasto from "../componenti/EtichettaPasto";
 import EtichettaSimulato from "../componenti/EtichettaSimulato";
 import Icona from "../componenti/Icona";
 import InAttesaTelecamere from "../componenti/InAttesaTelecamere";
+import ListaBevuteAMano from "../componenti/ListaBevuteAMano";
+import ListaPasti from "../componenti/ListaPasti";
+import { aggiungiAlPeriodo, bevuteAMano, leggiInserimenti, pastiAMano, sommaMl } from "../inserimenti";
 import Misuratore from "../componenti/Misuratore";
 import SonnoDellaNotte from "../componenti/SonnoDellaNotte";
 import TabellaGiorni from "../componenti/TabellaGiorni";
@@ -197,7 +189,12 @@ function ReportDelGiorno({ periodo, personalizzazione }: ProprietaGiorno) {
   }
 
   const fuso = personalizzazione.fuso_orario;
-  const percentualeAcqua = (report.acqua_ml / report.obiettivo_acqua_ml) * 100;
+  // Gli inserimenti a mano della casa demo si sommano ai dati delle telecamere (qui si leggono soltanto).
+  const inserimenti = leggiInserimenti(true);
+  const bevute = bevuteAMano(inserimenti, report.data);
+  const pasti = pastiAMano(inserimenti, report.data);
+  const acqua = report.acqua_ml + sommaMl(bevute);
+  const percentualeAcqua = (acqua / report.obiettivo_acqua_ml) * 100;
   let origine = "from the recorded videos";
   if (report.simulato) {
     origine = "simulated day";
@@ -222,13 +219,14 @@ function ReportDelGiorno({ periodo, personalizzazione }: ProprietaGiorno) {
             <Icona nome="goccia" /> Water
           </h3>
           <p>
-            <span className="numero-medio">{millilitri(report.acqua_ml)}</span>{" "}
+            <span className="numero-medio">{millilitri(acqua)}</span>{" "}
             <span className="testo-secondario">
-              of {millilitri(report.obiettivo_acqua_ml)} · {report.bevute} drinks
+              of {millilitri(report.obiettivo_acqua_ml)} · {report.bevute + bevute.length} drinks
               {nonMisurate > 0 && <> · {testoNonMisurate(nonMisurate)}</>}
             </span>
           </p>
           <Misuratore percentuale={percentualeAcqua} etichetta="Water goal reached" />
+          <ListaBevuteAMano bevute={bevute} contenitori={personalizzazione.contenitori} onCancella={null} />
         </section>
 
         <section className="pila">
@@ -250,19 +248,7 @@ function ReportDelGiorno({ periodo, personalizzazione }: ProprietaGiorno) {
           <h3 className="titolo-sezione">
             <Icona nome="pasto" /> Meals
           </h3>
-          <ul className="lista-semplice">
-            {report.pasti.map((pasto) => (
-              <li key={pasto.ora} className="pila riga-lista" style={{ gap: 8 }}>
-                <div className="riga-spaziata">
-                  <strong>{maiuscola(pasto.cibi.join(", "))}</strong>
-                  <span className="testo-secondario testo-piccolo">{oraDellaCasa(pasto.ora, fuso)}</span>
-                </div>
-                <div>
-                  <EtichettaPasto quanto={pasto.quanto_mangiato} />
-                </div>
-              </li>
-            ))}
-          </ul>
+          <ListaPasti pasti={report.pasti} pastiAMano={pasti} fusoOrario={fuso} onCancella={null} />
         </section>
 
         <section className="pila">
@@ -310,11 +296,14 @@ function ReportDelPeriodo({ tipo, periodo, personalizzazione }: ProprietaPeriodo
       setReport(null);
       setErrore("");
       try {
+        let nuovo: ReportPeriodo;
         if (tipo === "settimanale") {
-          setReport(await leggiReportSettimanale(dal));
+          nuovo = await leggiReportSettimanale(dal);
         } else {
-          setReport(await leggiReportMensile(mese));
+          nuovo = await leggiReportMensile(mese);
         }
+        // Il backend non conosce gli inserimenti a mano: si aggiungono ai giorni qui nel browser.
+        setReport(aggiungiAlPeriodo(nuovo, leggiInserimenti(true)));
       } catch (problema) {
         setErrore(messaggioErrore(problema));
       }

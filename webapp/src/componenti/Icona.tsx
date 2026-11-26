@@ -20,6 +20,7 @@ export type NomeIcona =
   | "porta"
   | "casa"
   | "piu"
+  | "meno"
   | "cestino"
   | "freccia"
   | "indietro"
@@ -125,6 +126,7 @@ const DISEGNI: Record<NomeIcona, ReactNode> = {
     </>
   ),
   piu: <path d="M12 5v14M5 12h14" />,
+  meno: <path d="M5 12h14" />,
   cestino: <path d="M4 7h16M10 4h4M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12" />,
   freccia: <path d="M5 12h14M13 6l6 6-6 6" />,
   indietro: <path d="M19 12H5M11 6l-6 6 6 6" />,

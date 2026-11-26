@@ -553,3 +553,92 @@
 .legenda-non-misurato {
   border: 2px dashed #a3978d;
 }
+
+/* Pasto saltato (segnato da un familiare): binario vuoto con il bordo rosso */
+.barra-pasto-saltato {
+  background: transparent;
+  border: 2px solid var(--critico-testo);
+  box-shadow: none;
+}
+
+.legenda-saltato {
+  border: 2px solid var(--critico-testo);
+}
+
+/* ---------- Inserimenti a mano dei familiari ---------- */
+/* "Logged by family": come l'etichetta "Simulated", ma piena, perché è un dato vero segnato da una persona */
+.a-mano {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: var(--raggio-pillola);
+  color: var(--accento-testo);
+  background: var(--accento-tenue);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+/* Riga con il testo a sinistra e il pulsante del cestino a destra */
+.riga-a-mano {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--spazio-3);
+}
+
+/* Più e meno intorno al numero di bicchieri */
+.contatore {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spazio-3);
+}
+
+.contatore-valore {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-weight: 700;
+}
+
+/* Come i campi di testo: il bordo del fuoco lo disegna il pozzetto (:focus-within) */
+.campo-pozzetto select {
+  flex: 1;
+  min-width: 0;
+  height: var(--altezza-tocco);
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+/* Le quattro scelte di "quanto ha mangiato": grandi da toccare, la scelta fatta resta gonfia e con il bordo */
+.scelte {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spazio-3);
+}
+
+.scelta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spazio-2);
+  min-height: 88px;
+  padding: var(--spazio-3) var(--spazio-4);
+  border: 3px solid transparent;
+  border-radius: var(--raggio-piccolo);
+  background: var(--latte);
+  box-shadow: var(--ombra-incavata);
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.scelta[aria-pressed="true"] {
+  border-color: var(--accento);
+  background: linear-gradient(150deg, var(--bianco), var(--latte-chiaro));
+  box-shadow: var(--ombra-gonfia-piccola);
+}

@@ -5,6 +5,7 @@ import { lazy, useState, type ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router";
 import type { Personalizzazione } from "./contratti";
 import Struttura from "./componenti/Struttura";
+import { cancellaInserimenti } from "./inserimenti";
 import Benvenuto from "./pagine/Benvenuto";
 import Personalizza from "./pagine/Personalizza";
 import ProssimeFunzioni from "./pagine/ProssimeFunzioni";
@@ -39,6 +40,8 @@ export default function App() {
 
   function cancella() {
     cancellaPersonalizzazione();
+    // "Delete my setup" toglie anche acqua e pasti segnati a mano nella casa propria.
+    cancellaInserimenti(false);
     setPersonalizzazione(null);
   }
 

@@ -1,4 +1,5 @@
-// Today: la giornata in un colpo d'occhio. Casa dell'utente: in attesa delle telecamere. Casa demo: report del giorno.
+// Today: la giornata in un colpo d'occhio. Casa dell'utente: in attesa delle telecamere, con acqua e pasti segnati a
+// mano dai familiari. Casa demo: report del giorno, più gli inserimenti a mano (solo nel browser).
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import type { Evento, Personalizzazione, ReportGiornaliero } from "../contratti";
@@ -10,13 +11,16 @@ import {
   messaggioErrore,
 } from "../api";
 import { bevuteNonMisurate, descriviEvento, orariDose, testoNonMisurate, type Descrizione } from "../descrizioni";
-import { giornoLungo, maiuscola, millilitri, oraDellaCasa } from "../formato";
+import { giornoLungo, millilitri, oggiNellaCasa, oraDellaCasa } from "../formato";
+import { bevuteAMano, pastiAMano, sommaMl, useInserimenti } from "../inserimenti";
 import Caricamento from "../componenti/Caricamento";
 import EtichettaDose from "../componenti/EtichettaDose";
-import EtichettaPasto from "../componenti/EtichettaPasto";
 import EtichettaSimulato from "../componenti/EtichettaSimulato";
 import Icona from "../componenti/Icona";
 import InAttesaTelecamere from "../componenti/InAttesaTelecamere";
+import InserisciAMano from "../componenti/InserisciAMano";
+import ListaBevuteAMano from "../componenti/ListaBevuteAMano";
+import ListaPasti from "../componenti/ListaPasti";
 import Misuratore from "../componenti/Misuratore";
 import Scheda from "../componenti/Scheda";
 import SonnoDellaNotte from "../componenti/SonnoDellaNotte";
@@ -36,18 +40,53 @@ export default function Oggi({ demo, personalizzazione }: Proprieta) {
 
 function OggiCasaUtente({ personalizzazione }: { personalizzazione: Personalizzazione }) {
   const nome = personalizzazione.anziano.nome;
+  const fuso = personalizzazione.fuso_orario;
+  const { inserimenti, aggiungi, cancella } = useInserimenti(false);
   let dosiAlGiorno = 0;
   for (const farmaco of personalizzazione.farmaci) {
     dosiAlGiorno = dosiAlGiorno + farmaco.orari.length;
   }
+  // Oggi nel fuso della casa: senza telecamere acqua e pasti vengono solo da quello che segna la famiglia.
+  const giorno = oggiNellaCasa(fuso);
+  const bevute = bevuteAMano(inserimenti, giorno);
+  const pasti = pastiAMano(inserimenti, giorno);
+  const acqua = sommaMl(bevute);
+  const obiettivo = personalizzazione.anziano.obiettivo_acqua_ml;
+
   return (
     <div className="pila-larga entrata">
-      <TitoloPagina titolo={"Hello! Here's " + nome + "'s day"} sotto="Nothing to show yet." />
+      <TitoloPagina titolo={"Hello! Here's " + nome + "'s day"} sotto={giornoLungo(giorno)} />
+      <InserisciAMano
+        contenitori={personalizzazione.contenitori}
+        fusoOrario={fuso}
+        giorno={giorno}
+        onAggiungi={aggiungi}
+      />
+      <div className="griglia">
+        <Scheda titolo="Water" icona="goccia" classe="scheda-acqua">
+          <div className="pila">
+            <p>
+              <span className="numero-grande">{millilitri(acqua)}</span>
+            </p>
+            <Misuratore percentuale={(acqua / obiettivo) * 100} etichetta="Water goal reached" />
+            <p className="testo-secondario">
+              {Math.round((acqua / obiettivo) * 100)}% of the {millilitri(obiettivo)} goal
+            </p>
+            {bevute.length === 0 && <p className="testo-secondario">No drinks logged yet today.</p>}
+            <ListaBevuteAMano bevute={bevute} contenitori={personalizzazione.contenitori} onCancella={cancella} />
+          </div>
+        </Scheda>
+        <Scheda titolo="Meals" icona="pasto">
+          {pasti.length === 0 && <p className="testo-secondario">No meals logged yet today.</p>}
+          <ListaPasti pasti={[]} pastiAMano={pasti} fusoOrario={fuso} onCancella={cancella} />
+        </Scheda>
+      </div>
       <InAttesaTelecamere
         testo={
-          "Medication, water, meals and night-time activity will appear here as soon as the cameras at " +
+          "Medication, sleep and night-time activity will appear here as soon as the cameras at " +
           nome +
-          "'s home are connected. Camera connection is coming in a future release."
+          "'s home are connected. Camera connection is coming in a future release. Until then, you can log " +
+          "drinks and meals yourself."
         }
         paginaDemo="/demo/today"
       />
@@ -86,6 +125,7 @@ function OggiCasaDemo() {
   const [urgenti, setUrgenti] = useState<Evento[]>([]);
   const [nonMisurate, setNonMisurate] = useState(0);
   const [errore, setErrore] = useState("");
+  const { inserimenti, aggiungi, cancella } = useInserimenti(true);
 
   useEffect(() => {
     async function carica() {
@@ -111,7 +151,11 @@ function OggiCasaDemo() {
 
   const fuso = personalizzazione.fuso_orario;
   const nome = personalizzazione.anziano.nome;
-  const percentualeAcqua = (report.acqua_ml / report.obiettivo_acqua_ml) * 100;
+  // Le bevute e i pasti segnati a mano si sommano a quelli visti dalle telecamere (API.md).
+  const bevute = bevuteAMano(inserimenti, report.data);
+  const pasti = pastiAMano(inserimenti, report.data);
+  const acqua = report.acqua_ml + sommaMl(bevute);
+  const percentualeAcqua = (acqua / report.obiettivo_acqua_ml) * 100;
 
   // Cose che meritano attenzione: cadute, uscite in orario vietato, dosi saltate.
   const attenzioni: { chiave: string; ora: string; descrizione: Descrizione }[] = [];
@@ -177,18 +221,26 @@ function OggiCasaDemo() {
         </section>
       )}
 
+      <InserisciAMano
+        contenitori={personalizzazione.contenitori}
+        fusoOrario={fuso}
+        giorno={report.data}
+        onAggiungi={aggiungi}
+      />
+
       <div className="griglia">
         <Scheda titolo="Water" icona="goccia" classe="scheda-acqua">
           <div className="pila">
             <p>
-              <span className="numero-grande">{millilitri(report.acqua_ml)}</span>
+              <span className="numero-grande">{millilitri(acqua)}</span>
             </p>
             <Misuratore percentuale={percentualeAcqua} etichetta="Water goal reached" />
             <p className="testo-secondario">
-              {Math.round(percentualeAcqua)}% of the {millilitri(report.obiettivo_acqua_ml)} goal · {report.bevute}{" "}
-              drinks
+              {Math.round(percentualeAcqua)}% of the {millilitri(report.obiettivo_acqua_ml)} goal ·{" "}
+              {report.bevute + bevute.length} drinks
             </p>
             {nonMisurate > 0 && <p className="testo-secondario testo-piccolo">{testoNonMisurate(nonMisurate)}</p>}
+            <ListaBevuteAMano bevute={bevute} contenitori={personalizzazione.contenitori} onCancella={cancella} />
           </div>
         </Scheda>
 
@@ -207,19 +259,7 @@ function OggiCasaDemo() {
         </Scheda>
 
         <Scheda titolo="Meals" icona="pasto">
-          <ul className="lista-semplice">
-            {report.pasti.map((pasto) => (
-              <li key={pasto.ora} className="pila riga-lista" style={{ gap: 8 }}>
-                <div className="riga-spaziata">
-                  <strong>{maiuscola(pasto.cibi.join(", "))}</strong>
-                  <span className="testo-secondario testo-piccolo">{oraDellaCasa(pasto.ora, fuso)}</span>
-                </div>
-                <div>
-                  <EtichettaPasto quanto={pasto.quanto_mangiato} />
-                </div>
-              </li>
-            ))}
-          </ul>
+          <ListaPasti pasti={report.pasti} pastiAMano={pasti} fusoOrario={fuso} onCancella={cancella} />
         </Scheda>
 
         <Scheda titolo="Last night" icona="letto">
