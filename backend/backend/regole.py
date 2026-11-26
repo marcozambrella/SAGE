@@ -1,5 +1,5 @@
 """Regole che calcola il backend e non il programma di casa (contratti/API.md): fasce orarie, stato delle dosi,
-uscite in orario vietato, alzate di notte.
+uscite in orario vietato, alzate di notte, ore di sonno.
 
 Logica pura: niente database e niente orologio, l'ora attuale ("adesso") arriva come parametro.
 Gli orari della personalizzazione ("HH:MM") sono ore locali della casa, nel suo fuso_orario.
@@ -20,6 +20,11 @@ FUSO_ORARIO_PREDEFINITO = "Europe/Rome"
 # doppia dose).
 MINUTI_ANTICIPO_MASSIMO = 60
 MINUTI_RITARDO_MASSIMO = 120
+
+# Ore di sonno (API.md, Marco 25/11): contano i pezzi di sonno che iniziano da 2 ore prima dell'inizio degli orari di
+# notte fino a 4 ore dopo la fine, per chi va a letto presto o dorme fino a tardi.
+ORE_PRIMA_DELLA_NOTTE = 2
+ORE_DOPO_LA_NOTTE = 4
 
 
 def inizio_evento(evento: EventoBase) -> datetime.datetime:
@@ -65,6 +70,25 @@ def alzata_di_notte(evento: EventoAlzataNotturna, personalizzazione: Personalizz
     """Le alzate contano solo se iniziano negli orari di notte (API.md)."""
     ora = ora_locale(evento.inizio, personalizzazione.fuso_orario)
     return ora_nella_fascia(ora, personalizzazione.regole.orari_notte)
+
+
+def finestra_del_sonno(
+    data: datetime.date, personalizzazione: Personalizzazione
+) -> tuple[datetime.datetime, datetime.datetime]:
+    """Inizio (compreso) e fine (esclusa) della finestra in cui comincia il sonno della notte che finisce la mattina
+    di `data`: quel sonno conta nel report di `data` (API.md, "Ore di sonno")."""
+    fuso = ZoneInfo(personalizzazione.fuso_orario)
+    dalle = leggi_ora(personalizzazione.regole.orari_notte.dalle)
+    alle = leggi_ora(personalizzazione.regole.orari_notte.alle)
+    # di solito la notte passa la mezzanotte e comincia il giorno prima (22:00 → 07:00); se no è tutta in `data`
+    giorno_di_inizio = data - datetime.timedelta(days=1)
+    if dalle < alle:
+        giorno_di_inizio = data
+    inizio_notte = datetime.datetime.combine(giorno_di_inizio, dalle, tzinfo=fuso)
+    fine_notte = datetime.datetime.combine(data, alle, tzinfo=fuso)
+    inizio = inizio_notte - datetime.timedelta(hours=ORE_PRIMA_DELLA_NOTTE)
+    fine = fine_notte + datetime.timedelta(hours=ORE_DOPO_LA_NOTTE)
+    return inizio, fine
 
 
 def con_regole_del_backend(evento: EventoBase, personalizzazione: Personalizzazione | None) -> EventoBase:

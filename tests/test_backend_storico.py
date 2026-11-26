@@ -3,13 +3,14 @@ nel backend con la stessa chiamata del programma di casa (client di test di Fast
 
 import datetime
 from collections import Counter
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
 
 from backend.app import app
 from backend.archivio import ArchivioDatabase
-from backend.report import calcola_report_periodo
+from backend.report import calcola_report_giornaliero, calcola_report_periodo
 from backend.storico_simulato import PERSONALIZZAZIONE_DEMO, SEME_PREDEFINITO, carica_storico, genera_storico
 from contratti.eventi import LETTORE_EVENTO
 
@@ -107,6 +108,48 @@ def test_pasti_in_categorie_credibili_e_scarsi_nei_giorni_di_poca_acqua():
             scarsi_negli_altri = scarsi_negli_altri + giorno.pasti_meno_di_meta
     altri_giorni = len(report.giorni) - giorni_difficili
     assert scarsi_nei_giorni_difficili / giorni_difficili > 3 * scarsi_negli_altri / altri_giorni
+
+
+def test_sonno_credibile_e_notti_agitate_nei_giorni_di_poca_acqua():
+    eventi = genera_storico(PERSONALIZZAZIONE_DEMO, DAL, AL, SEME_PREDEFINITO)
+    roma = ZoneInfo(PERSONALIZZAZIONE_DEMO.fuso_orario)
+    sonno_difficili = []
+    alzate_difficili = []
+    sonno_altri = []
+    alzate_altri = []
+    for indice in range(28):
+        data = DAL + datetime.timedelta(days=indice)
+        report = calcola_report_giornaliero(data, eventi, PERSONALIZZAZIONE_DEMO, DOPO)
+        if indice == 0:
+            # il sonno del primo giorno comincerebbe prima dello storico
+            assert report.sonno_minuti is None
+            continue
+        assert 6 * 60 <= report.sonno_minuti <= 8 * 60
+        addormentato = report.addormentato_alle.astimezone(roma)
+        assert addormentato.date() == data - datetime.timedelta(days=1)
+        assert datetime.time(22, 0) <= addormentato.time() <= datetime.time(23, 30)
+        # sveglio dopo l'ultima alzata: le alzate sono i buchi tra i pezzi di sonno
+        assert report.sveglio_alle > report.addormentato_alle
+        if report.acqua_ml < 750:
+            sonno_difficili.append(report.sonno_minuti)
+            alzate_difficili.append(report.alzate_notturne)
+        else:
+            sonno_altri.append(report.sonno_minuti)
+            alzate_altri.append(report.alzate_notturne)
+    # la settimana difficile si vede anche di notte: più alzate e meno sonno
+    assert len(sonno_difficili) >= 2
+    assert sum(alzate_difficili) / len(alzate_difficili) > 2 * sum(alzate_altri) / len(alzate_altri)
+    assert sum(sonno_difficili) / len(sonno_difficili) < sum(sonno_altri) / len(sonno_altri) - 30
+
+
+def test_storico_comincia_dal_primo_giorno():
+    eventi = genera_storico(PERSONALIZZAZIONE_DEMO, DAL, AL, SEME_PREDEFINITO)
+    roma = ZoneInfo(PERSONALIZZAZIONE_DEMO.fuso_orario)
+    primo = eventi[0].inizio
+    for evento in eventi:
+        primo = min(primo, evento.inizio)
+    # /demo/periodo apre lo storico dal primo evento: niente sonno iniziato il giorno prima
+    assert primo.astimezone(roma).date() == DAL
 
 
 def test_bevute_con_il_contenitore_della_personalizzazione():

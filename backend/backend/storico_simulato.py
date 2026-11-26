@@ -44,10 +44,10 @@ ACQUA_MEDIA_ML = 1250
 ACQUA_VARIAZIONE_ML = 250
 ACQUA_MINIMA_ML = 600
 ACQUA_MASSIMA_ML = 2000
-# 3 giorni di fila con poca acqua (Marco, 24/11) e pasti scarsi (25/11): un calo da notare nei trend. Cadono
-# nell'ultima settimana, così si vedono sia nel trend settimanale sia in quello mensile.
+# 3 giorni di fila con poca acqua (Marco, 24/11), pasti scarsi e notti agitate (25/11): un calo da notare nei trend.
+# Cadono nell'ultima settimana, così si vedono sia nel trend settimanale sia in quello mensile.
 GIORNI_DI_POCA_ACQUA = 3
-FATTORE_POCA_ACQUA = 0.5
+FATTORE_POCA_ACQUA = 0.45
 BEVUTE_MINIME = 4
 BEVUTE_MASSIME = 9
 
@@ -64,8 +64,20 @@ PESI_MANGIATO = [50, 35, 10, 5]
 # nei giorni di poca acqua mangia anche poco: la stessa settimana difficile si vede in tutti e due i trend
 PESI_MANGIATO_GIORNI_DIFFICILI = [10, 30, 55, 5]
 
-# alzate per notte: 0, 1, 2 o 3 con questi pesi
-PESI_ALZATE_PER_NOTTE = [35, 40, 20, 5]
+# alzate per notte con questi pesi; nelle notti agitate dei giorni difficili ce ne sono di più
+ALZATE_PER_NOTTE = [0, 1, 2, 3, 4]
+PESI_ALZATE_PER_NOTTE = [35, 40, 20, 5, 0]
+PESI_ALZATE_NOTTI_AGITATE = [0, 10, 30, 40, 20]
+DURATA_MINIMA_ALZATA = 3
+DURATA_MASSIMA_ALZATA = 25
+# sonno (API.md, "Ore di sonno"): si addormenta tra le 22:00 e le 23:30 e dorme tra 6 e 8 ore, alzate escluse; nelle
+# notti agitate dorme verso il minimo
+ADDORMENTARSI_DAL_MINUTO = 22 * 60
+ADDORMENTARSI_AL_MINUTO = 23 * 60 + 30
+SONNO_MINIMO_MINUTI = 6 * 60 + 30
+SONNO_MASSIMO_MINUTI = 8 * 60
+SONNO_MINIMO_NOTTI_AGITATE = 6 * 60
+SONNO_MASSIMO_NOTTI_AGITATE = 6 * 60 + 45
 # un numero fisso di cadute in giorni a caso: con una probabilità al giorno potrebbero non essercene (trend vuoti)
 CADUTE_PER_SETTIMANA = 0.5
 USCITE_PERMESSE_MASSIME = 2
@@ -256,15 +268,60 @@ def pasti(
     return eventi
 
 
-def alzate_notturne(
-    rng: random.Random, data: datetime.date, personalizzazione: Personalizzazione, fuso: ZoneInfo
+def notte(
+    rng: random.Random,
+    data: datetime.date,
+    personalizzazione: Personalizzazione,
+    fuso: ZoneInfo,
+    agitata: bool,
+    con_sonno: bool,
 ) -> list:
-    numero = rng.choices([0, 1, 2, 3], weights=PESI_ALZATE_PER_NOTTE)[0]
+    """La notte che finisce la mattina di `data`: le alzate e i pezzi di sonno nella zona letto tra un'alzata e
+    l'altra. Senza `con_sonno` solo le alzate: il sonno comincerebbe la sera prima, fuori dallo storico."""
+    pesi = PESI_ALZATE_PER_NOTTE
+    sonno_minimo = SONNO_MINIMO_MINUTI
+    sonno_massimo = SONNO_MASSIMO_MINUTI
+    if agitata:
+        pesi = PESI_ALZATE_NOTTI_AGITATE
+        sonno_minimo = SONNO_MINIMO_NOTTI_AGITATE
+        sonno_massimo = SONNO_MASSIMO_NOTTI_AGITATE
+    numero = rng.choices(ALZATE_PER_NOTTE, weights=pesi)[0]
+    giorno_prima = data - datetime.timedelta(days=1)
+    addormentato = momento(giorno_prima, rng.randint(ADDORMENTARSI_DAL_MINUTO, ADDORMENTARSI_AL_MINUTO), fuso)
+    sonno_minuti = rng.randint(sonno_minimo, sonno_massimo)
+
+    # Le alzate iniziano tra le 00:30 e le 05:30 (dentro gli orari di notte predefiniti, 22:00 → 07:00) e almeno
+    # un'ora di sonno prima del risveglio. Ognuna nella sua parte dell'intervallo, così non si sovrappongono: anche
+    # con il sonno più corto l'intervallo è di almeno 150 minuti, cioè 37 minuti per ognuna di 4 alzate.
+    primo_inizio = momento(data, 30, fuso)
+    ultimo_inizio = momento(data, 5 * 60 + 30, fuso)
+    un_ora_prima_del_risveglio = addormentato + datetime.timedelta(minutes=sonno_minuti - 60)
+    ultimo_inizio = min(ultimo_inizio, un_ora_prima_del_risveglio)
+    minuti_disponibili = int((ultimo_inizio - primo_inizio).total_seconds() // 60)
+    alzate = []
+    for indice in range(numero):
+        parte = minuti_disponibili // numero
+        # almeno 5 minuti tra la fine di un'alzata e la parte dopo
+        spostamento = rng.randint(0, parte - DURATA_MASSIMA_ALZATA - 5)
+        inizio = primo_inizio + datetime.timedelta(minutes=indice * parte + spostamento)
+        fine = inizio + datetime.timedelta(minutes=rng.randint(DURATA_MINIMA_ALZATA, DURATA_MASSIMA_ALZATA))
+        alzate.append((inizio, fine))
+
     eventi = []
-    for _ in range(numero):
-        # tra le 00:30 e le 05:30: dentro gli orari di notte predefiniti (22:00 → 07:00)
-        inizio = momento(data, rng.randint(30, 5 * 60 + 30), fuso)
-        fine = inizio + datetime.timedelta(minutes=rng.randint(3, 25))
+    if con_sonno:
+        # un pezzo di sonno fino a ogni alzata, poi uno dopo l'ultima fino al risveglio
+        inizio_pezzo = addormentato
+        sonno_che_resta = sonno_minuti
+        for inizio_alzata, fine_alzata in alzate:
+            eventi.append(dati_evento(rng, personalizzazione, "sonno", inizio_pezzo, inizio_alzata, "bedroom",
+                                      {"zona_id": "letto"}))
+            dormito = (inizio_alzata - inizio_pezzo).total_seconds() / 60
+            sonno_che_resta = sonno_che_resta - dormito
+            inizio_pezzo = fine_alzata
+        risveglio = inizio_pezzo + datetime.timedelta(minutes=sonno_che_resta)
+        eventi.append(dati_evento(rng, personalizzazione, "sonno", inizio_pezzo, risveglio, "bedroom",
+                                  {"zona_id": "letto"}))
+    for inizio, fine in alzate:
         valori = {"stanze": rng.choice(PERCORSI_NOTTURNI)}
         eventi.append(dati_evento(rng, personalizzazione, "alzata_notturna", inizio, fine, "bedroom", valori))
     return eventi
@@ -308,13 +365,15 @@ def eventi_del_giorno(
     permessi: list[int],
     con_caduta: bool,
     poca_acqua: bool,
+    con_sonno: bool,
 ) -> list[EventoBase]:
     fuso = ZoneInfo(personalizzazione.fuso_orario)
     tutti = []
     tutti.extend(bevute(rng, data, personalizzazione, fuso, poca_acqua))
     tutti.extend(prese_dei_farmaci(rng, data, personalizzazione, fuso))
     tutti.extend(pasti(rng, data, personalizzazione, fuso, poca_acqua))
-    tutti.extend(alzate_notturne(rng, data, personalizzazione, fuso))
+    # le notti dei giorni di poca acqua sono agitate: la stessa settimana difficile
+    tutti.extend(notte(rng, data, personalizzazione, fuso, poca_acqua, con_sonno))
     tutti.extend(cadute_e_uscite(rng, data, personalizzazione, fuso, vietati, permessi, con_caduta))
 
     eventi = []
@@ -348,8 +407,10 @@ def genera_storico(
         data = dal + datetime.timedelta(days=indice)
         con_caduta = indice in giorni_con_caduta
         poca_acqua = primo_poca_acqua <= indice < primo_poca_acqua + GIORNI_DI_POCA_ACQUA
+        # il sonno del primo giorno comincerebbe il giorno prima: /demo/periodo aprirebbe un giorno quasi vuoto
+        con_sonno = indice > 0
         eventi.extend(eventi_del_giorno(rng, data, personalizzazione, seme, vietati, permessi, con_caduta,
-                                        poca_acqua))
+                                        poca_acqua, con_sonno))
     return eventi
 
 

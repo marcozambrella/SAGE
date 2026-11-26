@@ -325,6 +325,24 @@ def test_bevuta_da_due_telecamere_contata_una_volta(client):
     assert report["acqua_ml"] == 200
 
 
+def test_sonno_da_due_telecamere_contato_una_volta(client):
+    configura(client)
+    dal_letto = evento("s-camera", "sonno", "2025-11-30T22:30:00+01:00", {"zona_id": "letto"})
+    dal_letto["fine"] = "2025-12-01T06:30:00+01:00"
+    dalla_porta = evento("s-corridoio", "sonno", "2025-11-30T22:31:00+01:00", {"zona_id": "letto"})
+    dalla_porta["fine"] = "2025-12-01T06:32:00+01:00"
+    da_due = [da_telecamera(dal_letto, "camera", 0.9), da_telecamera(dalla_porta, "corridoio", 0.7)]
+    client.post("/programma-casa/eventi", json=da_due, headers=CON_TOKEN)
+    assert len(client.get("/demo/eventi", params={"tipo": "sonno"}).json()) == 1
+    report = client.get("/demo/report/giornaliero", params={"data": "2025-12-01"}).json()
+    # un solo pezzo dalle 22:30 alle 6:32, non due sommati
+    assert report["sonno_minuti"] == 482
+    assert report["addormentato_alle"] == "2025-11-30T22:30:00+01:00"
+    settimana = client.get("/demo/report/settimanale", params={"dal": "2025-12-01"}).json()
+    assert settimana["giorni"][0]["sonno_minuti"] == 482
+    assert settimana["sonno_medio_minuti"] == 482
+
+
 # --- valori scritti dal backend e periodo ---
 
 def test_eventi_con_i_valori_del_backend(client):

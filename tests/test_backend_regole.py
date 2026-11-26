@@ -298,6 +298,112 @@ def test_report_di_un_giorno_vuoto():
     assert report.dosi[0].stato == "saltata"
 
 
+# --- ore di sonno (API.md, "Ore di sonno") ---
+
+def sonno(inizio: str, fine: str | None):
+    return crea_evento("sonno", inizio, {"zona_id": "letto"}, fine=fine)
+
+
+def test_notte_normale():
+    eventi = [sonno("2026-11-30T22:40:00+01:00", "2026-12-01T06:40:00+01:00")]
+    report = calcola_report_giornaliero(GIORNO, eventi, crea_personalizzazione(), DOPO)
+    assert report.sonno_minuti == 480
+    assert report.addormentato_alle == datetime.datetime(2026, 11, 30, 21, 40, tzinfo=datetime.UTC)
+    assert report.sveglio_alle == datetime.datetime(2026, 12, 1, 5, 40, tzinfo=datetime.UTC)
+
+
+def test_notte_a_pezzi_con_un_alzata():
+    eventi = [
+        sonno("2026-11-30T23:00:00+01:00", "2026-12-01T02:00:00+01:00"),
+        crea_evento("alzata_notturna", "2026-12-01T02:00:00+01:00", {"stanze": ["bathroom"]},
+                    fine="2026-12-01T02:15:00+01:00"),
+        sonno("2026-12-01T02:15:00+01:00", "2026-12-01T06:30:00+01:00"),
+    ]
+    report = calcola_report_giornaliero(GIORNO, eventi, crea_personalizzazione(), DOPO)
+    # il buco dell'alzata non è sonno: 3 ore + 4 ore e 15
+    assert report.sonno_minuti == 435
+    assert report.alzate_notturne == 1
+    assert report.minuti_fuori_letto_notte == 15
+    assert report.addormentato_alle == datetime.datetime(2026, 11, 30, 22, 0, tzinfo=datetime.UTC)
+    assert report.sveglio_alle == datetime.datetime(2026, 12, 1, 5, 30, tzinfo=datetime.UTC)
+
+
+def test_nessun_sonno_visto():
+    report = calcola_report_giornaliero(GIORNO, [], crea_personalizzazione(), DOPO)
+    assert report.sonno_minuti is None
+    assert report.addormentato_alle is None
+    assert report.sveglio_alle is None
+
+
+def test_sonno_a_cavallo_della_mezzanotte_conta_nel_giorno_dopo():
+    # si addormenta la sera del primo dicembre: è la notte che finisce il 2
+    eventi = [
+        sonno("2026-12-01T23:30:00+01:00", "2026-12-02T01:00:00+01:00"),
+        sonno("2026-12-02T01:10:00+01:00", "2026-12-02T07:00:00+01:00"),
+    ]
+    personalizzazione = crea_personalizzazione()
+    report_del_primo = calcola_report_giornaliero(GIORNO, eventi, personalizzazione, DOPO)
+    assert report_del_primo.sonno_minuti is None
+    report_del_due = calcola_report_giornaliero(datetime.date(2026, 12, 2), eventi, personalizzazione, DOPO)
+    assert report_del_due.sonno_minuti == 90 + 350
+    assert report_del_due.addormentato_alle == datetime.datetime(2026, 12, 1, 22, 30, tzinfo=datetime.UTC)
+
+
+def test_sonno_solo_nella_finestra_della_notte():
+    # orari di notte 22:00 → 07:00: contano i pezzi che iniziano dalle 20:00 alle 11:00 (escluse)
+    eventi = [
+        sonno("2026-11-30T19:30:00+01:00", "2026-11-30T19:50:00+01:00"),
+        sonno("2026-11-30T20:00:00+01:00", "2026-11-30T20:30:00+01:00"),
+        sonno("2026-12-01T10:30:00+01:00", "2026-12-01T10:45:00+01:00"),
+        # il riposino del pomeriggio non è sonno della notte
+        sonno("2026-12-01T15:00:00+01:00", "2026-12-01T16:00:00+01:00"),
+        # ancora in corso: non ha una durata e non conta
+        sonno("2026-12-01T05:00:00+01:00", None),
+    ]
+    report = calcola_report_giornaliero(GIORNO, eventi, crea_personalizzazione(), DOPO)
+    assert report.sonno_minuti == 30 + 15
+    assert report.addormentato_alle == datetime.datetime(2026, 11, 30, 19, 0, tzinfo=datetime.UTC)
+    assert report.sveglio_alle == datetime.datetime(2026, 12, 1, 9, 45, tzinfo=datetime.UTC)
+
+
+def test_sonno_con_la_notte_della_personalizzazione():
+    # notte tutta dopo la mezzanotte (01:00 → 06:00): la finestra va dalle 23:00 del giorno prima alle 10:00
+    personalizzazione = crea_personalizzazione(regole={"orari_notte": {"dalle": "01:00", "alle": "06:00"}})
+    eventi = [
+        sonno("2026-11-30T22:30:00+01:00", "2026-11-30T22:50:00+01:00"),
+        sonno("2026-11-30T23:10:00+01:00", "2026-12-01T06:10:00+01:00"),
+    ]
+    report = calcola_report_giornaliero(GIORNO, eventi, personalizzazione, DOPO)
+    assert report.sonno_minuti == 420
+
+
+def test_sonno_di_un_giorno_simulato():
+    eventi = [crea_evento("sonno", "2026-11-30T22:40:00+01:00", {"zona_id": "letto"},
+                          fine="2026-12-01T06:40:00+01:00", simulato=True)]
+    report = calcola_report_giornaliero(GIORNO, eventi, crea_personalizzazione(), DOPO)
+    assert report.simulato is True
+
+
+def test_sonno_medio_sulle_notti_viste():
+    eventi = [
+        sonno("2026-11-30T22:00:00+01:00", "2026-12-01T06:00:00+01:00"),
+        sonno("2026-12-01T23:00:00+01:00", "2026-12-02T05:00:00+01:00"),
+    ]
+    report = calcola_report_periodo("settimanale", GIORNO, datetime.date(2026, 12, 7), eventi,
+                                    crea_personalizzazione(), DOPO)
+    assert report.giorni[0].sonno_minuti == 480
+    assert report.giorni[1].sonno_minuti == 360
+    assert report.giorni[2].sonno_minuti is None
+    # le notti senza dati non abbassano la media
+    assert report.sonno_medio_minuti == 420
+
+
+def test_sonno_medio_senza_notti_viste():
+    report = calcola_report_periodo("settimanale", GIORNO, datetime.date(2026, 12, 7), [], crea_personalizzazione(),
+                                    DOPO)
+    assert report.sonno_medio_minuti is None
+
+
 # --- report di periodo ---
 
 def test_report_settimanale():
