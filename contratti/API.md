@@ -80,6 +80,22 @@ dopo un errore di rete. Il backend non deve né duplicarlo né perderlo:
   conta nel giorno in cui finisce la notte. `addormentato_alle` = inizio del primo pezzo, `sveglio_alle` = fine
   dell'ultimo. Le alzate notturne sono i buchi tra un pezzo e l'altro.
 
+## Funzioni dalla ricerca su Alzheimer e demenza (Marco, 25/11)
+- **Agitazione**: il programma di casa manda un evento `agitazione` quando una persona cammina avanti e indietro a
+  lungo senza meta. Il backend somma i minuti per giorno; la web app mostra quando succede nelle ore del giorno
+  (sundowning: tardo pomeriggio e sera).
+- **Inattività**: di giorno (fuori da `orari_notte`) nessuna persona vista da nessuna telecamera per
+  `regole.ore_inattivita` ore → evento urgente `inattivita` e allarme Telegram con l'ultima volta vista. Quando la
+  persona ricompare arriva un secondo evento grezzo con la fine.
+- **Visite al bagno**: evento `visita_bagno` dalla zona `bagno` (la porta vista da fuori). Spente di base: la web
+  app mostra la sezione solo se `regole.visite_bagno_attive` è vero; il programma di casa le conta solo sulle
+  telecamere con l'analizzatore `bagno`.
+- **Cambi di routine**: nel report del periodo il backend confronta con le 4 settimane prima (ora del risveglio,
+  acqua, pasti con meno di metà, sonno, agitazione, visite al bagno se attive, uscite) e scrive in `cambiamenti` solo
+  quello che è cambiato davvero.
+- **Promemoria acqua**: al massimo uno al giorno, tra le 16:00 e le 17:00 della casa, se ha bevuto meno di metà
+  dell'obiettivo e `regole.promemoria_acqua_attivo` è vero.
+
 ## Inserimenti a mano dei familiari (web app, Marco 25/11)
 - Nella web app un familiare può segnare a mano se e quanto ha mangiato e bevuto l'anziano. Come la
   personalizzazione (D29), questi inserimenti restano nel browser e non vanno al backend.
