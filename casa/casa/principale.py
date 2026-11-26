@@ -35,6 +35,7 @@ from casa.caduta import AnalizzatoreCaduta
 from casa.classificatore_cadute import ClassificatoreCadute
 from casa.configurazione import leggi_configurazione
 from casa.farmaco import AnalizzatoreFarmaco, ModelloFarmaci
+from casa.inattivita import AnalizzatoreInattivita
 from casa.invio import SECONDI_TRA_LOTTI, Backend, invia_in_sospeso
 from casa.pasto import AnalizzatorePasto, ModelloPiatto
 from casa.percezione import POSA_PREDEFINITA, RILEVATORE_PREDEFINITO, Percezione
@@ -181,6 +182,8 @@ class Telecamera:
     letti_finora: int = 0
     secondi_ultimo_analizzato: float | None = None
     veloce_fino_a: datetime.datetime | None = None  # 10 al secondo fino a quest'ora
+    # una sola per tutta la casa, la stessa in tutte le telecamere (vede le persone di tutte)
+    inattivita: AnalizzatoreInattivita | None = None
 
 
 def crea_analizzatori(telecamera: TelecameraLocale, personalizzazione: Personalizzazione,
@@ -205,6 +208,8 @@ def crea_analizzatori(telecamera: TelecameraLocale, personalizzazione: Personali
                 analizzatori.append(AnalizzatoreAlzataNotturna(telecamera, notte))
             else:
                 analizzatori.append(AnalizzatorePresenzaNotturna(telecamera, notte))
+        elif nome == "inattivita":
+            continue  # una per tutta la casa: la crea prepara_telecamere
         elif nome == "agitazione":
             analizzatori.append(AnalizzatoreAgitazione(telecamera))
         elif nome == "sonno":
@@ -219,6 +224,11 @@ def crea_analizzatori(telecamera: TelecameraLocale, personalizzazione: Personali
 
 
 def prepara_telecamere(configurazione: ConfigurazioneCasa, fps: float, specialisti: Specialisti) -> list:
+    # inattività: basta che una telecamera la chieda; conta chi è visto da qualunque telecamera
+    inattivita = None
+    for telecamera_locale in configurazione.telecamere:
+        if "inattivita" in telecamera_locale.analizzatori and inattivita is None:
+            inattivita = AnalizzatoreInattivita(configurazione.personalizzazione.regole)
     telecamere = []
     for telecamera_locale in configurazione.telecamere:
         analizzatori = crea_analizzatori(telecamera_locale, configurazione.personalizzazione, specialisti)
@@ -230,6 +240,7 @@ def prepara_telecamere(configurazione: ConfigurazioneCasa, fps: float, specialis
         segni = RilevatoreSegni(telecamera_locale, configurazione.personalizzazione.regole.portone_zona_id)
         telecamera = Telecamera(telecamera_locale.id, telecamera_locale.stanza, sorgente, analizzatori, usa_oggetti,
                                 segni)
+        telecamera.inattivita = inattivita
         telecamere.append(telecamera)
     return telecamere
 
@@ -277,6 +288,10 @@ def analizza(telecamera: Telecamera, letto: Letto, percezione, ora_inizio: datet
     for analizzatore in telecamera.analizzatori:
         for evento in analizzatore.elabora(osservazione):
             eventi.append(evento)
+    # l'inattività non torna indietro con la telecamera (non è nello stato copiato): i suoi eventi partono subito,
+    # altrimenti un ripasso li butterebbe senza rifarli
+    if telecamera.inattivita is not None:
+        registra(telecamera.inattivita.elabora(osservazione), registro, backend)
     segno = telecamera.segni.c_e_un_segno(osservazione)
     if segno:
         telecamera.veloce_fino_a = ora + datetime.timedelta(seconds=SECONDI_DOPO_IL_SEGNO)
