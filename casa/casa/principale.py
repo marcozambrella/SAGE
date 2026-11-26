@@ -40,6 +40,7 @@ from casa.percezione import POSA_PREDEFINITA, RILEVATORE_PREDEFINITO, Percezione
 from casa.registro import RegistroLocale
 from casa.riconoscimento_farmaci import RiconoscitoreFarmaci, crea_riconoscitore
 from casa.segni import RilevatoreSegni
+from casa.sonno import AnalizzatoreSonno
 from casa.sorgenti import Fotogramma, apri_sorgente
 from casa.uscita import AnalizzatoreUscita, ModelloPorta
 from casa.zone import zone_del_tipo
@@ -203,6 +204,12 @@ def crea_analizzatori(telecamera: TelecameraLocale, personalizzazione: Personali
                 analizzatori.append(AnalizzatoreAlzataNotturna(telecamera, notte))
             else:
                 analizzatori.append(AnalizzatorePresenzaNotturna(telecamera, notte))
+        elif nome == "sonno":
+            # il pezzo di sonno è di una zona letto (valori.zona_id)
+            if len(zone_del_tipo(telecamera, "letto")) > 0:
+                analizzatori.append(AnalizzatoreSonno(telecamera))
+            else:
+                print("telecamera " + telecamera.id + ": il sonno ha bisogno di una zona letto")
         else:
             print("telecamera " + telecamera.id + ": analizzatore " + nome + " non ancora disponibile")
     return analizzatori
