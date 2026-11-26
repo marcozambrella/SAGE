@@ -513,15 +513,15 @@ def test_piccole_differenze_non_sono_cambiamenti():
 
 def test_niente_confronto_senza_le_settimane_prima():
     assert cambiamenti(settimane_tipo(SETTIMANA, 7, 2, "09:00", "18:00")) == []
-    # due giorni soli prima non bastano
-    eventi = settimane_tipo(SETTIMANA - datetime.timedelta(days=2), 2, 6, "06:30", None)
+    # una settimana sola prima non basta per sapere com'è di solito
+    eventi = settimane_tipo(SETTIMANA - datetime.timedelta(days=7), 7, 6, "06:30", None)
     eventi.extend(settimane_tipo(SETTIMANA, 7, 2, "06:30", None))
     assert cambiamenti(eventi) == []
 
 
 def test_i_giorni_senza_eventi_non_contano_come_zero():
-    # nelle 4 settimane prima la casa ha mandato eventi solo per 10 giorni
-    eventi = settimane_tipo(PRIMA_DELLA_SETTIMANA + datetime.timedelta(days=18), 10, 6, "06:30", None)
+    # nelle 4 settimane prima la casa ha mandato eventi solo per 15 giorni
+    eventi = settimane_tipo(PRIMA_DELLA_SETTIMANA + datetime.timedelta(days=13), 15, 6, "06:30", None)
     eventi.extend(settimane_tipo(SETTIMANA, 7, 6, "06:30", None))
     assert cambiamenti(eventi) == []
 

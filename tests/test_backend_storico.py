@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from backend.app import app
 from backend.archivio import ArchivioDatabase
+from backend.coordinatore import coordina
 from backend.report import calcola_report_giornaliero, calcola_report_periodo
 from backend.storico_simulato import PERSONALIZZAZIONE_DEMO, SEME_PREDEFINITO, carica_storico, genera_storico
 from contratti.eventi import LETTORE_EVENTO
@@ -150,6 +151,107 @@ def test_storico_comincia_dal_primo_giorno():
         primo = min(primo, evento.inizio)
     # /demo/periodo apre lo storico dal primo evento: niente sonno iniziato il giorno prima
     assert primo.astimezone(roma).date() == DAL
+
+
+def report_dei_giorni(eventi: list) -> list:
+    report = []
+    for indice in range(28):
+        data = DAL + datetime.timedelta(days=indice)
+        report.append(calcola_report_giornaliero(data, eventi, PERSONALIZZAZIONE_DEMO, DOPO))
+    return report
+
+
+def media_nei_giorni_difficili_e_negli_altri(report: list, campo: str) -> tuple[float, float]:
+    """I giorni difficili sono quelli di poca acqua (meno di metà dell'obiettivo)."""
+    difficili = []
+    altri = []
+    for giorno in report:
+        if giorno.acqua_ml < 750:
+            difficili.append(getattr(giorno, campo))
+        else:
+            altri.append(getattr(giorno, campo))
+    return sum(difficili) / len(difficili), sum(altri) / len(altri)
+
+
+def test_agitazione_di_sera_e_di_piu_nei_giorni_difficili():
+    eventi = genera_storico(PERSONALIZZAZIONE_DEMO, DAL, AL, SEME_PREDEFINITO)
+    roma = ZoneInfo(PERSONALIZZAZIONE_DEMO.fuso_orario)
+    di_sera = 0
+    episodi = 0
+    for evento in eventi:
+        if evento.tipo == "agitazione":
+            episodi = episodi + 1
+            if 16 <= evento.inizio.astimezone(roma).hour < 20:
+                di_sera = di_sera + 1
+    # sundowning: quasi sempre nel tardo pomeriggio e la sera
+    assert episodi > 10
+    assert di_sera / episodi > 0.6
+    difficili, altri = media_nei_giorni_difficili_e_negli_altri(report_dei_giorni(eventi), "agitazione_minuti")
+    assert difficili > 3 * altri
+
+
+def test_visite_al_bagno_e_piu_di_notte_nei_giorni_difficili():
+    eventi = genera_storico(PERSONALIZZAZIONE_DEMO, DAL, AL, SEME_PREDEFINITO)
+    report = report_dei_giorni(eventi)
+    for giorno in report:
+        assert 2 <= giorno.visite_bagno <= 12
+    difficili, altri = media_nei_giorni_difficili_e_negli_altri(report, "visite_bagno_notte")
+    assert difficili > 2 * altri
+    for evento in eventi:
+        if evento.tipo == "visita_bagno":
+            assert evento.fonti[0].analizzatore == "bagno"
+
+
+def test_una_sola_inattivita_e_nessuno_visto_in_quelle_ore():
+    eventi = genera_storico(PERSONALIZZAZIONE_DEMO, DAL, AL, SEME_PREDEFINITO)
+    grezzi_inattivita = []
+    for evento in eventi:
+        if evento.tipo == "inattivita":
+            grezzi_inattivita.append(evento)
+    # due grezzi come dal programma di casa (allarme e fine), un solo fatto coordinato
+    assert len(grezzi_inattivita) == 2
+    assert grezzi_inattivita[0].fine is None
+    assert len(coordina(grezzi_inattivita)) == 1
+    ultima_volta = grezzi_inattivita[1].inizio
+    ricompare = grezzi_inattivita[1].fine
+    ore = (ricompare - ultima_volta).total_seconds() / 3600
+    assert PERSONALIZZAZIONE_DEMO.regole.ore_inattivita < ore < PERSONALIZZAZIONE_DEMO.regole.ore_inattivita + 1.5
+    for evento in eventi:
+        if evento.tipo == "inattivita":
+            continue
+        fine = evento.fine
+        if fine is None:
+            fine = evento.inizio
+        assert fine < ultima_volta or evento.inizio > ricompare
+    # i report del backend usano gli eventi coordinati
+    coordinati = []
+    for coordinato in coordina(eventi):
+        coordinati.append(coordinato.evento)
+    allarmi_inattivita = 0
+    for giorno in report_dei_giorni(coordinati):
+        allarmi_inattivita = allarmi_inattivita + giorno.allarmi_inattivita
+    assert allarmi_inattivita == 1
+
+
+def test_cambiamenti_solo_nella_settimana_difficile():
+    eventi = genera_storico(PERSONALIZZAZIONE_DEMO, DAL, AL, SEME_PREDEFINITO)
+    ultima_settimana = calcola_report_periodo("settimanale", AL - datetime.timedelta(days=6), AL, eventi,
+                                              PERSONALIZZAZIONE_DEMO, DOPO)
+    cosa = []
+    for cambiamento in ultima_settimana.cambiamenti:
+        cosa.append(cambiamento.cosa)
+    # tre giorni con poca acqua e più agitazione la sera
+    assert "acqua" in cosa
+    assert "agitazione" in cosa
+    # le settimane normali non hanno cambiamenti, anche con le visite al bagno accese
+    regole = PERSONALIZZAZIONE_DEMO.regole.model_copy(update={"visite_bagno_attive": True})
+    con_bagno = PERSONALIZZAZIONE_DEMO.model_copy(update={"regole": regole})
+    # dal 15° giorno ci sono due settimane prima; fino al 18° la settimana non tocca i giorni difficili
+    for inizio in range(14, 18):
+        dal = DAL + datetime.timedelta(days=inizio)
+        settimana = calcola_report_periodo("settimanale", dal, dal + datetime.timedelta(days=6), eventi, con_bagno,
+                                           DOPO)
+        assert settimana.cambiamenti == []
 
 
 def test_bevute_con_il_contenitore_della_personalizzazione():

@@ -39,15 +39,19 @@ from backend.regole import MINUTI_RITARDO_MASSIMO, dosi_previste, giorno_locale,
 SEME_PREDEFINITO = 7
 SETTIMANE_PREDEFINITE = 4
 
-# acqua bevuta in un giorno (ml): gaussiana con questa media e variazione, poi tenuta tra minimo e massimo
+# acqua bevuta in un giorno (ml): gaussiana con questa media e variazione, poi tenuta tra minimo e massimo. Un giorno
+# normale non scende sotto metà dell'obiettivo d'esempio (1500 ml): così i giorni di poca acqua si distinguono.
 ACQUA_MEDIA_ML = 1250
 ACQUA_VARIAZIONE_ML = 250
-ACQUA_MINIMA_ML = 600
+ACQUA_MINIMA_ML = 850
 ACQUA_MASSIMA_ML = 2000
-# 3 giorni di fila con poca acqua (Marco, 24/11), pasti scarsi e notti agitate (25/11): un calo da notare nei trend.
-# Cadono nell'ultima settimana, così si vedono sia nel trend settimanale sia in quello mensile.
+# 3 giorni di fila con poca acqua (Marco, 24/11), pasti scarsi, notti agitate con più visite al bagno e più agitazione
+# (25/11): un calo da notare nei trend e nei cambi di routine. Cadono nell'ultima settimana, così si vedono sia nel
+# trend settimanale sia in quello mensile.
 GIORNI_DI_POCA_ACQUA = 3
-FATTORE_POCA_ACQUA = 0.45
+# nei giorni di poca acqua beve tra questi ml, meno di metà dell'obiettivo d'esempio
+ACQUA_POCA_MINIMA_ML = 400
+ACQUA_POCA_MASSIMA_ML = 650
 BEVUTE_MINIME = 4
 BEVUTE_MASSIME = 9
 
@@ -62,7 +66,7 @@ PROBABILITA_PASTO_SALTATO = 0.05
 CATEGORIE_MANGIATO = ["tutto", "meta", "meno_di_meta", None]
 PESI_MANGIATO = [50, 35, 10, 5]
 # nei giorni di poca acqua mangia anche poco: la stessa settimana difficile si vede in tutti e due i trend
-PESI_MANGIATO_GIORNI_DIFFICILI = [10, 30, 55, 5]
+PESI_MANGIATO_GIORNI_DIFFICILI = [5, 15, 75, 5]
 
 # alzate per notte con questi pesi; nelle notti agitate dei giorni difficili ce ne sono di più
 ALZATE_PER_NOTTE = [0, 1, 2, 3, 4]
@@ -92,6 +96,23 @@ CENE = [["soup", "bread"], ["omelette", "salad"], ["ham", "cheese", "bread"], ["
 PASTI = [(7 * 60 + 30, 9 * 60, COLAZIONI), (12 * 60, 13 * 60 + 30, PRANZI), (19 * 60, 20 * 60 + 30, CENE)]
 STANZE_DELLE_CADUTE = ["bathroom", "kitchen", "living room", "bedroom"]
 PERCORSI_NOTTURNI = [["bedroom", "bathroom"], ["bedroom", "bathroom"], ["bedroom", "kitchen"], ["bedroom", "hall"]]
+# nelle notti agitate ogni alzata è per il bagno
+PERCORSO_AL_BAGNO = ["bedroom", "bathroom"]
+
+# agitazione (API.md): episodi al giorno con questi pesi, di più nei giorni difficili; quasi sempre tra le 16 e le 20
+# (sundowning)
+EPISODI_DI_AGITAZIONE = [0, 1, 2, 3]
+PESI_AGITAZIONE = [55, 30, 15, 0]
+PESI_AGITAZIONE_GIORNI_DIFFICILI = [0, 20, 50, 30]
+PROBABILITA_AGITAZIONE_DI_SERA = 0.75
+MINUTI_AGITAZIONE = (5, 15)
+MINUTI_AGITAZIONE_GIORNI_DIFFICILI = (10, 30)
+# visite al bagno di giorno (quelle di notte sono le alzate per il bagno)
+VISITE_BAGNO_MINIME = 3
+VISITE_BAGNO_MASSIME = 6
+DURATA_MASSIMA_VISITA = 8
+# una sola inattività in tutto lo storico: di giorno, per poco più delle ore_inattivita della personalizzazione
+MINUTI_IN_PIU_INATTIVITA = (15, 60)
 
 # Usata solo se la casa demo non ha ancora una personalizzazione (di solito la manda il programma di casa).
 PERSONALIZZAZIONE_DEMO = Personalizzazione(
@@ -153,6 +174,9 @@ def dati_evento(
     fine_testo = None
     if fine is not None:
         fine_testo = fine.isoformat()
+    # le visite al bagno le vede l'analizzatore "bagno" (contratti/configurazione.py)
+    if tipo == "visita_bagno":
+        fonte["analizzatore"] = "bagno"
     return {
         "tipo": tipo,
         "inizio": inizio.isoformat(),
@@ -186,20 +210,36 @@ def minuti_permessi(vietati: list[int]) -> list[int]:
     return minuti
 
 
+def contenitore_piu_grande(contenitori: list[Contenitore]) -> Contenitore:
+    scelto = contenitori[0]
+    for contenitore in contenitori:
+        if contenitore.capienza_ml > scelto.capienza_ml:
+            scelto = contenitore
+    return scelto
+
+
 def bevute(
     rng: random.Random, data: datetime.date, personalizzazione: Personalizzazione, fuso: ZoneInfo, poca_acqua: bool
 ) -> list:
     acqua_del_giorno = tra(rng.gauss(ACQUA_MEDIA_ML, ACQUA_VARIAZIONE_ML), ACQUA_MINIMA_ML, ACQUA_MASSIMA_ML)
     if poca_acqua:
-        acqua_del_giorno = acqua_del_giorno * FATTORE_POCA_ACQUA
+        acqua_del_giorno = rng.uniform(ACQUA_POCA_MINIMA_ML, ACQUA_POCA_MASSIMA_ML)
     numero = rng.randint(BEVUTE_MINIME, BEVUTE_MASSIME)
     contenitori = personalizzazione.contenitori
     if len(contenitori) == 0:
         contenitori = [BICCHIERE]
-    eventi = []
+    # bevute diverse tra loro ma che sommano proprio l'acqua del giorno: pesi a caso, divisi per la loro somma
+    pesi = []
     for _ in range(numero):
+        pesi.append(rng.uniform(0.7, 1.3))
+    somma_pesi = sum(pesi)
+    eventi = []
+    for peso in pesi:
+        voluti_ml = acqua_del_giorno * peso / somma_pesi
         contenitore = rng.choice(contenitori)
-        voluti_ml = acqua_del_giorno / numero * rng.uniform(0.7, 1.3)
+        # se non sta nel contenitore scelto (più di un bicchiere) beve dal più grande
+        if voluti_ml > contenitore.capienza_ml:
+            contenitore = contenitore_piu_grande(contenitori)
         # calcolo dei ml dalla percentuale di altezza come il programma di casa (D9)
         percentuale = round(min(voluti_ml / contenitore.capienza_ml * 100, 100), 1)
         altezza_px = round(rng.uniform(120, 300), 1)
@@ -322,8 +362,88 @@ def notte(
         eventi.append(dati_evento(rng, personalizzazione, "sonno", inizio_pezzo, risveglio, "bedroom",
                                   {"zona_id": "letto"}))
     for inizio, fine in alzate:
-        valori = {"stanze": rng.choice(PERCORSI_NOTTURNI)}
-        eventi.append(dati_evento(rng, personalizzazione, "alzata_notturna", inizio, fine, "bedroom", valori))
+        percorso = rng.choice(PERCORSI_NOTTURNI)
+        if agitata:
+            percorso = PERCORSO_AL_BAGNO
+        eventi.append(dati_evento(rng, personalizzazione, "alzata_notturna", inizio, fine, "bedroom",
+                                  {"stanze": percorso}))
+        # un'alzata per il bagno passa dalla porta del bagno: entra un minuto dopo e esce un minuto prima di tornare
+        if "bathroom" in percorso:
+            entra = inizio + datetime.timedelta(minutes=1)
+            esce = fine - datetime.timedelta(minutes=1)
+            eventi.append(dati_evento(rng, personalizzazione, "visita_bagno", entra, esce, "hall",
+                                      {"zona_id": "porta-bagno"}))
+    return eventi
+
+
+def agitazione(
+    rng: random.Random, data: datetime.date, personalizzazione: Personalizzazione, fuso: ZoneInfo, difficile: bool
+) -> list:
+    pesi = PESI_AGITAZIONE
+    minimo, massimo = MINUTI_AGITAZIONE
+    if difficile:
+        pesi = PESI_AGITAZIONE_GIORNI_DIFFICILI
+        minimo, massimo = MINUTI_AGITAZIONE_GIORNI_DIFFICILI
+    numero = rng.choices(EPISODI_DI_AGITAZIONE, weights=pesi)[0]
+    eventi = []
+    for _ in range(numero):
+        if rng.random() < PROBABILITA_AGITAZIONE_DI_SERA:
+            minuto = rng.randint(16 * 60, 19 * 60 + 30)
+        else:
+            minuto = rng.randint(10 * 60, 15 * 60 + 30)
+        inizio = momento(data, minuto, fuso)
+        minuti = rng.randint(minimo, massimo)
+        fine = inizio + datetime.timedelta(minutes=minuti)
+        # cammina avanti e indietro: una o due inversioni al minuto
+        valori = {"inversioni": round(minuti * rng.uniform(1, 2))}
+        eventi.append(dati_evento(rng, personalizzazione, "agitazione", inizio, fine, "hall", valori))
+    return eventi
+
+
+def visite_al_bagno_di_giorno(
+    rng: random.Random, data: datetime.date, personalizzazione: Personalizzazione, fuso: ZoneInfo
+) -> list:
+    numero = rng.randint(VISITE_BAGNO_MINIME, VISITE_BAGNO_MASSIME)
+    # dalle 7:30 alle 21:30, ognuna nella sua parte della giornata: due visite che si sovrappongono sarebbero lo stesso
+    # fatto per il coordinatore
+    primo_minuto = 7 * 60 + 30
+    parte = (14 * 60) // numero
+    eventi = []
+    for indice in range(numero):
+        minuto = primo_minuto + indice * parte + rng.randint(0, parte - DURATA_MASSIMA_VISITA - 5)
+        inizio = momento(data, minuto, fuso)
+        fine = inizio + datetime.timedelta(minutes=rng.randint(2, DURATA_MASSIMA_VISITA))
+        eventi.append(dati_evento(rng, personalizzazione, "visita_bagno", inizio, fine, "hall",
+                                  {"zona_id": "porta-bagno"}))
+    return eventi
+
+
+def con_inattivita(
+    rng: random.Random, data: datetime.date, personalizzazione: Personalizzazione, fuso: ZoneInfo, altri: list
+) -> list:
+    """Gli eventi del giorno con un'inattività nel primo pomeriggio (per esempio addormentata in poltrona, fuori dalle
+    telecamere): tolti quelli che cadono nelle ore in cui nessuno la vede, tranne le bevute che vanno a dopo. Due grezzi
+    come dal programma di casa: uno quando scatta l'allarme (fine None) e uno con la fine quando ricompare (API.md)."""
+    ultima_volta = momento(data, rng.randint(13 * 60, 14 * 60 + 30), fuso)
+    minimo, massimo = MINUTI_IN_PIU_INATTIVITA
+    minuti = personalizzazione.regole.ore_inattivita * 60 + rng.randint(minimo, massimo)
+    ricompare = ultima_volta + datetime.timedelta(minutes=minuti)
+    eventi = []
+    for dati in altri:
+        inizio = datetime.datetime.fromisoformat(dati["inizio"])
+        fine = inizio
+        if dati["fine"] is not None:
+            fine = datetime.datetime.fromisoformat(dati["fine"])
+        if fine < ultima_volta or inizio > ricompare:
+            eventi.append(dati)
+        elif dati["tipo"] == "bevuta":
+            # beve quando ricompare: l'acqua del giorno resta quella e nel trend non c'è un calo finto
+            spostata = ricompare + datetime.timedelta(minutes=rng.randint(5, 90))
+            dati["inizio"] = spostata.isoformat()
+            eventi.append(dati)
+    valori = {"ultima_telecamera_id": telecamera_della_stanza(personalizzazione, "kitchen")}
+    eventi.append(dati_evento(rng, personalizzazione, "inattivita", ultima_volta, None, "kitchen", valori))
+    eventi.append(dati_evento(rng, personalizzazione, "inattivita", ultima_volta, ricompare, "kitchen", valori))
     return eventi
 
 
@@ -366,6 +486,7 @@ def eventi_del_giorno(
     con_caduta: bool,
     poca_acqua: bool,
     con_sonno: bool,
+    inattivo: bool,
 ) -> list[EventoBase]:
     fuso = ZoneInfo(personalizzazione.fuso_orario)
     tutti = []
@@ -375,6 +496,10 @@ def eventi_del_giorno(
     # le notti dei giorni di poca acqua sono agitate: la stessa settimana difficile
     tutti.extend(notte(rng, data, personalizzazione, fuso, poca_acqua, con_sonno))
     tutti.extend(cadute_e_uscite(rng, data, personalizzazione, fuso, vietati, permessi, con_caduta))
+    tutti.extend(agitazione(rng, data, personalizzazione, fuso, poca_acqua))
+    tutti.extend(visite_al_bagno_di_giorno(rng, data, personalizzazione, fuso))
+    if inattivo:
+        tutti = con_inattivita(rng, data, personalizzazione, fuso, tutti)
 
     eventi = []
     numero = 0
@@ -402,6 +527,7 @@ def genera_storico(
     primo_minimo = max(numero_giorni - 7, 0)
     primo_massimo = max(numero_giorni - GIORNI_DI_POCA_ACQUA, 0)
     primo_poca_acqua = rng.randint(primo_minimo, primo_massimo)
+    giorno_inattivo = rng.randrange(numero_giorni)
     eventi = []
     for indice in range(numero_giorni):
         data = dal + datetime.timedelta(days=indice)
@@ -409,8 +535,9 @@ def genera_storico(
         poca_acqua = primo_poca_acqua <= indice < primo_poca_acqua + GIORNI_DI_POCA_ACQUA
         # il sonno del primo giorno comincerebbe il giorno prima: /demo/periodo aprirebbe un giorno quasi vuoto
         con_sonno = indice > 0
+        inattivo = indice == giorno_inattivo
         eventi.extend(eventi_del_giorno(rng, data, personalizzazione, seme, vietati, permessi, con_caduta,
-                                        poca_acqua, con_sonno))
+                                        poca_acqua, con_sonno, inattivo))
     return eventi
 
 

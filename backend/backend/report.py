@@ -24,22 +24,25 @@ from backend.regole import (
 )
 
 # Cambi di routine (API.md, Marco 25/11): il periodo si confronta con le 4 settimane prima. Contano solo i giorni già
-# finiti e con almeno un evento (un giorno senza eventi è una casa spenta, non un giorno a zero), e ne servono almeno
-# MINIMO_GIORNI_CONFRONTO da una parte e dall'altra.
+# finiti e con almeno un evento (un giorno senza eventi è una casa spenta, non un giorno a zero). Per sapere com'è "di
+# solito" servono almeno due settimane di giorni prima (con una sola il caso pesa troppo); nel periodo bastano 3 giorni.
 SETTIMANE_DI_CONFRONTO = 4
-MINIMO_GIORNI_CONFRONTO = 3
+MINIMO_GIORNI_DI_PRIMA = 14
+MINIMO_GIORNI_DEL_PERIODO = 3
 # Soglie (PROPOSTE da confermare con Marco): una differenza tra le medie più piccola non è un cambiamento vero. Sono
-# circa tre volte la variazione normale della media di una settimana nello storico simulato.
-SOGLIA_SVEGLIA_MINUTI = 45
-SOGLIA_SONNO_MINUTI = 30
-SOGLIA_ACQUA_ML = 150
-SOGLIA_ACQUA_PERCENTUALE = 20
-SOGLIA_PASTI_AL_GIORNO = 0.75
-SOGLIA_AGITAZIONE_MINUTI = 15
+# poco sopra la differenza più grande di 99 settimane normali su 100 nello storico simulato (60 semi): sveglia 52
+# minuti, sonno 32 minuti, acqua 333 ml, pasti 0.63, agitazione 9 minuti, bagno 1.7 al giorno e 0.84 a notte,
+# uscite 1.1 al giorno.
+SOGLIA_SVEGLIA_MINUTI = 60
+SOGLIA_SONNO_MINUTI = 40
+SOGLIA_ACQUA_ML = 300
+SOGLIA_ACQUA_PERCENTUALE = 25
+SOGLIA_PASTI_AL_GIORNO = 0.7
+SOGLIA_AGITAZIONE_MINUTI = 10
 SOGLIA_AGITAZIONE_PERCENTUALE = 50
-SOGLIA_BAGNO_AL_GIORNO = 1.5
-SOGLIA_BAGNO_DI_NOTTE = 0.75
-SOGLIA_USCITE_AL_GIORNO = 1
+SOGLIA_BAGNO_AL_GIORNO = 1.75
+SOGLIA_BAGNO_DI_NOTTE = 0.9
+SOGLIA_USCITE_AL_GIORNO = 1.25
 
 
 def calcola_report_giornaliero(
@@ -295,9 +298,9 @@ def giorni_da_confrontare(
     return scelti
 
 
-def media(valori: list[float]) -> float | None:
-    """None se i valori sono troppo pochi per un confronto."""
-    if len(valori) < MINIMO_GIORNI_CONFRONTO:
+def media(valori: list[float], minimo: int) -> float | None:
+    """None se i valori sono meno di `minimo`: troppo pochi per un confronto."""
+    if len(valori) < minimo:
         return None
     return sum(valori) / len(valori)
 
@@ -320,6 +323,14 @@ def un_decimale(valore: float) -> str:
     if arrotondato == int(arrotondato):
         return str(int(arrotondato))
     return str(arrotondato)
+
+
+def quanti(valore: float, singolare: str, plurale: str) -> str:
+    """1 → "1 meal", 1.3 → "1.3 meals"."""
+    testo = un_decimale(valore)
+    if testo == "1":
+        return "1 " + singolare
+    return testo + " " + plurale
 
 
 def durata_in_parole(minuti: float) -> str:
@@ -346,9 +357,9 @@ def piu_o_meno(prima: float, dopo: float) -> str:
 
 
 def medie_dei_giorni(
-    report_dei_giorni: list[ReportGiornaliero], fuso_orario: str
+    report_dei_giorni: list[ReportGiornaliero], fuso_orario: str, minimo: int
 ) -> dict[str, float | None]:
-    """Le medie al giorno (o a notte) di quello che si confronta; None dove i giorni sono troppo pochi."""
+    """Le medie al giorno (o a notte) di quello che si confronta; None dove i giorni sono meno di `minimo`."""
     sveglia = []
     sonno = []
     acqua = []
@@ -375,14 +386,14 @@ def medie_dei_giorni(
         bagno_di_notte.append(report.visite_bagno_notte)
         uscite.append(report.uscite)
     return {
-        "sveglia": media(sveglia),
-        "sonno": media(sonno),
-        "acqua": media(acqua),
-        "pasti": media(pasti),
-        "agitazione": media(agitazione),
-        "bagno": media(bagno),
-        "bagno_di_notte": media(bagno_di_notte),
-        "uscite": media(uscite),
+        "sveglia": media(sveglia, minimo),
+        "sonno": media(sonno, minimo),
+        "acqua": media(acqua, minimo),
+        "pasti": media(pasti, minimo),
+        "agitazione": media(agitazione, minimo),
+        "bagno": media(bagno, minimo),
+        "bagno_di_notte": media(bagno_di_notte, minimo),
+        "uscite": media(uscite, minimo),
     }
 
 
@@ -404,8 +415,8 @@ def cambiamenti_di_routine(
         data = data + datetime.timedelta(days=1)
     giorni_di_prima = giorni_da_confrontare(report_di_prima, eventi, fuso_orario, oggi)
     giorni_di_adesso = giorni_da_confrontare(report_del_periodo, eventi, fuso_orario, oggi)
-    prima = medie_dei_giorni(giorni_di_prima, fuso_orario)
-    ora = medie_dei_giorni(giorni_di_adesso, fuso_orario)
+    prima = medie_dei_giorni(giorni_di_prima, fuso_orario, MINIMO_GIORNI_DI_PRIMA)
+    ora = medie_dei_giorni(giorni_di_adesso, fuso_orario, MINIMO_GIORNI_DEL_PERIODO)
 
     cambiamenti = []
     if cambiato(prima["sveglia"], ora["sveglia"], SOGLIA_SVEGLIA_MINUTI, 0):
@@ -430,28 +441,29 @@ def cambiamenti_di_routine(
         cambiamenti.append(CambiamentoRoutine(cosa="acqua", testo=testo))
     if cambiato(prima["pasti"], ora["pasti"], SOGLIA_PASTI_AL_GIORNO, 0):
         testo = ("Leaves more than half of the plate " + piu_o_meno(prima["pasti"], ora["pasti"])
-                 + " often than usual (" + un_decimale(ora["pasti"]) + " meals a day instead of "
+                 + " often than usual (" + quanti(ora["pasti"], "meal", "meals") + " a day instead of "
                  + un_decimale(prima["pasti"]) + ").")
         cambiamenti.append(CambiamentoRoutine(cosa="pasti", testo=testo))
     if cambiato(prima["agitazione"], ora["agitazione"], SOGLIA_AGITAZIONE_MINUTI, SOGLIA_AGITAZIONE_PERCENTUALE):
         testo = ("Agitated (pacing) " + piu_o_meno(prima["agitazione"], ora["agitazione"]) + " than usual ("
-                 + str(round(ora["agitazione"])) + " minutes a day instead of " + str(round(prima["agitazione"]))
-                 + ").")
+                 + quanti(round(ora["agitazione"]), "minute", "minutes") + " a day instead of "
+                 + str(round(prima["agitazione"])) + ").")
         cambiamenti.append(CambiamentoRoutine(cosa="agitazione", testo=testo))
     # le visite al bagno solo se la famiglia le ha accese (API.md)
     if personalizzazione.regole.visite_bagno_attive:
         if cambiato(prima["bagno"], ora["bagno"], SOGLIA_BAGNO_AL_GIORNO, 0):
             testo = ("Goes to the bathroom " + piu_o_meno(prima["bagno"], ora["bagno"]) + " often than usual ("
-                     + un_decimale(ora["bagno"]) + " times a day instead of " + un_decimale(prima["bagno"]) + ").")
+                     + quanti(ora["bagno"], "time", "times") + " a day instead of " + un_decimale(prima["bagno"])
+                     + ").")
             cambiamenti.append(CambiamentoRoutine(cosa="bagno", testo=testo))
         if cambiato(prima["bagno_di_notte"], ora["bagno_di_notte"], SOGLIA_BAGNO_DI_NOTTE, 0):
             testo = ("Goes to the bathroom " + piu_o_meno(prima["bagno_di_notte"], ora["bagno_di_notte"])
-                     + " often at night (" + un_decimale(ora["bagno_di_notte"]) + " times a night instead of "
+                     + " often at night (" + quanti(ora["bagno_di_notte"], "time", "times") + " a night instead of "
                      + un_decimale(prima["bagno_di_notte"]) + ").")
             cambiamenti.append(CambiamentoRoutine(cosa="bagno", testo=testo))
     if cambiato(prima["uscite"], ora["uscite"], SOGLIA_USCITE_AL_GIORNO, 0):
         testo = ("Goes out " + piu_o_meno(prima["uscite"], ora["uscite"]) + " often than usual ("
-                 + un_decimale(ora["uscite"]) + " times a day instead of " + un_decimale(prima["uscite"]) + ").")
+                 + quanti(ora["uscite"], "time", "times") + " a day instead of " + un_decimale(prima["uscite"]) + ").")
         cambiamenti.append(CambiamentoRoutine(cosa="uscite", testo=testo))
     return cambiamenti
 
