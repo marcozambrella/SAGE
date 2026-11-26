@@ -10,7 +10,7 @@ import {
   messaggioErrore,
 } from "../api";
 import { bevuteNonMisurate, descriviEvento, orariDose, testoNonMisurate, type Descrizione } from "../descrizioni";
-import { durata, giornoLungo, maiuscola, millilitri, oraDellaCasa } from "../formato";
+import { giornoLungo, maiuscola, millilitri, oraDellaCasa } from "../formato";
 import Caricamento from "../componenti/Caricamento";
 import EtichettaDose from "../componenti/EtichettaDose";
 import EtichettaPasto from "../componenti/EtichettaPasto";
@@ -19,6 +19,7 @@ import Icona from "../componenti/Icona";
 import InAttesaTelecamere from "../componenti/InAttesaTelecamere";
 import Misuratore from "../componenti/Misuratore";
 import Scheda from "../componenti/Scheda";
+import SonnoDellaNotte from "../componenti/SonnoDellaNotte";
 import TitoloPagina from "../componenti/TitoloPagina";
 
 type Proprieta = {
@@ -221,16 +222,12 @@ function OggiCasaDemo() {
           </ul>
         </Scheda>
 
-        <Scheda titolo="Night and safety" icona="luna">
+        <Scheda titolo="Last night" icona="letto">
+          <SonnoDellaNotte report={report} fusoOrario={fuso} />
+        </Scheda>
+
+        <Scheda titolo="Safety" icona="scudo">
           <div className="tessere">
-            <div className="tessera">
-              <span className="numero-medio">{report.alzate_notturne}</span>
-              <span className="testo-secondario">night-time rises</span>
-            </div>
-            <div className="tessera">
-              <span className="numero-medio">{durata(report.minuti_fuori_letto_notte)}</span>
-              <span className="testo-secondario">out of bed at night</span>
-            </div>
             <div className="tessera">
               <span className="numero-medio">{report.cadute}</span>
               <span className="testo-secondario">falls</span>

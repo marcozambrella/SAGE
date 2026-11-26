@@ -9,9 +9,18 @@ import {
   leggiReportSettimanale,
   messaggioErrore,
 } from "../api";
-import { giornoBreve, giornoDellaCasa, giornoEMese, millilitri, percentuale, quanti, spostaGiorno } from "../formato";
+import {
+  durata,
+  giornoBreve,
+  giornoDellaCasa,
+  giornoEMese,
+  millilitri,
+  percentuale,
+  quanti,
+  spostaGiorno,
+} from "../formato";
 import Caricamento from "../componenti/Caricamento";
-import { GraficoAcqua, GraficoDosi, GraficoNotti } from "../componenti/Grafici";
+import { GraficoAcqua, GraficoDosi, GraficoNotti, GraficoSonno } from "../componenti/Grafici";
 import GraficoPasti, { type PastiDelGiorno } from "../componenti/GraficoPasti";
 import Icona from "../componenti/Icona";
 import InAttesaTelecamere from "../componenti/InAttesaTelecamere";
@@ -190,7 +199,21 @@ function GraficiDelPeriodo({ report, eventiPasti, personalizzazione }: Proprieta
           </p>
           <GraficoPasti giorni={pastiDeiGiorni} />
         </Scheda>
-        <Scheda titolo="Nights" icona="luna">
+        <Scheda titolo="Sleep" icona="letto">
+          {report.sonno_medio_minuti === null && (
+            <p className="testo-secondario">No sleep has been seen on these days yet.</p>
+          )}
+          {report.sonno_medio_minuti !== null && (
+            <>
+              <p>
+                <span className="numero-medio">{durata(report.sonno_medio_minuti)}</span>{" "}
+                <span className="testo-secondario">of sleep a night on average</span>
+              </p>
+              <GraficoSonno giorni={report.giorni} mediaMinuti={report.sonno_medio_minuti} />
+            </>
+          )}
+        </Scheda>
+        <Scheda titolo="Night rises" icona="luna">
           <p>
             <span className="numero-medio">{report.alzate_notturne_medie.toFixed(1)}</span>{" "}
             <span className="testo-secondario">rises per night on average</span>

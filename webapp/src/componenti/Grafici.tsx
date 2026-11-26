@@ -14,7 +14,7 @@ import {
   YAxis,
 } from "recharts";
 import type { RiassuntoGiorno } from "../contratti";
-import { giornoBreve, giornoDelMese, giornoLungo, millilitri } from "../formato";
+import { durata, giornoBreve, giornoDelMese, giornoLungo, millilitri } from "../formato";
 
 // Gli stessi colori di stile/variabili.css: gli attributi dei disegni SVG non leggono le variabili CSS.
 const ACCENTO = "#c0512f";
@@ -182,6 +182,88 @@ export function GraficoDosi({ giorni }: { giorni: RiassuntoGiorno[] }) {
             fill={DOSE_SALTATA}
             stroke={SUPERFICIE}
             strokeWidth={2}
+            radius={[4, 4, 0, 0]}
+            maxBarSize={24}
+            isAnimationActive={false}
+          />
+        </BarChart>
+      </ResponsiveContainer>
+    </figure>
+  );
+}
+
+// Ore di sonno ogni notte, con la media del periodo. Le notti in cui non si è visto dormire restano vuote.
+function oreDiSonno(riga: RiassuntoGiorno): number | null {
+  if (riga.sonno_minuti === null) {
+    return null;
+  }
+  return riga.sonno_minuti / 60;
+}
+
+function formattaOre(valore: unknown): string {
+  return durata(Number(valore) * 60);
+}
+
+function formattaOreAsse(valore: number): string {
+  return valore + " h";
+}
+
+type ProprietaSonno = {
+  giorni: RiassuntoGiorno[];
+  mediaMinuti: number;
+};
+
+export function GraficoSonno({ giorni, mediaMinuti }: ProprietaSonno) {
+  // L'asse arriva almeno a 10 ore, a un numero pari, così la notte più lunga sta sotto la cima.
+  let massimo = 10;
+  for (const riga of giorni) {
+    const ore = oreDiSonno(riga);
+    if (ore !== null) {
+      massimo = Math.max(massimo, ore);
+    }
+  }
+  const cima = Math.ceil(massimo / 2) * 2;
+  return (
+    <figure className="grafico" aria-label={"Hours of sleep each night, average " + durata(mediaMinuti)}>
+      <ResponsiveContainer width="100%" height={ALTEZZA}>
+        {/* Spazio a destra per la scritta "Average", fuori dalle barre */}
+        <BarChart data={giorni} margin={{ top: 16, right: 64, left: 0, bottom: 0 }}>
+          <CartesianGrid vertical={false} stroke={GRIGLIA} />
+          <XAxis
+            dataKey="data"
+            tickFormatter={formatoAsse(giorni)}
+            tick={TESTO_ASSI}
+            tickLine={false}
+            axisLine={false}
+            interval="preserveStartEnd"
+            minTickGap={10}
+          />
+          <YAxis
+            domain={[0, cima]}
+            tickCount={cima / 2 + 1}
+            tickFormatter={formattaOreAsse}
+            tick={TESTO_ASSI}
+            tickLine={false}
+            axisLine={false}
+            width={48}
+          />
+          <Tooltip
+            cursor={CURSORE_BARRE}
+            contentStyle={STILE_SUGGERIMENTO}
+            labelFormatter={titoloSuggerimento}
+            formatter={formattaOre}
+          />
+          <ReferenceLine
+            y={mediaMinuti / 60}
+            stroke={TESTO_SECONDARIO}
+            strokeWidth={2}
+            strokeDasharray="6 4"
+            label={{ value: "Average", position: "right", fill: TESTO_SECONDARIO, fontSize: 13 }}
+          />
+          <Bar
+            dataKey={oreDiSonno}
+            name="Sleep"
+            fill={ACCENTO}
             radius={[4, 4, 0, 0]}
             maxBarSize={24}
             isAnimationActive={false}

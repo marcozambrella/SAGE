@@ -30,9 +30,10 @@ import EtichettaSimulato from "../componenti/EtichettaSimulato";
 import Icona from "../componenti/Icona";
 import InAttesaTelecamere from "../componenti/InAttesaTelecamere";
 import Misuratore from "../componenti/Misuratore";
+import SonnoDellaNotte from "../componenti/SonnoDellaNotte";
 import TabellaGiorni from "../componenti/TabellaGiorni";
 import TitoloPagina from "../componenti/TitoloPagina";
-import { GraficoAcqua, GraficoDosi } from "../componenti/Grafici";
+import { GraficoAcqua, GraficoDosi, GraficoSonno } from "../componenti/Grafici";
 
 type Proprieta = {
   demo: boolean;
@@ -266,17 +267,16 @@ function ReportDelGiorno({ periodo, personalizzazione }: ProprietaGiorno) {
 
         <section className="pila">
           <h3 className="titolo-sezione">
-            <Icona nome="luna" /> Night and safety
+            <Icona nome="letto" /> Last night
+          </h3>
+          <SonnoDellaNotte report={report} fusoOrario={fuso} />
+        </section>
+
+        <section className="pila">
+          <h3 className="titolo-sezione">
+            <Icona nome="scudo" /> Safety
           </h3>
           <div className="tessere">
-            <div className="tessera">
-              <span className="numero-medio">{report.alzate_notturne}</span>
-              <span className="testo-secondario">night-time rises</span>
-            </div>
-            <div className="tessera">
-              <span className="numero-medio">{durata(report.minuti_fuori_letto_notte)}</span>
-              <span className="testo-secondario">out of bed at night</span>
-            </div>
             <div className="tessera">
               <span className="numero-medio">{report.cadute}</span>
               <span className="testo-secondario">falls</span>
@@ -365,6 +365,12 @@ function ReportDelPeriodo({ tipo, periodo, personalizzazione }: ProprietaPeriodo
     }
   }
 
+  // Senza notti viste il backend manda null: "No data", come per l'aderenza.
+  let testoSonnoMedio = "No data";
+  if (report.sonno_medio_minuti !== null) {
+    testoSonnoMedio = durata(report.sonno_medio_minuti);
+  }
+
   let titolo = "Weekly report";
   if (tipo === "mensile") {
     titolo = "Monthly report";
@@ -395,6 +401,10 @@ function ReportDelPeriodo({ tipo, periodo, personalizzazione }: ProprietaPeriodo
             <span className="testo-secondario">doses taken</span>
           </div>
           <div className="tessera">
+            <span className="numero-medio">{testoSonnoMedio}</span>
+            <span className="testo-secondario">sleep per night</span>
+          </div>
+          <div className="tessera">
             <span className="numero-medio">{report.alzate_notturne_medie.toFixed(1)}</span>
             <span className="testo-secondario">night rises per night</span>
           </div>
@@ -420,6 +430,14 @@ function ReportDelPeriodo({ tipo, periodo, personalizzazione }: ProprietaPeriodo
           </h3>
           <GraficoDosi giorni={report.giorni} />
         </section>
+        {report.sonno_medio_minuti !== null && (
+          <section className="pila">
+            <h3 className="titolo-sezione">
+              <Icona nome="letto" /> Sleep each night
+            </h3>
+            <GraficoSonno giorni={report.giorni} mediaMinuti={report.sonno_medio_minuti} />
+          </section>
+        )}
         <section className="pila">
           <h3 className="titolo-sezione">
             <Icona nome="calendario" /> Day by day
