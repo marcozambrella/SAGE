@@ -1,10 +1,11 @@
-// Alerts: allarme uscita (acceso, spento, in pausa per N ore, D16) e allarmi urgenti (cadute, uscite vietate).
+// Alerts: allarme uscita (acceso, spento, in pausa per N ore, D16), allarme di inattività e promemoria dell'acqua
+// (Marco, 25/11), e gli allarmi urgenti (cadute, uscite vietate, inattività).
 // Senza login, nella web app acceso/spento/pausa sono solo un'impostazione salvata nel browser (D27).
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import type { Evento, Personalizzazione } from "../contratti";
 import { leggiEventiDemo, leggiPeriodoDemo, leggiPersonalizzazioneDemo, messaggioErrore } from "../api";
-import { giornoDellaCasa, giornoLungo, oraDellaCasa, spostaGiorno } from "../formato";
+import { giornoDellaCasa, giornoLungo, oraDellaCasa, quanti, spostaGiorno } from "../formato";
 import Caricamento from "../componenti/Caricamento";
 import Campo from "../componenti/Campo";
 import Icona from "../componenti/Icona";
@@ -37,6 +38,15 @@ function inPausa(pausaFinoA: string | null): boolean {
     return false;
   }
   return new Date(pausaFinoA).getTime() > Date.now();
+}
+
+// "After 3 hours without seeing anyone, outside night hours 22:00 – 07:00."
+function testoInattivita(personalizzazione: Personalizzazione): string {
+  const regole = personalizzazione.regole;
+  const notte = regole.orari_notte.dalle + " – " + regole.orari_notte.alle;
+  return (
+    "After " + quanti(regole.ore_inattivita, "hour", "hours") + " with no one seen, outside night hours " + notte + "."
+  );
 }
 
 function FasceVietate({ personalizzazione }: { personalizzazione: Personalizzazione }) {
@@ -78,6 +88,10 @@ function AllarmiCasaUtente({ personalizzazione, onSalva }: ProprietaCasaUtente) 
     // Ora con fuso orario (ISO in UTC, "Z"): è una data "aware" come vuole il contratto.
     const fine = new Date(Date.now() + ore * 3600 * 1000).toISOString();
     onSalva({ ...personalizzazione, regole: { ...regole, pausa_fino_a: fine } });
+  }
+
+  function cambiaPromemoria(acceso: boolean) {
+    onSalva({ ...personalizzazione, regole: { ...regole, promemoria_acqua_attivo: acceso } });
   }
 
   function riattiva() {
@@ -128,10 +142,26 @@ function AllarmiCasaUtente({ personalizzazione, onSalva }: ProprietaCasaUtente) 
             </Link>
           </div>
         </Scheda>
+        <Scheda titolo="Inactivity alarm" icona="clessidra">
+          <div className="pila">
+            <p className="testo-secondario">{testoInattivita(personalizzazione)}</p>
+            <Link to="/settings" className="pulsante pulsante-secondario">
+              <Icona nome="cursori" /> Change hours
+            </Link>
+          </div>
+        </Scheda>
+        <Scheda titolo="Water reminder" icona="goccia">
+          <Interruttore
+            etichetta={regole.promemoria_acqua_attivo ? "On" : "Off"}
+            descrizione="One Telegram reminder between 4 and 5 pm if less than half of the goal has been drunk."
+            acceso={regole.promemoria_acqua_attivo}
+            onCambia={cambiaPromemoria}
+          />
+        </Scheda>
         <Scheda titolo="Telegram alerts" icona="campanella">
           <p className="testo-secondario">
-            Falls, and exits during no-exit hours, are sent at once to the family's Telegram with a photo. Telegram
-            alerts start when the cameras are connected.
+            Falls, exits during no-exit hours and long inactivity are sent at once to the family's Telegram with a
+            photo. Telegram alerts start when the cameras are connected.
           </p>
         </Scheda>
       </div>
@@ -153,7 +183,8 @@ function AllarmiCasaDemo() {
         setPersonalizzazione(await leggiPersonalizzazioneDemo());
         const cadute = await leggiEventiDemo(dal, ultimo, "caduta");
         const uscite = await leggiEventiDemo(dal, ultimo, "uscita");
-        setUrgenti(cadute.concat(uscite));
+        const inattivita = await leggiEventiDemo(dal, ultimo, "inattivita");
+        setUrgenti(cadute.concat(uscite, inattivita));
       } catch (problema) {
         setErrore(messaggioErrore(problema));
       }
@@ -202,7 +233,7 @@ function AllarmiCasaDemo() {
 
   return (
     <div className="pila-larga entrata">
-      <TitoloPagina titolo="Alerts" sotto={"Falls and exits in the last " + GIORNI_DI_ALLARMI + " days."} />
+      <TitoloPagina titolo="Alerts" sotto={"Falls, exits and inactivity in the last " + GIORNI_DI_ALLARMI + " days."} />
       <Scheda titolo="Exit alarm" icona="porta" accanto={statoAllarme}>
         <div className="pila">
           <FasceVietate personalizzazione={personalizzazione} />
@@ -210,6 +241,9 @@ function AllarmiCasaDemo() {
             In the demo home the family pauses or switches off this alarm from Telegram.
           </p>
         </div>
+      </Scheda>
+      <Scheda titolo="Inactivity alarm" icona="clessidra">
+        <p className="testo-secondario">{testoInattivita(personalizzazione)}</p>
       </Scheda>
       {giorni.length === 0 && (
         <Scheda>

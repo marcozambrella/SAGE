@@ -1,6 +1,6 @@
 // Reports: giornaliero, settimanale e mensile. Casa dell'utente: in attesa. Casa demo: /demo/report/*.
 import { useEffect, useState } from "react";
-import type { Personalizzazione, ReportGiornaliero, ReportPeriodo } from "../contratti";
+import type { CambiamentoRoutine, Personalizzazione, ReportGiornaliero, ReportPeriodo } from "../contratti";
 import {
   leggiEventiDemo,
   leggiPeriodoDemo,
@@ -12,8 +12,10 @@ import {
   type GiorniDemo,
 } from "../api";
 import { durata, giornoEMese, giornoLungo, meseLungo, millilitri, percentuale, spostaGiorno } from "../formato";
+import AgitazioneDelGiorno from "../componenti/AgitazioneDelGiorno";
+import BagnoDelGiorno from "../componenti/BagnoDelGiorno";
 import Caricamento from "../componenti/Caricamento";
-import { bevuteNonMisurate, orariDose, testoNonMisurate } from "../descrizioni";
+import { bevuteNonMisurate, iconaCambiamento, orariDose, testoNonMisurate } from "../descrizioni";
 import EtichettaDose from "../componenti/EtichettaDose";
 import EtichettaSimulato from "../componenti/EtichettaSimulato";
 import Icona from "../componenti/Icona";
@@ -271,8 +273,28 @@ function ReportDelGiorno({ periodo, personalizzazione }: ProprietaGiorno) {
               <span className="numero-medio">{report.uscite_in_orario_vietato}</span>
               <span className="testo-secondario">exits in no-exit hours</span>
             </div>
+            <div className="tessera">
+              <span className="numero-medio">{report.allarmi_inattivita}</span>
+              <span className="testo-secondario">inactivity alerts</span>
+            </div>
           </div>
         </section>
+
+        <section className="pila">
+          <h3 className="titolo-sezione">
+            <Icona nome="passi" /> Agitation
+          </h3>
+          <AgitazioneDelGiorno minuti={report.agitazione_minuti} />
+        </section>
+
+        {personalizzazione.regole.visite_bagno_attive && (
+          <section className="pila">
+            <h3 className="titolo-sezione">
+              <Icona nome="bagno" /> Bathroom
+            </h3>
+            <BagnoDelGiorno visite={report.visite_bagno} notte={report.visite_bagno_notte} />
+          </section>
+        )}
       </article>
     </>
   );
@@ -354,6 +376,16 @@ function ReportDelPeriodo({ tipo, periodo, personalizzazione }: ProprietaPeriodo
     }
   }
 
+  // Medie al giorno di agitazione e visite al bagno, sui giorni del report.
+  let minutiAgitazione = 0;
+  let visiteBagno = 0;
+  for (const riga of report.giorni) {
+    minutiAgitazione = minutiAgitazione + riga.agitazione_minuti;
+    visiteBagno = visiteBagno + riga.visite_bagno;
+  }
+  const numeroGiorni = Math.max(1, report.giorni.length);
+  const bagnoAcceso = personalizzazione.regole.visite_bagno_attive;
+
   // Senza notti viste il backend manda null: "No data", come per l'aderenza.
   let testoSonnoMedio = "No data";
   if (report.sonno_medio_minuti !== null) {
@@ -380,6 +412,8 @@ function ReportDelPeriodo({ tipo, periodo, personalizzazione }: ProprietaPeriodo
           {giorniSimulati > 0 && <EtichettaSimulato />}
         </header>
 
+        <CambiamentiRoutine report={report} bagnoAcceso={bagnoAcceso} />
+
         <div className="tessere">
           <div className="tessera">
             <span className="numero-medio">{millilitri(report.acqua_media_ml)}</span>
@@ -397,6 +431,16 @@ function ReportDelPeriodo({ tipo, periodo, personalizzazione }: ProprietaPeriodo
             <span className="numero-medio">{report.alzate_notturne_medie.toFixed(1)}</span>
             <span className="testo-secondario">night rises per night</span>
           </div>
+          <div className="tessera">
+            <span className="numero-medio">{durata(minutiAgitazione / numeroGiorni)}</span>
+            <span className="testo-secondario">restless pacing per day</span>
+          </div>
+          {bagnoAcceso && (
+            <div className="tessera">
+              <span className="numero-medio">{(visiteBagno / numeroGiorni).toFixed(1)}</span>
+              <span className="testo-secondario">bathroom visits per day</span>
+            </div>
+          )}
           <div className="tessera">
             <span className="numero-medio">{report.cadute}</span>
             <span className="testo-secondario">falls</span>
@@ -431,9 +475,45 @@ function ReportDelPeriodo({ tipo, periodo, personalizzazione }: ProprietaPeriodo
           <h3 className="titolo-sezione">
             <Icona nome="calendario" /> Day by day
           </h3>
-          <TabellaGiorni giorni={report.giorni} />
+          <TabellaGiorni giorni={report.giorni} mostraBagno={bagnoAcceso} />
         </section>
       </article>
     </>
+  );
+}
+
+// "What changed this week": le frasi del backend su cosa è cambiato rispetto alle 4 settimane prima.
+// Le visite al bagno si nascondono se la famiglia le ha spente.
+function CambiamentiRoutine({ report, bagnoAcceso }: { report: ReportPeriodo; bagnoAcceso: boolean }) {
+  const cambiamenti: CambiamentoRoutine[] = [];
+  for (const cambiamento of report.cambiamenti) {
+    if (cambiamento.cosa !== "bagno" || bagnoAcceso) {
+      cambiamenti.push(cambiamento);
+    }
+  }
+  let titolo = "What changed this week";
+  if (report.tipo === "mensile") {
+    titolo = "What changed this month";
+  }
+  return (
+    <section className="riquadro pila">
+      <h3 className="titolo-sezione">
+        <Icona nome="andamento" /> {titolo}
+      </h3>
+      {cambiamenti.length === 0 && <p className="testo-secondario">No big changes compared with the weeks before.</p>}
+      {cambiamenti.length > 0 && (
+        <ul className="lista-semplice">
+          {cambiamenti.map((cambiamento) => (
+            <li key={cambiamento.cosa} className="riga-cambiamento">
+              <span className="bolla-icona bolla-piccola" aria-hidden="true">
+                <Icona nome={iconaCambiamento(cambiamento.cosa)} dimensione={18} />
+              </span>
+              <span>{cambiamento.testo}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="testo-secondario testo-piccolo">Compared with the 4 weeks before.</p>
+    </section>
   );
 }

@@ -85,6 +85,10 @@ type ProprietaLinea = {
 function LineaDelTempo({ eventi, inserimenti, personalizzazione, onCancella }: ProprietaLinea) {
   const voci: Voce[] = [];
   for (const evento of eventi) {
+    // Le visite al bagno si vedono solo se la famiglia le ha accese.
+    if (evento.tipo === "visita_bagno" && !personalizzazione.regole.visite_bagno_attive) {
+      continue;
+    }
     voci.push({ ora: oraDellaCasa(evento.inizio, personalizzazione.fuso_orario), evento: evento, inserimento: null });
   }
   for (const inserimento of inserimenti) {

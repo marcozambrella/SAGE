@@ -21,7 +21,14 @@ import {
   spostaGiorno,
 } from "../formato";
 import Caricamento from "../componenti/Caricamento";
-import { GraficoAcqua, GraficoDosi, GraficoNotti, GraficoSonno } from "../componenti/Grafici";
+import {
+  GraficoAcqua,
+  GraficoAgitazione,
+  GraficoBagno,
+  GraficoDosi,
+  GraficoNotti,
+  GraficoSonno,
+} from "../componenti/Grafici";
 import GraficoPasti, { type PastiDelGiorno } from "../componenti/GraficoPasti";
 import { aggiungiAlPeriodo, leggiInserimenti, pastiAMano, type QuantoMangiatoAMano } from "../inserimenti";
 import Icona from "../componenti/Icona";
@@ -106,17 +113,54 @@ function pastiPerGiorno(giorni: RiassuntoGiorno[], eventiPasti: Evento[], fusoOr
   return risultato;
 }
 
+// Minuti di agitazione per ogni ora del giorno (0-23), sommati su tutti gli episodi del periodo. Un episodio che
+// passa da un'ora all'altra si divide minuto per minuto.
+function minutiPerOra(eventiAgitazione: Evento[], fusoOrario: string): number[] {
+  const minuti: number[] = [];
+  for (let ora = 0; ora < 24; ora++) {
+    minuti.push(0);
+  }
+  for (const evento of eventiAgitazione) {
+    if (evento.fine === null) {
+      continue;
+    }
+    const fine = new Date(evento.fine).getTime();
+    let istante = new Date(evento.inizio).getTime();
+    while (istante < fine) {
+      const ora = Number(oraDellaCasa(new Date(istante).toISOString(), fusoOrario).slice(0, 2));
+      minuti[ora] = minuti[ora] + 1;
+      istante = istante + 60000;
+    }
+  }
+  return minuti;
+}
+
+// "Mostly between 17:00 and 19:00": le due ore di fila con più agitazione.
+function quandoAgitazione(minuti: number[]): string {
+  let migliore = 0;
+  for (let ora = 1; ora < 23; ora++) {
+    if (minuti[ora] + minuti[ora + 1] > minuti[migliore] + minuti[migliore + 1]) {
+      migliore = ora;
+    }
+  }
+  const dalle = String(migliore).padStart(2, "0") + ":00";
+  const alle = String(migliore + 2).padStart(2, "0") + ":00";
+  return "Mostly between " + dalle + " and " + alle + ".";
+}
+
 function AndamentiCasaDemo() {
   const [mensile, setMensile] = useState(false);
   const [personalizzazione, setPersonalizzazione] = useState<Personalizzazione | null>(null);
   const [report, setReport] = useState<ReportPeriodo | null>(null);
   const [eventiPasti, setEventiPasti] = useState<Evento[] | null>(null);
+  const [eventiAgitazione, setEventiAgitazione] = useState<Evento[] | null>(null);
   const [errore, setErrore] = useState("");
 
   useEffect(() => {
     async function carica() {
       setReport(null);
       setEventiPasti(null);
+      setEventiAgitazione(null);
       setErrore("");
       try {
         const ultimo = (await leggiPeriodoDemo()).al;
@@ -128,6 +172,7 @@ function AndamentiCasaDemo() {
           nuovoReport = await leggiReportSettimanale(spostaGiorno(ultimo, -6));
         }
         setEventiPasti(await leggiEventiDemo(nuovoReport.dal, nuovoReport.al, "pasto"));
+        setEventiAgitazione(await leggiEventiDemo(nuovoReport.dal, nuovoReport.al, "agitazione"));
         // Il backend non conosce gli inserimenti a mano: si aggiungono ai giorni qui nel browser.
         setReport(aggiungiAlPeriodo(nuovoReport, leggiInserimenti(true)));
       } catch (problema) {
@@ -138,8 +183,15 @@ function AndamentiCasaDemo() {
   }, [mensile]);
 
   let corpo = <Caricamento errore={errore} />;
-  if (personalizzazione !== null && report !== null && eventiPasti !== null) {
-    corpo = <GraficiDelPeriodo report={report} eventiPasti={eventiPasti} personalizzazione={personalizzazione} />;
+  if (personalizzazione !== null && report !== null && eventiPasti !== null && eventiAgitazione !== null) {
+    corpo = (
+      <GraficiDelPeriodo
+        report={report}
+        eventiPasti={eventiPasti}
+        eventiAgitazione={eventiAgitazione}
+        personalizzazione={personalizzazione}
+      />
+    );
   }
 
   return (
@@ -161,10 +213,11 @@ function AndamentiCasaDemo() {
 type ProprietaGrafici = {
   report: ReportPeriodo;
   eventiPasti: Evento[];
+  eventiAgitazione: Evento[];
   personalizzazione: Personalizzazione;
 };
 
-function GraficiDelPeriodo({ report, eventiPasti, personalizzazione }: ProprietaGrafici) {
+function GraficiDelPeriodo({ report, eventiPasti, eventiAgitazione, personalizzazione }: ProprietaGrafici) {
   // Quali giorni vengono dai video registrati: tutti gli altri sono simulati (va sempre detto).
   const giorniVeri: string[] = [];
   let giorniSimulati = 0;
@@ -178,6 +231,15 @@ function GraficiDelPeriodo({ report, eventiPasti, personalizzazione }: Proprieta
 
   const pastiDelPeriodo = contaPasti(report.giorni);
   const pastiDeiGiorni = pastiPerGiorno(report.giorni, eventiPasti, personalizzazione.fuso_orario);
+  const agitazionePerOra = minutiPerOra(eventiAgitazione, personalizzazione.fuso_orario);
+  const bagnoAcceso = personalizzazione.regole.visite_bagno_attive;
+  let minutiAgitazione = 0;
+  let visiteBagno = 0;
+  for (const riga of report.giorni) {
+    minutiAgitazione = minutiAgitazione + riga.agitazione_minuti;
+    visiteBagno = visiteBagno + riga.visite_bagno;
+  }
+  const numeroGiorni = Math.max(1, report.giorni.length);
 
   // Cadute e uscite sono poche: invece di un grafico quasi vuoto, l'elenco dei giorni in cui sono successe.
   const giorniDaRicordare: { data: string; testo: string }[] = [];
@@ -248,6 +310,28 @@ function GraficiDelPeriodo({ report, eventiPasti, personalizzazione }: Proprieta
           </p>
           <GraficoNotti giorni={report.giorni} />
         </Scheda>
+        <Scheda titolo="Agitation" icona="passi">
+          {minutiAgitazione === 0 && <p className="testo-secondario">No restless pacing on these days.</p>}
+          {minutiAgitazione > 0 && (
+            <>
+              <p>
+                <span className="numero-medio">{durata(minutiAgitazione / numeroGiorni)}</span>{" "}
+                <span className="testo-secondario">of restless pacing a day on average</span>
+              </p>
+              <p className="testo-secondario">{quandoAgitazione(agitazionePerOra)}</p>
+              <GraficoAgitazione minutiPerOra={agitazionePerOra} />
+            </>
+          )}
+        </Scheda>
+        {bagnoAcceso && (
+          <Scheda titolo="Bathroom" icona="bagno">
+            <p>
+              <span className="numero-medio">{(visiteBagno / numeroGiorni).toFixed(1)}</span>{" "}
+              <span className="testo-secondario">visits a day on average</span>
+            </p>
+            <GraficoBagno giorni={report.giorni} />
+          </Scheda>
+        )}
         <Scheda titolo="Falls and exits" icona="avviso">
           <div className="pila">
             <p className="testo-secondario">
@@ -271,7 +355,7 @@ function GraficiDelPeriodo({ report, eventiPasti, personalizzazione }: Proprieta
 
       <details className="scheda dettagli">
         <summary>See every day as a table</summary>
-        <TabellaGiorni giorni={report.giorni} />
+        <TabellaGiorni giorni={report.giorni} mostraBagno={bagnoAcceso} />
       </details>
     </div>
   );

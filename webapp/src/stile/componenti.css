@@ -642,3 +642,17 @@
   background: linear-gradient(150deg, var(--bianco), var(--latte-chiaro));
   box-shadow: var(--ombra-gonfia-piccola);
 }
+
+/* Bolla dell'icona più piccola, per le righe di un elenco (es. "What changed this week") */
+.bolla-piccola {
+  width: 34px;
+  height: 34px;
+}
+
+/* Una riga di "What changed this week": l'icona a sinistra, la frase accanto anche quando va a capo */
+.riga-cambiamento {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: var(--spazio-3);
+}

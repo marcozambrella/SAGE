@@ -177,6 +177,32 @@ export function descriviEvento(evento: Evento, personalizzazione: Personalizzazi
   return { icona: "luna", titolo: "Got up at night", dettaglio: dettaglio, gravita: "attenzione" };
 }
 
+// L'icona di un cambio di routine, secondo "cosa" è cambiato (contratti: CambiamentoRoutine).
+export function iconaCambiamento(cosa: string): NomeIcona {
+  if (cosa === "sveglia") {
+    return "sole";
+  }
+  if (cosa === "acqua") {
+    return "goccia";
+  }
+  if (cosa === "pasti") {
+    return "pasto";
+  }
+  if (cosa === "sonno") {
+    return "letto";
+  }
+  if (cosa === "agitazione") {
+    return "passi";
+  }
+  if (cosa === "bagno") {
+    return "bagno";
+  }
+  if (cosa === "uscite") {
+    return "porta";
+  }
+  return "andamento";
+}
+
 // "Planned 08:00 · taken 08:07": la riga di testo sotto il nome del farmaco.
 export function orariDose(dose: DoseFarmaco, fusoOrario: string): string {
   let testo = "Planned " + dose.orario_previsto;

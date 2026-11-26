@@ -7,6 +7,7 @@ import {
   BarChart,
   CartesianGrid,
   Legend,
+  ReferenceArea,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -295,6 +296,101 @@ export function GraficoNotti({ giorni }: { giorni: RiassuntoGiorno[] }) {
           <Bar
             dataKey="alzate_notturne"
             name="Rises"
+            fill={ACCENTO}
+            radius={[4, 4, 0, 0]}
+            maxBarSize={24}
+            isAnimationActive={false}
+          />
+        </BarChart>
+      </ResponsiveContainer>
+    </figure>
+  );
+}
+
+// Agitazione per ora del giorno, sommata su tutto il periodo: si vede quando succede. La fascia chiara dalle 16
+// alle 21 è il tardo pomeriggio e la sera, quando nella demenza l'agitazione spesso cresce (sundowning).
+type OraConMinuti = {
+  ora: string;
+  minuti: number;
+};
+
+function formattaMinuti(valore: unknown): string {
+  return durata(Number(valore));
+}
+
+function titoloOra(etichetta: ReactNode): string {
+  const ora = Number(etichetta);
+  return String(ora).padStart(2, "0") + ":00 – " + String(ora + 1).padStart(2, "0") + ":00";
+}
+
+function formattaOraAsse(ora: string): string {
+  return ora.padStart(2, "0") + ":00";
+}
+
+export function GraficoAgitazione({ minutiPerOra }: { minutiPerOra: number[] }) {
+  const righe: OraConMinuti[] = [];
+  for (let ora = 0; ora < minutiPerOra.length; ora++) {
+    righe.push({ ora: String(ora), minuti: minutiPerOra[ora] });
+  }
+  return (
+    <figure className="grafico" aria-label="Minutes of restless pacing by hour of the day, over the whole period">
+      <ResponsiveContainer width="100%" height={ALTEZZA}>
+        <BarChart data={righe} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
+          <CartesianGrid vertical={false} stroke={GRIGLIA} />
+          <ReferenceArea x1="16" x2="20" fill={ACCENTO} fillOpacity={0.08} />
+          <XAxis
+            dataKey="ora"
+            tickFormatter={formattaOraAsse}
+            tick={TESTO_ASSI}
+            tickLine={false}
+            axisLine={false}
+            interval={5}
+          />
+          <YAxis allowDecimals={false} tick={TESTO_ASSI} tickLine={false} axisLine={false} width={48} />
+          <Tooltip
+            cursor={CURSORE_BARRE}
+            contentStyle={STILE_SUGGERIMENTO}
+            labelFormatter={titoloOra}
+            formatter={formattaMinuti}
+          />
+          <Bar
+            dataKey="minuti"
+            name="Pacing"
+            fill={ACCENTO}
+            radius={[4, 4, 0, 0]}
+            maxBarSize={24}
+            isAnimationActive={false}
+          />
+        </BarChart>
+      </ResponsiveContainer>
+      <figcaption className="testo-secondario testo-piccolo">
+        Minutes in the whole period, by hour. Shaded: late afternoon and evening (4 to 9 pm).
+      </figcaption>
+    </figure>
+  );
+}
+
+// Visite al bagno ogni giorno (solo se la famiglia le ha accese).
+export function GraficoBagno({ giorni }: { giorni: RiassuntoGiorno[] }) {
+  return (
+    <figure className="grafico" aria-label="Bathroom visits each day">
+      <ResponsiveContainer width="100%" height={ALTEZZA}>
+        <BarChart data={giorni} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
+          <CartesianGrid vertical={false} stroke={GRIGLIA} />
+          <XAxis
+            dataKey="data"
+            tickFormatter={formatoAsse(giorni)}
+            tick={TESTO_ASSI}
+            tickLine={false}
+            axisLine={false}
+            interval="preserveStartEnd"
+            minTickGap={10}
+          />
+          <YAxis allowDecimals={false} tick={TESTO_ASSI} tickLine={false} axisLine={false} width={48} />
+          <Tooltip cursor={CURSORE_BARRE} contentStyle={STILE_SUGGERIMENTO} labelFormatter={titoloSuggerimento} />
+          <Bar
+            dataKey="visite_bagno"
+            name="Visits"
             fill={ACCENTO}
             radius={[4, 4, 0, 0]}
             maxBarSize={24}

@@ -13,6 +13,8 @@ import {
 import { bevuteNonMisurate, descriviEvento, orariDose, testoNonMisurate, type Descrizione } from "../descrizioni";
 import { giornoLungo, millilitri, oggiNellaCasa, oraDellaCasa } from "../formato";
 import { bevuteAMano, pastiAMano, sommaMl, useInserimenti } from "../inserimenti";
+import AgitazioneDelGiorno from "../componenti/AgitazioneDelGiorno";
+import BagnoDelGiorno from "../componenti/BagnoDelGiorno";
 import Caricamento from "../componenti/Caricamento";
 import EtichettaDose from "../componenti/EtichettaDose";
 import EtichettaSimulato from "../componenti/EtichettaSimulato";
@@ -136,7 +138,8 @@ function OggiCasaDemo() {
         setReport(await leggiReportGiornaliero(giorno));
         const cadute = await leggiEventiDemo(giorno, giorno, "caduta");
         const uscite = await leggiEventiDemo(giorno, giorno, "uscita");
-        setUrgenti(cadute.concat(uscite));
+        const inattivita = await leggiEventiDemo(giorno, giorno, "inattivita");
+        setUrgenti(cadute.concat(uscite, inattivita));
         setNonMisurate(bevuteNonMisurate(await leggiEventiDemo(giorno, giorno, "bevuta")));
       } catch (problema) {
         setErrore(messaggioErrore(problema));
@@ -157,7 +160,7 @@ function OggiCasaDemo() {
   const acqua = report.acqua_ml + sommaMl(bevute);
   const percentualeAcqua = (acqua / report.obiettivo_acqua_ml) * 100;
 
-  // Cose che meritano attenzione: cadute, uscite in orario vietato, dosi saltate.
+  // Cose che meritano attenzione: cadute, uscite in orario vietato, inattività, dosi saltate.
   const attenzioni: { chiave: string; ora: string; descrizione: Descrizione }[] = [];
   for (const evento of urgenti) {
     const descrizione = descriviEvento(evento, personalizzazione);
@@ -279,8 +282,22 @@ function OggiCasaDemo() {
               </span>
               <span className="testo-secondario">exits in no-exit hours</span>
             </div>
+            <div className="tessera">
+              <span className="numero-medio">{report.allarmi_inattivita}</span>
+              <span className="testo-secondario">inactivity alerts</span>
+            </div>
           </div>
         </Scheda>
+
+        <Scheda titolo="Agitation" icona="passi">
+          <AgitazioneDelGiorno minuti={report.agitazione_minuti} />
+        </Scheda>
+
+        {personalizzazione.regole.visite_bagno_attive && (
+          <Scheda titolo="Bathroom" icona="bagno">
+            <BagnoDelGiorno visite={report.visite_bagno} notte={report.visite_bagno_notte} />
+          </Scheda>
+        )}
       </div>
     </div>
   );

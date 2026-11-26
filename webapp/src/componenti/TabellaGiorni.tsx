@@ -10,7 +10,13 @@ function testoSonno(riga: RiassuntoGiorno): string {
   return durata(riga.sonno_minuti);
 }
 
-export default function TabellaGiorni({ giorni }: { giorni: RiassuntoGiorno[] }) {
+type Proprieta = {
+  giorni: RiassuntoGiorno[];
+  // Le visite al bagno si mostrano solo se la famiglia le ha accese.
+  mostraBagno: boolean;
+};
+
+export default function TabellaGiorni({ giorni, mostraBagno }: Proprieta) {
   let giorniSimulati = 0;
   for (const riga of giorni) {
     if (riga.simulato) {
@@ -29,6 +35,8 @@ export default function TabellaGiorni({ giorni }: { giorni: RiassuntoGiorno[] })
               <th scope="col">Meals</th>
               <th scope="col">Sleep</th>
               <th scope="col">Night</th>
+              <th scope="col">Agitation</th>
+              {mostraBagno && <th scope="col">Bathroom</th>}
               <th scope="col">Falls</th>
               <th scope="col">Exits</th>
             </tr>
@@ -53,6 +61,8 @@ export default function TabellaGiorni({ giorni }: { giorni: RiassuntoGiorno[] })
                 </td>
                 <td>{testoSonno(riga)}</td>
                 <td>{riga.alzate_notturne}</td>
+                <td>{durata(riga.agitazione_minuti)}</td>
+                {mostraBagno && <td>{riga.visite_bagno}</td>}
                 <td>{riga.cadute}</td>
                 <td>{riga.uscite_in_orario_vietato}</td>
               </tr>
@@ -62,7 +72,7 @@ export default function TabellaGiorni({ giorni }: { giorni: RiassuntoGiorno[] })
       </div>
       <p className="testo-secondario testo-piccolo">
         Doses: on time · late · missed. Meals: seen · less than half eaten. Sleep: the night before. Night: times out of
-        bed. Exits: during no-exit hours.
+        bed. Agitation: restless pacing. Exits: during no-exit hours.
         {giorniSimulati > 0 && <> * Simulated day.</>}
       </p>
     </div>
