@@ -242,6 +242,8 @@ def prepara_telecamere(configurazione: ConfigurazioneCasa, fps: float, specialis
                                 segni)
         telecamera.inattivita = inattivita
         telecamere.append(telecamera)
+    if inattivita is not None:
+        inattivita.telecamere = telecamere  # per sapere se qualcuno dorme
     return telecamere
 
 

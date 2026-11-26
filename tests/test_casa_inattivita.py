@@ -5,12 +5,13 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 
-from contratti.configurazione import ConfigurazioneCasa, RegoleAllarmi
+from contratti.configurazione import ConfigurazioneCasa, RegoleAllarmi, TelecameraLocale
 from contratti.eventi import LETTORE_EVENTO, TIPI_URGENTI, leggi_evento
 
 from casa.inattivita import AnalizzatoreInattivita
 from casa.percezione import Osservazione, Persona
 from casa.principale import Specialisti, prepara_telecamere
+from casa.sonno import AnalizzatoreSonno
 from test_casa_sorgenti import scrivi_video
 
 ROMA = ZoneInfo("Europe/Rome")
@@ -101,5 +102,36 @@ def test_una_inattivita_per_tutta_la_casa(tmp_path):
     telecamere = prepara_telecamere(configurazione, 5, Specialisti())
     assert telecamere[0].inattivita is not None
     assert telecamere[1].inattivita is telecamere[0].inattivita
-    # non è un analizzatore della telecamera
+    # non è un analizzatore della telecamera; guarda le telecamere per sapere se qualcuno dorme
     assert telecamere[0].analizzatori == []
+    assert telecamere[0].inattivita.telecamere == telecamere
+
+
+CAMERA = TelecameraLocale.model_validate({
+    "id": "camera", "nome": "Bedroom", "stanza": "bedroom", "sorgente": "x.mp4", "analizzatori": ["sonno"],
+    "zone": [{"id": "letto", "tipo": "letto", "punti": [[0.5, 0], [1, 0], [1, 1], [0.5, 1]]}]})
+
+
+class TelecameraFinta:
+    def __init__(self, analizzatori: list):
+        self.analizzatori = analizzatori
+
+
+def test_chi_dorme_non_e_inattivo():
+    # vista alle 21, poi dorme sotto le coperte (non si vede) dalle 22 alle 10:30: niente allarme alle 10, le ore
+    # ripartono dall'ultimo minuto con il sonno aperto (10:29) e l'allarme parte 3 ore dopo
+    sonno = AnalizzatoreSonno(CAMERA)
+    analizzatore = AnalizzatoreInattivita(RegoleAllarmi())
+    analizzatore.telecamere = [TelecameraFinta([sonno])]
+    ore_degli_allarmi = []
+    dalle = alle(1, 21)
+    for minuto in range(17 * 60):
+        ora = dalle + datetime.timedelta(minutes=minuto)
+        if ora == alle(1, 22):
+            sonno.stati["letto"].inizio = ora
+        if ora == alle(2, 10, 30):
+            sonno.stati["letto"].inizio = None
+        for evento in analizzatore.elabora(osservazione(ora, "camera", minuto == 0)):
+            assert evento.inizio == alle(1, 21)
+            ore_degli_allarmi.append(ora)
+    assert ore_degli_allarmi == [alle(2, 13, 29)]

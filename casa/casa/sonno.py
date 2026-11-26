@@ -197,6 +197,13 @@ class AnalizzatoreSonno:
                 stato.ultimo_sveglio = None
         return []
 
+    def dorme(self) -> bool:
+        """C'è un pezzo di sonno aperto (anche se sotto le coperte non si vede)?"""
+        for stato in self.stati.values():
+            if stato.inizio is not None:
+                return True
+        return False
+
     def svegliato(self, zona_id: str, stato: SonnoNelLetto, fine: datetime.datetime) -> list[EventoSonno]:
         evento = self.evento(zona_id, stato, fine)
         self.stati[zona_id] = stato_vuoto()
