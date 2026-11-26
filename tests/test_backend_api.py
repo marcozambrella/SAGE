@@ -294,6 +294,27 @@ def test_caduta_da_due_telecamere_un_solo_evento_e_un_solo_allarme(client, caplo
     assert client.get("/demo/eventi/c-cucina/foto").content == FOTO
 
 
+def test_inattivita_un_solo_allarme_anche_quando_arriva_la_fine(client, caplog):
+    configura(client)
+    allarme = evento("i-1", "inattivita", "2025-12-01T13:05:00+01:00", {"ultima_telecamera_id": "cucina"})
+    client.post("/programma-casa/eventi", json=[allarme], headers=CON_TOKEN)
+    assert allarmi_nel_log(caplog) == [
+        "Allarme (bot Telegram spento): Inactivity alert: Anna has not been seen since 13:05."
+        " Last seen by the cucina camera."
+    ]
+    # la persona ricompare: arriva il secondo grezzo con la fine, è lo stesso fatto e non rimanda l'allarme
+    ricomparsa = dict(allarme)
+    ricomparsa["id"] = "i-2"
+    ricomparsa["fine"] = "2025-12-01T16:40:00+01:00"
+    client.post("/programma-casa/eventi", json=[ricomparsa], headers=CON_TOKEN)
+    assert len(allarmi_nel_log(caplog)) == 1
+    eventi = client.get("/demo/eventi", params={"tipo": "inattivita"}).json()
+    assert len(eventi) == 1
+    assert eventi[0]["fine"] == "2025-12-01T16:40:00+01:00"
+    report = client.get("/demo/report/giornaliero", params={"data": "2025-12-01"}).json()
+    assert report["allarmi_inattivita"] == 1
+
+
 def test_doppioni_nella_stessa_chiamata_e_rinvii(client, caplog):
     configura(client)
     prima = da_telecamera(evento("a", "caduta", "2025-12-01T10:00:00+01:00", {}), "cucina", 0.8)

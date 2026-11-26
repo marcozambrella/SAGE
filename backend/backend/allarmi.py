@@ -1,4 +1,4 @@
-"""Quali eventi fanno partire subito l'allarme Telegram e quali promemoria delle dosi mandare, con che testo
+"""Quali eventi fanno partire subito l'allarme Telegram e quali promemoria mandare, con che testo
 (API.md, D10, D15, D16, D24, D38).
 
 Logica pura: qui si decide, l'invio vero lo fa il bot Telegram (bot_telegram.py). I testi sono in inglese (D13).
@@ -37,8 +37,8 @@ def serve_allarme(evento: EventoBase, personalizzazione: Personalizzazione | Non
         return False
     if evento.tipo not in TIPI_URGENTI:
         return False
-    # caduta: sempre, subito
-    if evento.tipo == "caduta":
+    # caduta e inattività (Marco, 25/11): sempre, subito
+    if evento.tipo == "caduta" or evento.tipo == "inattivita":
         return True
     # uscita: senza personalizzazione non si sanno gli orari vietati
     if personalizzazione is None:
@@ -52,6 +52,15 @@ def serve_allarme(evento: EventoBase, personalizzazione: Personalizzazione | Non
     return uscita_in_orario_vietato(evento, personalizzazione)
 
 
+def nome_della_telecamera(personalizzazione: Personalizzazione | None, telecamera_id: str) -> str:
+    """Il nome scelto nell'app ("Kitchen"); senza, l'id della telecamera."""
+    if personalizzazione is not None:
+        for telecamera in personalizzazione.telecamere:
+            if telecamera.id == telecamera_id:
+                return telecamera.nome
+    return telecamera_id
+
+
 def messaggio_allarme(evento: EventoBase, personalizzazione: Personalizzazione | None) -> str:
     """Il testo del messaggio Telegram, con l'ora locale della casa."""
     nome = "your relative"
@@ -62,6 +71,15 @@ def messaggio_allarme(evento: EventoBase, personalizzazione: Personalizzazione |
     ora = ora_locale(evento.inizio, fuso_orario).strftime("%H:%M")
     if evento.tipo == "caduta":
         return "Possible fall: " + nome + " may have fallen in the " + evento.stanza + " at " + ora + "."
+    if evento.tipo == "inattivita":
+        # inizio = l'ultima volta che si è vista una persona (contratti/eventi.py)
+        telecamera = nome_della_telecamera(personalizzazione, evento.valori.ultima_telecamera_id)
+        ultima_volta = " Last seen by the " + telecamera + " camera."
+        # se il grezzo con la fine arriva insieme al primo (rete tornata dopo ore) la persona è già ricomparsa
+        if evento.fine is not None:
+            ricomparsa = ora_locale(evento.fine, fuso_orario).strftime("%H:%M")
+            return "Inactivity alert: " + nome + " was not seen from " + ora + " to " + ricomparsa + "." + ultima_volta
+        return "Inactivity alert: " + nome + " has not been seen since " + ora + "." + ultima_volta
     return "Exit alert: " + nome + " left the house at " + ora + ", during restricted hours."
 
 

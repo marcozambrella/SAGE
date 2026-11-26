@@ -17,7 +17,7 @@ from backend.regole import (
     uscita_in_orario_vietato,
 )
 from backend.report import calcola_report_giornaliero, calcola_report_periodo, giorni_del_mese
-from contratti.configurazione import FasciaOraria, Personalizzazione
+from contratti.configurazione import FasciaOraria, Personalizzazione, TelecameraPrevista
 from contratti.eventi import leggi_evento
 
 GIORNO = datetime.date(2026, 12, 1)
@@ -537,6 +537,31 @@ def test_messaggi_degli_allarmi_con_ora_locale():
     assert testo == "Possible fall: Anna may have fallen in the kitchen at 10:05."
     testo = messaggio_allarme(USCITA_DI_NOTTE, personalizzazione_uscite())
     assert testo == "Exit alert: Anna left the house at 23:00, during restricted hours."
+
+
+INATTIVITA = crea_evento("inattivita", "2026-12-01T13:05:00+01:00", {"ultima_telecamera_id": "cucina"})
+
+
+def test_inattivita_sempre_allarme_tranne_simulata():
+    assert serve_allarme(INATTIVITA, personalizzazione_uscite())
+    assert serve_allarme(INATTIVITA, None)
+    simulata = crea_evento("inattivita", "2026-12-01T13:05:00+01:00", {"ultima_telecamera_id": "cucina"},
+                           simulato=True)
+    assert not serve_allarme(simulata, personalizzazione_uscite())
+
+
+def test_messaggio_di_inattivita_con_l_ultima_volta_vista():
+    personalizzazione = crea_personalizzazione()
+    personalizzazione.telecamere = [TelecameraPrevista(id="cucina", nome="Kitchen", stanza="kitchen")]
+    testo = messaggio_allarme(INATTIVITA, personalizzazione)
+    assert testo == "Inactivity alert: Anna has not been seen since 13:05. Last seen by the Kitchen camera."
+    # senza il nome della telecamera resta l'id
+    testo = messaggio_allarme(INATTIVITA, None)
+    assert testo == "Inactivity alert: your relative has not been seen since 13:05. Last seen by the cucina camera."
+    gia_ricomparsa = crea_evento("inattivita", "2026-12-01T13:05:00+01:00", {"ultima_telecamera_id": "cucina"},
+                                 fine="2026-12-01T16:40:00+01:00")
+    testo = messaggio_allarme(gia_ricomparsa, personalizzazione)
+    assert testo == "Inactivity alert: Anna was not seen from 13:05 to 16:40. Last seen by the Kitchen camera."
 
 
 # --- valori che scrive il backend ---

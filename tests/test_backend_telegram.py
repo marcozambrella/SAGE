@@ -278,6 +278,25 @@ def test_uscita_vietata_arriva_con_i_pulsanti(con_bot):
     assert len(testo["reply_markup"]["inline_keyboard"][0]) == 3
 
 
+def test_inattivita_arriva_su_telegram_con_l_ultima_volta_vista(con_bot):
+    client, richiesta = con_bot
+    inizio = datetime.datetime(2025, 12, 1, 13, 5, tzinfo=ROMA)
+    allarme = evento("i1", "inattivita", inizio, {"ultima_telecamera_id": "cucina"})
+    con_token = {"Authorization": "Bearer " + TOKEN_CASA}
+    client.post("/programma-casa/eventi", json=[allarme], headers=con_token)
+    testo = richiesta.ultima("sendMessage")
+    assert testo["chat_id"] == CHAT
+    assert testo["text"] == "Inactivity alert: Anna has not been seen since 13:05. Last seen by the cucina camera."
+    # i pulsanti pausa / spegni sono solo per le uscite
+    assert "reply_markup" not in testo
+    # quando ricompare arriva la fine: nessun secondo messaggio
+    ricomparsa = dict(allarme)
+    ricomparsa["id"] = "i2"
+    ricomparsa["fine"] = (inizio + datetime.timedelta(hours=4)).isoformat()
+    client.post("/programma-casa/eventi", json=[ricomparsa], headers=con_token)
+    assert richiesta.metodi().count("sendMessage") == 1
+
+
 def test_webhook_vuole_il_segreto(con_bot):
     client, richiesta = con_bot
     dati = messaggio("/riattiva")
