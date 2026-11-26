@@ -404,6 +404,38 @@ def test_sonno_medio_senza_notti_viste():
     assert report.sonno_medio_minuti is None
 
 
+# --- agitazione, inattività, bagno (API.md, "Funzioni dalla ricerca su Alzheimer e demenza") ---
+
+def test_agitazione_inattivita_e_bagno_nel_report():
+    eventi = [
+        crea_evento("agitazione", "2026-12-01T17:00:00+01:00", {"inversioni": 12},
+                    fine="2026-12-01T17:20:00+01:00"),
+        crea_evento("agitazione", "2026-12-01T18:30:00+01:00", {"inversioni": 6},
+                    fine="2026-12-01T18:37:30+01:00"),
+        # ancora in corso: non ha minuti
+        crea_evento("agitazione", "2026-12-01T19:00:00+01:00", {"inversioni": 3}),
+        crea_evento("inattivita", "2026-12-01T13:00:00+01:00", {"ultima_telecamera_id": "cucina"},
+                    fine="2026-12-01T16:30:00+01:00"),
+        crea_evento("visita_bagno", "2026-12-01T03:10:00+01:00", {"zona_id": "porta-bagno"}),
+        crea_evento("visita_bagno", "2026-12-01T10:00:00+01:00", {"zona_id": "porta-bagno"}),
+        crea_evento("visita_bagno", "2026-12-01T23:15:00+01:00", {"zona_id": "porta-bagno"}),
+        # del giorno dopo
+        crea_evento("visita_bagno", "2026-12-02T01:00:00+01:00", {"zona_id": "porta-bagno"}),
+    ]
+    personalizzazione = crea_personalizzazione()
+    report = calcola_report_giornaliero(GIORNO, eventi, personalizzazione, DOPO)
+    assert report.agitazione_minuti == 27.5
+    assert report.allarmi_inattivita == 1
+    assert report.visite_bagno == 3
+    # negli orari di notte (22:00 → 07:00): quella delle 3:10 e quella delle 23:15
+    assert report.visite_bagno_notte == 2
+    periodo = calcola_report_periodo("settimanale", GIORNO, datetime.date(2026, 12, 7), eventi, personalizzazione,
+                                     DOPO)
+    assert periodo.giorni[0].agitazione_minuti == 27.5
+    assert periodo.giorni[0].visite_bagno == 3
+    assert periodo.giorni[1].visite_bagno == 1
+
+
 # --- report di periodo ---
 
 def test_report_settimanale():

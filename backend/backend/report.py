@@ -17,6 +17,8 @@ from backend.regole import (
     finestra_del_sonno,
     giorno_locale,
     inizio_evento,
+    ora_locale,
+    ora_nella_fascia,
     stato_delle_dosi,
     uscita_in_orario_vietato,
 )
@@ -42,6 +44,10 @@ def calcola_report_giornaliero(
     cadute = 0
     uscite = 0
     uscite_in_orario_vietato = 0
+    agitazione_minuti = 0.0
+    allarmi_inattivita = 0
+    visite_bagno = 0
+    visite_bagno_notte = 0
     simulato = False
     eventi_farmaco = []
     pezzi_di_sonno = []
@@ -86,6 +92,19 @@ def calcola_report_giornaliero(
             uscite = uscite + 1
             if uscita_in_orario_vietato(evento, personalizzazione):
                 uscite_in_orario_vietato = uscite_in_orario_vietato + 1
+        # funzioni dalla ricerca su Alzheimer e demenza (API.md)
+        elif evento.tipo == "agitazione":
+            # come le alzate: un episodio ancora in corso non ha ancora una durata
+            if evento.fine is not None:
+                minuti = (evento.fine - evento.inizio).total_seconds() / 60
+                agitazione_minuti = agitazione_minuti + minuti
+        elif evento.tipo == "inattivita":
+            allarmi_inattivita = allarmi_inattivita + 1
+        elif evento.tipo == "visita_bagno":
+            visite_bagno = visite_bagno + 1
+            ora = ora_locale(evento.inizio, personalizzazione.fuso_orario)
+            if ora_nella_fascia(ora, personalizzazione.regole.orari_notte):
+                visite_bagno_notte = visite_bagno_notte + 1
 
     # None se non si è visto dormire; le alzate sono i buchi tra un pezzo e l'altro e non si contano nel sonno
     sonno_minuti = None
@@ -116,6 +135,10 @@ def calcola_report_giornaliero(
         sonno_minuti=sonno_minuti,
         addormentato_alle=addormentato_alle,
         sveglio_alle=sveglio_alle,
+        agitazione_minuti=round(agitazione_minuti, 1),
+        allarmi_inattivita=allarmi_inattivita,
+        visite_bagno=visite_bagno,
+        visite_bagno_notte=visite_bagno_notte,
         cadute=cadute,
         uscite=uscite,
         uscite_in_orario_vietato=uscite_in_orario_vietato,
@@ -153,6 +176,8 @@ def riassunto_del_giorno(report: ReportGiornaliero) -> RiassuntoGiorno:
         pasti_meno_di_meta=pasti_meno_di_meta,
         alzate_notturne=report.alzate_notturne,
         sonno_minuti=report.sonno_minuti,
+        agitazione_minuti=report.agitazione_minuti,
+        visite_bagno=report.visite_bagno,
         cadute=report.cadute,
         uscite_in_orario_vietato=report.uscite_in_orario_vietato,
         simulato=report.simulato,

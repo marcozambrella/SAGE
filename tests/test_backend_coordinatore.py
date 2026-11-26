@@ -163,3 +163,28 @@ def test_istantanei_restano_senza_fine():
     prima = grezzo("a", "caduta", 0, "cucina", 0.8, {})
     seconda = grezzo("b", "caduta", 2, "salotto", 0.8, {})
     assert coordina([prima, seconda])[0].evento.fine is None
+
+
+def test_inattivita_in_due_grezzi_e_un_solo_fatto_con_la_fine():
+    # API.md: il primo grezzo arriva quando scatta l'allarme (fine None), il secondo quando la persona ricompare
+    allarme = grezzo("inattivo-1", "inattivita", 0, "casa", 0.9, {"ultima_telecamera_id": "cucina"})
+    ricomparsa = grezzo("inattivo-2", "inattivita", 0, "casa", 0.9, {"ultima_telecamera_id": "cucina"},
+                        durata=4 * 3600)
+    coordinati = coordina([allarme, ricomparsa])
+    assert len(coordinati) == 1
+    assert coordinati[0].evento.fine == ORA + datetime.timedelta(hours=4)
+    assert coordinati[0].grezzi == ["inattivo-1", "inattivo-2"]
+
+
+def test_agitazione_e_bagno_da_due_telecamere():
+    dal_corridoio = grezzo("a-1", "agitazione", 0, "corridoio", 0.8, {"inversioni": 12}, durata=600)
+    dalla_cucina = grezzo("a-2", "agitazione", 30, "cucina", 0.6, {"inversioni": 7}, durata=500)
+    bagno = grezzo("b-1", "visita_bagno", 100, "corridoio", 0.9, {"zona_id": "porta-bagno"}, durata=240)
+    bagno_dopo = grezzo("b-2", "visita_bagno", 3000, "corridoio", 0.9, {"zona_id": "porta-bagno"}, durata=240)
+    coordinati = coordina([dal_corridoio, dalla_cucina, bagno, bagno_dopo])
+    tipi = []
+    for coordinato in coordinati:
+        tipi.append(coordinato.evento.tipo)
+    # l'agitazione vista da due telecamere è un episodio solo, con le inversioni del più sicuro
+    assert tipi == ["agitazione", "visita_bagno", "visita_bagno"]
+    assert coordinati[0].evento.valori.inversioni == 12
