@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 from contratti.configurazione import Personalizzazione
 from contratti.eventi import EventoBase
-from contratti.report import PastoDelGiorno, ReportGiornaliero, ReportPeriodo, RiassuntoGiorno
+from contratti.report import CambiamentoRoutine, PastoDelGiorno, ReportGiornaliero, ReportPeriodo, RiassuntoGiorno
 
 from backend.regole import (
     alzata_di_notte,
@@ -22,6 +22,24 @@ from backend.regole import (
     stato_delle_dosi,
     uscita_in_orario_vietato,
 )
+
+# Cambi di routine (API.md, Marco 25/11): il periodo si confronta con le 4 settimane prima. Contano solo i giorni già
+# finiti e con almeno un evento (un giorno senza eventi è una casa spenta, non un giorno a zero), e ne servono almeno
+# MINIMO_GIORNI_CONFRONTO da una parte e dall'altra.
+SETTIMANE_DI_CONFRONTO = 4
+MINIMO_GIORNI_CONFRONTO = 3
+# Soglie (PROPOSTE da confermare con Marco): una differenza tra le medie più piccola non è un cambiamento vero. Sono
+# circa tre volte la variazione normale della media di una settimana nello storico simulato.
+SOGLIA_SVEGLIA_MINUTI = 45
+SOGLIA_SONNO_MINUTI = 30
+SOGLIA_ACQUA_ML = 150
+SOGLIA_ACQUA_PERCENTUALE = 20
+SOGLIA_PASTI_AL_GIORNO = 0.75
+SOGLIA_AGITAZIONE_MINUTI = 15
+SOGLIA_AGITAZIONE_PERCENTUALE = 50
+SOGLIA_BAGNO_AL_GIORNO = 1.5
+SOGLIA_BAGNO_DI_NOTTE = 0.75
+SOGLIA_USCITE_AL_GIORNO = 1
 
 
 def calcola_report_giornaliero(
@@ -195,13 +213,16 @@ def calcola_report_periodo(
     """Il report dei giorni da `dal` ad `al` compresi.
 
     I giorni che non sono ancora cominciati non hanno una riga (nei trend sembrerebbero giorni a zero); le medie
-    sono sui giorni con una riga, oggi compreso.
+    sono sui giorni con una riga, oggi compreso. Per i cambi di routine `eventi` deve avere anche le
+    SETTIMANE_DI_CONFRONTO settimane prima di `dal`.
     """
     oggi = giorno_locale(adesso, personalizzazione.fuso_orario)
+    report_dei_giorni = []
     giorni = []
     data = dal
     while data <= al and data <= oggi:
         report = calcola_report_giornaliero(data, eventi, personalizzazione, adesso)
+        report_dei_giorni.append(report)
         giorni.append(riassunto_del_giorno(report))
         data = data + datetime.timedelta(days=1)
 
@@ -252,7 +273,187 @@ def calcola_report_periodo(
         uscite_in_orario_vietato=uscite_in_orario_vietato,
         alzate_notturne_medie=alzate_notturne_medie,
         sonno_medio_minuti=sonno_medio_minuti,
+        cambiamenti=cambiamenti_di_routine(dal, report_dei_giorni, eventi, personalizzazione, adesso),
     )
+
+
+def giorni_da_confrontare(
+    report_dei_giorni: list[ReportGiornaliero], eventi: list[EventoBase], fuso_orario: str, oggi: datetime.date
+) -> list[ReportGiornaliero]:
+    """I giorni già finiti e con almeno un evento: oggi è ancora a metà, un giorno senza eventi è una casa spenta."""
+    giorni_con_eventi = set()
+    for evento in eventi:
+        momento = evento.inizio
+        # il sonno è del giorno in cui finisce la notte: la sera prima, da solo, sembrerebbe un giorno senza acqua
+        if evento.tipo == "sonno" and evento.fine is not None:
+            momento = evento.fine
+        giorni_con_eventi.add(giorno_locale(momento, fuso_orario))
+    scelti = []
+    for report in report_dei_giorni:
+        if report.data < oggi and report.data in giorni_con_eventi:
+            scelti.append(report)
+    return scelti
+
+
+def media(valori: list[float]) -> float | None:
+    """None se i valori sono troppo pochi per un confronto."""
+    if len(valori) < MINIMO_GIORNI_CONFRONTO:
+        return None
+    return sum(valori) / len(valori)
+
+
+def cambiato(prima: float | None, dopo: float | None, soglia: float, soglia_percentuale: float) -> bool:
+    """True se la media è cambiata almeno della soglia e, quando prima non era zero, della soglia percentuale."""
+    if prima is None or dopo is None:
+        return False
+    differenza = abs(dopo - prima)
+    if differenza < soglia:
+        return False
+    if prima > 0 and differenza / prima * 100 < soglia_percentuale:
+        return False
+    return True
+
+
+def un_decimale(valore: float) -> str:
+    """1.0 → "1", 0.34 → "0.3": per le frasi dei cambiamenti."""
+    arrotondato = round(valore, 1)
+    if arrotondato == int(arrotondato):
+        return str(int(arrotondato))
+    return str(arrotondato)
+
+
+def durata_in_parole(minuti: float) -> str:
+    """45 → "45 minutes", 70 → "1 hour", 100 → "1.5 hours"."""
+    if minuti < 55:
+        return str(round(minuti / 5) * 5) + " minutes"
+    ore = round(minuti / 30) / 2
+    if ore == 1:
+        return "1 hour"
+    return un_decimale(ore) + " hours"
+
+
+def ora_in_parole(minuti_dalla_mezzanotte: float) -> str:
+    """405 → "06:45"."""
+    minuti = round(minuti_dalla_mezzanotte)
+    ora = datetime.time((minuti // 60) % 24, minuti % 60)
+    return ora.strftime("%H:%M")
+
+
+def piu_o_meno(prima: float, dopo: float) -> str:
+    if dopo > prima:
+        return "more"
+    return "less"
+
+
+def medie_dei_giorni(
+    report_dei_giorni: list[ReportGiornaliero], fuso_orario: str
+) -> dict[str, float | None]:
+    """Le medie al giorno (o a notte) di quello che si confronta; None dove i giorni sono troppo pochi."""
+    sveglia = []
+    sonno = []
+    acqua = []
+    pasti = []
+    agitazione = []
+    bagno = []
+    bagno_di_notte = []
+    uscite = []
+    for report in report_dei_giorni:
+        # sveglia e sonno solo nelle notti in cui si è visto dormire
+        if report.sveglio_alle is not None:
+            ora = ora_locale(report.sveglio_alle, fuso_orario)
+            sveglia.append(ora.hour * 60 + ora.minute)
+        if report.sonno_minuti is not None:
+            sonno.append(report.sonno_minuti)
+        acqua.append(report.acqua_ml)
+        pasti_meno_di_meta = 0
+        for pasto in report.pasti:
+            if pasto.quanto_mangiato == "meno_di_meta":
+                pasti_meno_di_meta = pasti_meno_di_meta + 1
+        pasti.append(pasti_meno_di_meta)
+        agitazione.append(report.agitazione_minuti)
+        bagno.append(report.visite_bagno)
+        bagno_di_notte.append(report.visite_bagno_notte)
+        uscite.append(report.uscite)
+    return {
+        "sveglia": media(sveglia),
+        "sonno": media(sonno),
+        "acqua": media(acqua),
+        "pasti": media(pasti),
+        "agitazione": media(agitazione),
+        "bagno": media(bagno),
+        "bagno_di_notte": media(bagno_di_notte),
+        "uscite": media(uscite),
+    }
+
+
+def cambiamenti_di_routine(
+    dal: datetime.date,
+    report_del_periodo: list[ReportGiornaliero],
+    eventi: list[EventoBase],
+    personalizzazione: Personalizzazione,
+    adesso: datetime.datetime,
+) -> list[CambiamentoRoutine]:
+    """Quello che è cambiato davvero nel periodo rispetto alle SETTIMANE_DI_CONFRONTO settimane prima di `dal`, con
+    una frase in inglese per la web app (API.md, "Cambi di routine")."""
+    fuso_orario = personalizzazione.fuso_orario
+    oggi = giorno_locale(adesso, fuso_orario)
+    report_di_prima = []
+    data = dal - datetime.timedelta(weeks=SETTIMANE_DI_CONFRONTO)
+    while data < dal:
+        report_di_prima.append(calcola_report_giornaliero(data, eventi, personalizzazione, adesso))
+        data = data + datetime.timedelta(days=1)
+    giorni_di_prima = giorni_da_confrontare(report_di_prima, eventi, fuso_orario, oggi)
+    giorni_di_adesso = giorni_da_confrontare(report_del_periodo, eventi, fuso_orario, oggi)
+    prima = medie_dei_giorni(giorni_di_prima, fuso_orario)
+    ora = medie_dei_giorni(giorni_di_adesso, fuso_orario)
+
+    cambiamenti = []
+    if cambiato(prima["sveglia"], ora["sveglia"], SOGLIA_SVEGLIA_MINUTI, 0):
+        verso = "earlier"
+        if ora["sveglia"] > prima["sveglia"]:
+            verso = "later"
+        durata = durata_in_parole(abs(ora["sveglia"] - prima["sveglia"]))
+        testo = ("Wakes up about " + durata + " " + verso + " than usual (" + ora_in_parole(ora["sveglia"])
+                 + " instead of " + ora_in_parole(prima["sveglia"]) + ").")
+        cambiamenti.append(CambiamentoRoutine(cosa="sveglia", testo=testo))
+    if cambiato(prima["sonno"], ora["sonno"], SOGLIA_SONNO_MINUTI, 0):
+        durata = durata_in_parole(abs(ora["sonno"] - prima["sonno"]))
+        testo = ("Sleeps about " + durata + " " + piu_o_meno(prima["sonno"], ora["sonno"]) + " than usual ("
+                 + un_decimale(ora["sonno"] / 60) + " h instead of " + un_decimale(prima["sonno"] / 60)
+                 + " h a night).")
+        cambiamenti.append(CambiamentoRoutine(cosa="sonno", testo=testo))
+    if cambiato(prima["acqua"], ora["acqua"], SOGLIA_ACQUA_ML, SOGLIA_ACQUA_PERCENTUALE):
+        percentuale = round(abs(ora["acqua"] - prima["acqua"]) / prima["acqua"] * 100)
+        testo = ("Drinks " + str(percentuale) + "% " + piu_o_meno(prima["acqua"], ora["acqua"])
+                 + " water than usual (" + str(round(ora["acqua"])) + " ml instead of " + str(round(prima["acqua"]))
+                 + " ml a day).")
+        cambiamenti.append(CambiamentoRoutine(cosa="acqua", testo=testo))
+    if cambiato(prima["pasti"], ora["pasti"], SOGLIA_PASTI_AL_GIORNO, 0):
+        testo = ("Leaves more than half of the plate " + piu_o_meno(prima["pasti"], ora["pasti"])
+                 + " often than usual (" + un_decimale(ora["pasti"]) + " meals a day instead of "
+                 + un_decimale(prima["pasti"]) + ").")
+        cambiamenti.append(CambiamentoRoutine(cosa="pasti", testo=testo))
+    if cambiato(prima["agitazione"], ora["agitazione"], SOGLIA_AGITAZIONE_MINUTI, SOGLIA_AGITAZIONE_PERCENTUALE):
+        testo = ("Agitated (pacing) " + piu_o_meno(prima["agitazione"], ora["agitazione"]) + " than usual ("
+                 + str(round(ora["agitazione"])) + " minutes a day instead of " + str(round(prima["agitazione"]))
+                 + ").")
+        cambiamenti.append(CambiamentoRoutine(cosa="agitazione", testo=testo))
+    # le visite al bagno solo se la famiglia le ha accese (API.md)
+    if personalizzazione.regole.visite_bagno_attive:
+        if cambiato(prima["bagno"], ora["bagno"], SOGLIA_BAGNO_AL_GIORNO, 0):
+            testo = ("Goes to the bathroom " + piu_o_meno(prima["bagno"], ora["bagno"]) + " often than usual ("
+                     + un_decimale(ora["bagno"]) + " times a day instead of " + un_decimale(prima["bagno"]) + ").")
+            cambiamenti.append(CambiamentoRoutine(cosa="bagno", testo=testo))
+        if cambiato(prima["bagno_di_notte"], ora["bagno_di_notte"], SOGLIA_BAGNO_DI_NOTTE, 0):
+            testo = ("Goes to the bathroom " + piu_o_meno(prima["bagno_di_notte"], ora["bagno_di_notte"])
+                     + " often at night (" + un_decimale(ora["bagno_di_notte"]) + " times a night instead of "
+                     + un_decimale(prima["bagno_di_notte"]) + ").")
+            cambiamenti.append(CambiamentoRoutine(cosa="bagno", testo=testo))
+    if cambiato(prima["uscite"], ora["uscite"], SOGLIA_USCITE_AL_GIORNO, 0):
+        testo = ("Goes out " + piu_o_meno(prima["uscite"], ora["uscite"]) + " often than usual ("
+                 + un_decimale(ora["uscite"]) + " times a day instead of " + un_decimale(prima["uscite"]) + ").")
+        cambiamenti.append(CambiamentoRoutine(cosa="uscite", testo=testo))
+    return cambiamenti
 
 
 def giorni_della_settimana(dal: datetime.date) -> tuple[datetime.date, datetime.date]:

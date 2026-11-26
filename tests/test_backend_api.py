@@ -364,6 +364,25 @@ def test_sonno_da_due_telecamere_contato_una_volta(client):
     assert settimana["sonno_medio_minuti"] == 482
 
 
+def test_cambiamenti_confrontati_con_le_4_settimane_prima(client):
+    configura(client)
+    eventi = []
+    # dal 3 al 30 novembre 5 bicchieri al giorno, dal primo dicembre 2
+    for indice in range(35):
+        data = datetime.date(2025, 11, 3) + datetime.timedelta(days=indice)
+        bicchieri = 5
+        if data >= datetime.date(2025, 12, 1):
+            bicchieri = 2
+        for numero in range(bicchieri):
+            inizio = data.isoformat() + "T" + str(9 + numero).zfill(2) + ":00:00+01:00"
+            eventi.append(bevuta("b-" + inizio, inizio, 240))
+    client.post("/programma-casa/eventi", json=eventi, headers=CON_TOKEN)
+    report = client.get("/demo/report/settimanale", params={"dal": "2025-12-01"}).json()
+    assert report["cambiamenti"] == [
+        {"cosa": "acqua", "testo": "Drinks 60% less water than usual (480 ml instead of 1200 ml a day)."}
+    ]
+
+
 # --- valori scritti dal backend e periodo ---
 
 def test_eventi_con_i_valori_del_backend(client):

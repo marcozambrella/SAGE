@@ -46,6 +46,7 @@ from backend.regole import (
     giorno_locale,
 )
 from backend.report import (
+    SETTIMANE_DI_CONFRONTO,
     calcola_report_giornaliero,
     calcola_report_periodo,
     giorni_del_mese,
@@ -231,9 +232,11 @@ def report_di_periodo(
     al: datetime.date,
 ) -> ReportPeriodo:
     personalizzazione = personalizzazione_o_404(archivio)
-    # un giorno in più prima e dopo: le dosi vicine alla mezzanotte si possono prendere nel giorno accanto
+    # un giorno in più prima e dopo: le dosi vicine alla mezzanotte si possono prendere nel giorno accanto (e il sonno
+    # comincia la sera prima); prima ancora le settimane con cui si confrontano i cambi di routine
     un_giorno = datetime.timedelta(days=1)
-    eventi = eventi_dei_giorni(archivio, dal - un_giorno, al + un_giorno, personalizzazione.fuso_orario, None)
+    primo = dal - datetime.timedelta(weeks=SETTIMANE_DI_CONFRONTO) - un_giorno
+    eventi = eventi_dei_giorni(archivio, primo, al + un_giorno, personalizzazione.fuso_orario, None)
     return calcola_report_periodo(tipo, dal, al, eventi, personalizzazione, adesso())
 
 

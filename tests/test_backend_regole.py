@@ -436,6 +436,118 @@ def test_agitazione_inattivita_e_bagno_nel_report():
     assert periodo.giorni[1].visite_bagno == 1
 
 
+# --- cambi di routine (API.md, "Cambi di routine") ---
+
+# il periodo confrontato: la settimana dal 7 dicembre, con le 4 settimane prima (dal 9 novembre)
+SETTIMANA = datetime.date(2026, 12, 7)
+DOPO_LA_SETTIMANA = datetime.datetime(2026, 12, 20, 12, 0, tzinfo=datetime.UTC)
+
+
+def giornata_tipo(data: datetime.date, bicchieri: int, sveglia: str, agitazione: str | None, bagno: int,
+                  bagno_di_notte: int) -> list:
+    """Un giorno semplice: bicchieri da 200 ml, sonno dalle 22:30 della sera prima alla sveglia, un'agitazione dalle
+    17:00 (fine `agitazione`), visite al bagno di giorno e di notte, un'uscita."""
+    giorno = data.isoformat() + "T"
+    sera_prima = (data - datetime.timedelta(days=1)).isoformat() + "T"
+    eventi = [
+        sonno(sera_prima + "22:30:00+01:00", giorno + sveglia + ":00+01:00"),
+        crea_evento("uscita", giorno + "10:30:00+01:00", {"zona_id": "porta"}),
+    ]
+    for numero in range(bicchieri):
+        ora = str(9 + numero).zfill(2)
+        eventi.append(bevuta(giorno + ora + ":00:00+01:00", 200))
+    if agitazione is not None:
+        eventi.append(crea_evento("agitazione", giorno + "17:00:00+01:00", {"inversioni": 10},
+                                  fine=giorno + agitazione + ":00+01:00"))
+    for numero in range(bagno):
+        ora = str(9 + numero).zfill(2)
+        eventi.append(crea_evento("visita_bagno", giorno + ora + ":30:00+01:00", {"zona_id": "porta-bagno"}))
+    for numero in range(bagno_di_notte):
+        ora = str(2 + numero).zfill(2)
+        eventi.append(crea_evento("visita_bagno", giorno + ora + ":15:00+01:00", {"zona_id": "porta-bagno"}))
+    return eventi
+
+
+def settimane_tipo(dal: datetime.date, giorni: int, bicchieri: int, sveglia: str, agitazione: str | None,
+                   bagno: int = 4, bagno_di_notte: int = 0) -> list:
+    eventi = []
+    for indice in range(giorni):
+        data = dal + datetime.timedelta(days=indice)
+        eventi.extend(giornata_tipo(data, bicchieri, sveglia, agitazione, bagno, bagno_di_notte))
+    return eventi
+
+
+def cambiamenti(eventi: list, personalizzazione: Personalizzazione | None = None) -> list[tuple[str, str]]:
+    if personalizzazione is None:
+        personalizzazione = crea_personalizzazione()
+    al = SETTIMANA + datetime.timedelta(days=6)
+    report = calcola_report_periodo("settimanale", SETTIMANA, al, eventi, personalizzazione, DOPO_LA_SETTIMANA)
+    coppie = []
+    for cambiamento in report.cambiamenti:
+        coppie.append((cambiamento.cosa, cambiamento.testo))
+    return coppie
+
+
+PRIMA_DELLA_SETTIMANA = SETTIMANA - datetime.timedelta(weeks=4)
+
+
+def test_cambiamenti_veri_con_le_frasi():
+    # di solito: 1200 ml, sveglia alle 6:30 (8 ore di sonno), 5 minuti di agitazione
+    eventi = settimane_tipo(PRIMA_DELLA_SETTIMANA, 28, 6, "06:30", "17:05")
+    # questa settimana: 800 ml, sveglia alle 8:00 (9 ore e mezza), mezz'ora di agitazione
+    eventi.extend(settimane_tipo(SETTIMANA, 7, 4, "08:00", "17:30"))
+    assert cambiamenti(eventi) == [
+        ("sveglia", "Wakes up about 1.5 hours later than usual (08:00 instead of 06:30)."),
+        ("sonno", "Sleeps about 1.5 hours more than usual (9.5 h instead of 8 h a night)."),
+        ("acqua", "Drinks 33% less water than usual (800 ml instead of 1200 ml a day)."),
+        ("agitazione", "Agitated (pacing) more than usual (30 minutes a day instead of 5)."),
+    ]
+
+
+def test_piccole_differenze_non_sono_cambiamenti():
+    eventi = settimane_tipo(PRIMA_DELLA_SETTIMANA, 28, 6, "06:30", "17:05")
+    # 1000 ml invece di 1200 (-17%), sveglia 20 minuti prima, 10 minuti di agitazione invece di 5
+    eventi.extend(settimane_tipo(SETTIMANA, 7, 5, "06:10", "17:10"))
+    assert cambiamenti(eventi) == []
+
+
+def test_niente_confronto_senza_le_settimane_prima():
+    assert cambiamenti(settimane_tipo(SETTIMANA, 7, 2, "09:00", "18:00")) == []
+    # due giorni soli prima non bastano
+    eventi = settimane_tipo(SETTIMANA - datetime.timedelta(days=2), 2, 6, "06:30", None)
+    eventi.extend(settimane_tipo(SETTIMANA, 7, 2, "06:30", None))
+    assert cambiamenti(eventi) == []
+
+
+def test_i_giorni_senza_eventi_non_contano_come_zero():
+    # nelle 4 settimane prima la casa ha mandato eventi solo per 10 giorni
+    eventi = settimane_tipo(PRIMA_DELLA_SETTIMANA + datetime.timedelta(days=18), 10, 6, "06:30", None)
+    eventi.extend(settimane_tipo(SETTIMANA, 7, 6, "06:30", None))
+    assert cambiamenti(eventi) == []
+
+
+def test_oggi_non_conta_nel_confronto():
+    eventi = settimane_tipo(PRIMA_DELLA_SETTIMANA, 28, 6, "06:30", None)
+    eventi.extend(settimane_tipo(SETTIMANA, 4, 6, "06:30", None))
+    # l'11 dicembre alle 9:00 ha bevuto ancora poco: non è un calo dell'acqua
+    eventi.append(bevuta("2026-12-11T08:30:00+01:00", 200))
+    adesso = datetime.datetime(2026, 12, 11, 8, 0, tzinfo=datetime.UTC)
+    report = calcola_report_periodo("settimanale", SETTIMANA, SETTIMANA + datetime.timedelta(days=6), eventi,
+                                    crea_personalizzazione(), adesso)
+    assert report.cambiamenti == []
+
+
+def test_bagno_solo_se_le_visite_sono_attive():
+    eventi = settimane_tipo(PRIMA_DELLA_SETTIMANA, 28, 6, "06:30", None, bagno=4, bagno_di_notte=0)
+    eventi.extend(settimane_tipo(SETTIMANA, 7, 6, "06:30", None, bagno=6, bagno_di_notte=2))
+    assert cambiamenti(eventi) == []
+    attive = crea_personalizzazione(regole={"visite_bagno_attive": True})
+    assert cambiamenti(eventi, attive) == [
+        ("bagno", "Goes to the bathroom more often than usual (8 times a day instead of 4)."),
+        ("bagno", "Goes to the bathroom more often at night (2 times a night instead of 0)."),
+    ]
+
+
 # --- report di periodo ---
 
 def test_report_settimanale():
