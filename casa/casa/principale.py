@@ -28,6 +28,7 @@ from dotenv import load_dotenv
 from contratti.configurazione import ConfigurazioneCasa, Personalizzazione, TelecameraLocale
 from contratti.eventi import TIPI_URGENTI
 
+from casa.agitazione import AnalizzatoreAgitazione
 from casa.alzata_notturna import AnalizzatoreAlzataNotturna, AnalizzatorePresenzaNotturna
 from casa.bevuta import AnalizzatoreBevuta
 from casa.caduta import AnalizzatoreCaduta
@@ -204,6 +205,8 @@ def crea_analizzatori(telecamera: TelecameraLocale, personalizzazione: Personali
                 analizzatori.append(AnalizzatoreAlzataNotturna(telecamera, notte))
             else:
                 analizzatori.append(AnalizzatorePresenzaNotturna(telecamera, notte))
+        elif nome == "agitazione":
+            analizzatori.append(AnalizzatoreAgitazione(telecamera))
         elif nome == "sonno":
             # il pezzo di sonno è di una zona letto (valori.zona_id)
             if len(zone_del_tipo(telecamera, "letto")) > 0:
