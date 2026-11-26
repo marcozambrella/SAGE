@@ -29,7 +29,13 @@ from contratti.configurazione import Personalizzazione
 from contratti.eventi import TIPI_URGENTI, Evento, EventoBase
 from contratti.report import ReportGiornaliero, ReportPeriodo
 
-from backend.allarmi import messaggio_allarme, promemoria_da_mandare, scrivi_allarme_nel_log, serve_allarme
+from backend.allarmi import (
+    messaggio_allarme,
+    promemoria_acqua_da_mandare,
+    promemoria_da_mandare,
+    scrivi_allarme_nel_log,
+    serve_allarme,
+)
 from backend.archivio import ArchivioDatabase
 from backend.bot_telegram import avvia_bot, ferma_bot, manda_a_tutte_le_chat
 from backend.coordinatore import Coordinato, coordina, fine_o_inizio
@@ -99,7 +105,7 @@ class PeriodoDemo(BaseModel):
 
 
 class RispostaControlli(BaseModel):
-    # promemoria delle dosi mandati in questo giro
+    # promemoria (dosi e acqua) mandati in questo giro
     promemoria: int
 
 
@@ -374,7 +380,7 @@ def controlla_allarme(
     compiti.add_task(manda_su_telegram, app, messaggio, foto, pulsanti_uscita)
 
 
-# --- cron esterno ogni 5-10 minuti (D39): promemoria delle dosi e server sveglio ---
+# --- cron esterno ogni 5-10 minuti (D39): promemoria delle dosi e dell'acqua, server sveglio ---
 
 @app.post("/cron/controlli", response_model=RispostaControlli, dependencies=[Depends(controlla_token_cron)])
 def controlli_periodici(request: Request, compiti: BackgroundTasks) -> RispostaControlli:
@@ -387,8 +393,10 @@ def controlli_periodici(request: Request, compiti: BackgroundTasks) -> RispostaC
     # da due giorni fa: le dosi di ieri possono essere prese (o saltate) a cavallo della mezzanotte
     due_giorni_fa = oggi - datetime.timedelta(days=2)
     eventi = eventi_dei_giorni(archivio, due_giorni_fa, oggi, personalizzazione.fuso_orario, None)
+    promemoria = promemoria_da_mandare(personalizzazione, eventi, momento)
+    promemoria.extend(promemoria_acqua_da_mandare(personalizzazione, eventi, momento))
     mandati = 0
-    for chiave, testo in promemoria_da_mandare(personalizzazione, eventi, momento):
+    for chiave, testo in promemoria:
         # segnato prima di mandarlo: con il cron ogni pochi minuti lo stesso promemoria non parte due volte
         if archivio.segna_promemoria(chiave):
             compiti.add_task(manda_su_telegram, request.app, testo, None, False)

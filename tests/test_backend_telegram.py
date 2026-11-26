@@ -16,7 +16,7 @@ from telegram import Update
 from telegram.ext import Application
 from telegram.request import BaseRequest
 
-from backend.allarmi import ORE_CASA_ATTIVA, promemoria_da_mandare
+from backend.allarmi import ORE_CASA_ATTIVA, promemoria_acqua_da_mandare, promemoria_da_mandare
 from backend.app import app
 from backend.archivio import ArchivioDatabase
 from backend.bot_telegram import (
@@ -338,6 +338,28 @@ def test_cron_manda_il_promemoria_una_volta_sola(con_bot, archivio):
     assert client.post("/cron/controlli", headers=con_token).json() == {"promemoria": 0}
 
 
+def test_cron_manda_il_promemoria_dell_acqua_una_volta_anche_dopo_un_riavvio(con_bot, archivio, monkeypatch, tmp_path):
+    client, richiesta = con_bot
+    # alle 16:10 della casa ha bevuto solo 125 ml (meno di metà di 1500)
+    monkeypatch.setattr("backend.app.adesso", ora_fissa)
+    bevuta = evento("b1", "bevuta", datetime.datetime(2025, 12, 1, 10, 0, tzinfo=ROMA), {
+        "contenitore": "bicchiere", "capienza_ml": 250, "altezza_contenitore_px": 100, "livello_sceso_px": 50,
+        "percentuale": 50, "ml": 125})
+    client.post("/programma-casa/eventi", json=[bevuta], headers={"Authorization": "Bearer " + TOKEN_CASA})
+    con_token = {"Authorization": "Bearer " + TOKEN_CRON}
+    assert client.post("/cron/controlli", headers=con_token).json() == {"promemoria": 1}
+    testo = richiesta.ultima("sendMessage")["text"]
+    assert testo == "Water reminder: Anna has drunk only 125 ml today, less than half of the 1500 ml goal."
+    assert client.post("/cron/controlli", headers=con_token).json() == {"promemoria": 0}
+    # il server si riavvia (nuova connessione allo stesso database): il promemoria è già segnato come mandato
+    app.state.archivio = ArchivioDatabase(str(tmp_path / "prova.sqlite3"))
+    assert client.post("/cron/controlli", headers=con_token).json() == {"promemoria": 0}
+
+
+def ora_fissa() -> datetime.datetime:
+    return datetime.datetime(2025, 12, 1, 16, 10, tzinfo=ROMA)
+
+
 # --- promemoria (logica pura) ---
 
 def promemoria_alle(ora: str, eventi: list) -> list:
@@ -375,3 +397,45 @@ def test_niente_promemoria_se_la_casa_non_manda_eventi_veri():
     simulato["simulato"] = True
     assert ORE_CASA_ATTIVA == 24
     assert promemoria_alle("10:05", [vecchio, simulato]) == []
+
+
+def acqua_alle(ora: str, eventi: list, regole: dict | None = None) -> list:
+    dati = dict(PERSONALIZZAZIONE)
+    dati["anziano"] = {"nome": "Anna", "obiettivo_acqua_ml": 1500}
+    if regole is not None:
+        dati["regole"] = regole
+    personalizzazione = Personalizzazione.model_validate(dati)
+    adesso = datetime.datetime.fromisoformat("2026-12-01T" + ora + ":00+01:00")
+    letti = []
+    for dati_evento in eventi:
+        letti.append(leggi_evento(dati_evento))
+    return promemoria_acqua_da_mandare(personalizzazione, letti, adesso)
+
+
+def bevuta_alle(id_evento: str, ora: int, ml: float) -> dict:
+    valori = {"contenitore": "bicchiere", "capienza_ml": 250, "altezza_contenitore_px": 100,
+              "livello_sceso_px": ml / 250 * 100, "percentuale": ml / 250 * 100, "ml": ml}
+    return evento(id_evento, "bevuta", datetime.datetime(2026, 12, 1, ora, 0, tzinfo=ROMA), valori)
+
+
+def test_promemoria_acqua_tra_le_16_e_le_17_se_ha_bevuto_meno_di_meta():
+    poca = [bevuta_alle("b1", 9, 250), bevuta_alle("b2", 13, 250)]
+    assert acqua_alle("15:59", poca) == []
+    assert acqua_alle("16:00", poca) == [("2026-12-01 acqua", "Water reminder: Anna has drunk only 500 ml today, "
+                                          "less than half of the 1500 ml goal.")]
+    assert acqua_alle("16:55", poca) != []
+    assert acqua_alle("17:00", poca) == []
+    # 750 ml sono già metà dell'obiettivo
+    abbastanza = [bevuta_alle("b1", 9, 500), bevuta_alle("b2", 13, 250)]
+    assert acqua_alle("16:10", abbastanza) == []
+
+
+def test_promemoria_acqua_spento_o_casa_non_attiva():
+    poca = [bevuta_alle("b1", 9, 250)]
+    spento = {"promemoria_acqua_attivo": False}
+    assert acqua_alle("16:10", poca, spento) == []
+    # nessun evento vero nelle ultime 24 ore (regola provvisoria, come per le dosi)
+    assert acqua_alle("16:10", []) == []
+    simulata = bevuta_alle("b1", 9, 250)
+    simulata["simulato"] = True
+    assert acqua_alle("16:10", [simulata]) == []

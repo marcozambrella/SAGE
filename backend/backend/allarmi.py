@@ -7,7 +7,7 @@ Logica pura: qui si decide, l'invio vero lo fa il bot Telegram (bot_telegram.py)
 import datetime
 import logging
 
-from contratti.configurazione import Farmaco, Personalizzazione
+from contratti.configurazione import Farmaco, FasciaOraria, Personalizzazione
 from contratti.eventi import TIPI_URGENTI, EventoBase
 
 from backend.regole import (
@@ -15,9 +15,11 @@ from backend.regole import (
     fine_della_finestra,
     giorno_locale,
     ora_locale,
+    ora_nella_fascia,
     stato_delle_dosi,
     uscita_in_orario_vietato,
 )
+from backend.report import calcola_report_giornaliero
 
 # PROVVISORIO, da decidere con Marco: i promemoria partono solo se il programma di casa ha mandato eventi veri (non
 # simulati) nelle ultime ORE_CASA_ATTIVA ore. Senza, la casa demo (che riceve eventi solo quando Marco elabora i
@@ -26,6 +28,9 @@ ORE_CASA_ATTIVA = 24
 # Il cron passa ogni 5-10 minuti (D39); se il server dormiva o il cron ha saltato un giro, il promemoria parte
 # comunque, ma non più di un'ora dopo la fine della finestra della dose.
 MINUTI_VALIDITA_PROMEMORIA = 60
+# Promemoria dell'acqua (API.md, Marco 25/11): al massimo uno al giorno in quest'ora della casa, se ha bevuto meno di
+# metà dell'obiettivo.
+ORA_PROMEMORIA_ACQUA = FasciaOraria(dalle="16:00", alle="17:00")
 
 registro = logging.getLogger("sage.allarmi")
 
@@ -140,3 +145,32 @@ def promemoria_da_mandare(
                      + " (" + farmaco.dose + "), due at " + dose.orario_previsto + ".")
             promemoria.append((chiave, testo))
     return promemoria
+
+
+def promemoria_acqua_da_mandare(
+    personalizzazione: Personalizzazione,
+    eventi: list[EventoBase],
+    adesso: datetime.datetime,
+) -> list[tuple[str, str]]:
+    """Il promemoria dell'acqua di oggi come coppia (chiave, testo), in una lista vuota se non serve.
+
+    La chiave (giorno) serve all'archivio per mandarlo una volta sola al giorno, anche se il server si riavvia.
+    `eventi`: almeno quelli di oggi.
+    """
+    if not personalizzazione.regole.promemoria_acqua_attivo:
+        return []
+    # come per le dosi (regola provvisoria): senza eventi veri la casa demo lo manderebbe ogni giorno
+    if not casa_attiva(eventi, adesso):
+        return []
+    fuso_orario = personalizzazione.fuso_orario
+    if not ora_nella_fascia(ora_locale(adesso, fuso_orario), ORA_PROMEMORIA_ACQUA):
+        return []
+    oggi = giorno_locale(adesso, fuso_orario)
+    report = calcola_report_giornaliero(oggi, eventi, personalizzazione, adesso)
+    obiettivo = personalizzazione.anziano.obiettivo_acqua_ml
+    if report.acqua_ml >= obiettivo / 2:
+        return []
+    chiave = oggi.isoformat() + " acqua"
+    testo = ("Water reminder: " + personalizzazione.anziano.nome + " has drunk only " + str(round(report.acqua_ml))
+             + " ml today, less than half of the " + str(obiettivo) + " ml goal.")
+    return [(chiave, testo)]
