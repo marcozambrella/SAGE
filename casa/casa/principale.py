@@ -30,6 +30,7 @@ from contratti.eventi import TIPI_URGENTI
 
 from casa.agitazione import AnalizzatoreAgitazione
 from casa.alzata_notturna import AnalizzatoreAlzataNotturna, AnalizzatorePresenzaNotturna
+from casa.bagno import AnalizzatoreBagno
 from casa.bevuta import AnalizzatoreBevuta
 from casa.caduta import AnalizzatoreCaduta
 from casa.classificatore_cadute import ClassificatoreCadute
@@ -210,6 +211,11 @@ def crea_analizzatori(telecamera: TelecameraLocale, personalizzazione: Personali
                 analizzatori.append(AnalizzatorePresenzaNotturna(telecamera, notte))
         elif nome == "inattivita":
             continue  # una per tutta la casa: la crea prepara_telecamere
+        elif nome == "bagno":
+            if len(zone_del_tipo(telecamera, "bagno")) > 0:
+                analizzatori.append(AnalizzatoreBagno(telecamera))
+            else:
+                print("telecamera " + telecamera.id + ": le visite al bagno hanno bisogno di una zona bagno")
         elif nome == "agitazione":
             analizzatori.append(AnalizzatoreAgitazione(telecamera))
         elif nome == "sonno":
