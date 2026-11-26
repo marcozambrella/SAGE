@@ -14,8 +14,9 @@ from contratti.eventi import TipoContenitore
 
 # Un'ora locale "HH:MM" (00:00 - 23:59): un orario scritto male viene rifiutato subito.
 Ora = Annotated[str, Field(pattern=r"^([01][0-9]|2[0-3]):[0-5][0-9]$")]
-TipoZona = Literal["porta", "letto", "tavolo", "portapillole"]
-Analizzatore = Literal["caduta", "uscita", "bevuta", "farmaco", "pasto", "alzata_notturna", "sonno"]
+TipoZona = Literal["porta", "letto", "tavolo", "portapillole", "bagno"]
+Analizzatore = Literal["caduta", "uscita", "bevuta", "farmaco", "pasto", "alzata_notturna", "sonno", "agitazione",
+                       "inattivita", "bagno"]
 
 
 class FasciaOraria(BaseModel):
@@ -69,6 +70,12 @@ class RegoleAllarmi(BaseModel):
     # Id della zona "porta" che è il portone di casa, scelto nell'app (Marco, 25/11): l'uscita si conta solo lì.
     # None: valgono tutte le zone porta.
     portone_zona_id: str | None = None
+    # Ore di giorno (fuori da orari_notte) senza vedere nessuno prima dell'allarme di inattività (Marco, 25/11).
+    ore_inattivita: float = 3
+    # Visite al bagno: spente finché la famiglia non le accende dall'app (Marco, 25/11).
+    visite_bagno_attive: bool = False
+    # Al massimo un promemoria Telegram al giorno, tra le 16:00 e le 17:00, se ha bevuto poco (Marco, 25/11).
+    promemoria_acqua_attivo: bool = True
 
 
 class Personalizzazione(BaseModel):

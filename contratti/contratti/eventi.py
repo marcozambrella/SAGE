@@ -14,8 +14,8 @@ TipoContenitore = Literal["bicchiere", "bottiglia", "tazza"]
 # per un numero (Marco, 25/11). La arrotonda il programma di casa.
 QuantoMangiato = Literal["meno_di_meta", "meta", "tutto"]
 
-# Questi tipi fanno partire subito l'allarme Telegram (D10, D16); gli altri vanno solo nel registro e nei report.
-TIPI_URGENTI = ["caduta", "uscita"]
+# Questi tipi fanno partire subito l'allarme Telegram (D10, D16, inattività: Marco 25/11); gli altri vanno solo nel registro e nei report.
+TIPI_URGENTI = ["caduta", "uscita", "inattivita"]
 
 
 class Fonte(BaseModel):
@@ -111,6 +111,30 @@ class ValoriSonno(BaseModel):
     zona_id: str
 
 
+class ValoriAgitazione(BaseModel):
+    """Agitazione (Marco, 25/11): cammina avanti e indietro a lungo senza meta (pacing), spesso nel tardo pomeriggio
+    e la sera (sundowning). inizio e fine sono quelli dell'episodio."""
+
+    # Quante volte ha invertito la direzione durante l'episodio.
+    inversioni: int
+
+
+class ValoriInattivita(BaseModel):
+    """Di giorno nessuno si è visto davanti alle telecamere per troppe ore (Marco, 25/11): allarme Telegram.
+    inizio = l'ultima volta che si è vista una persona, fine = quando ricompare (None finché non ricompare)."""
+
+    # La telecamera dove la persona si è vista l'ultima volta.
+    ultima_telecamera_id: str
+
+
+class ValoriVisitaBagno(BaseModel):
+    """Visita al bagno (Marco, 25/11; si accende dall'app): entra dalla porta del bagno e poi esce. Nessuna
+    telecamera dentro il bagno."""
+
+    # La zona "bagno" (la porta del bagno vista da fuori).
+    zona_id: str
+
+
 class EventoCaduta(EventoBase):
     tipo: Literal["caduta"]
     valori: ValoriCaduta
@@ -146,9 +170,25 @@ class EventoSonno(EventoBase):
     valori: ValoriSonno
 
 
+class EventoAgitazione(EventoBase):
+    tipo: Literal["agitazione"]
+    valori: ValoriAgitazione
+
+
+class EventoInattivita(EventoBase):
+    tipo: Literal["inattivita"]
+    valori: ValoriInattivita
+
+
+class EventoVisitaBagno(EventoBase):
+    tipo: Literal["visita_bagno"]
+    valori: ValoriVisitaBagno
+
+
 # Un evento è uno di questi tipi: il campo "tipo" dice quale (e quindi che "valori" aspettarsi).
 Evento = Annotated[
-    EventoCaduta | EventoUscita | EventoBevuta | EventoFarmaco | EventoPasto | EventoAlzataNotturna | EventoSonno,
+    EventoCaduta | EventoUscita | EventoBevuta | EventoFarmaco | EventoPasto | EventoAlzataNotturna | EventoSonno
+    | EventoAgitazione | EventoInattivita | EventoVisitaBagno,
     Field(discriminator="tipo"),
 ]
 
